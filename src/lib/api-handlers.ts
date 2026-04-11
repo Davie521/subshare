@@ -4,6 +4,7 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from '@/db/schema'
 import {
   createSubscription,
+  generateAndSaveBillingRecords,
   getPendingBills,
   markBillPaid,
   getMonthlySpendingData,
@@ -175,6 +176,12 @@ export function handleCreateSubscription(
   }
 
   const sub = createSubscription(db, { ...input, ownerId: userId })
+
+  // Generate initial billing records for shared subscriptions
+  if (sub.groupId) {
+    generateAndSaveBillingRecords(db, sub.id)
+  }
+
   return { success: true, data: sub }
 }
 
@@ -278,10 +285,10 @@ export function handleMarkPaid(
   return { success: true }
 }
 
-export function handleGetDashboard(
+export async function handleGetDashboard(
   db: DB,
   userId: number
-): {
+): Promise<{
   monthlyTotal: number
   pendingBills: Array<{
     id: number
@@ -295,7 +302,7 @@ export function handleGetDashboard(
     currency: string
     memberCount: number
   }>
-} {
+}> {
   const spendingData = getMonthlySpendingData(db, userId)
 
   const user = db
@@ -306,10 +313,32 @@ export function handleGetDashboard(
 
   const preferredCurrency = user?.preferredCurrency ?? 'CNY'
 
+  // Fetch real FX rates for cross-currency subscriptions
+  const rates: Record<string, number> = {}
+  const foreignCurrencies = new Set(
+    spendingData
+      .filter((s) => s.currency !== preferredCurrency)
+      .map((s) => s.currency)
+  )
+
+  for (const cur of foreignCurrencies) {
+    try {
+      const res = await fetch(
+        `https://api.frankfurter.dev/v1/latest?base=${cur}&symbols=${preferredCurrency}`,
+        { signal: AbortSignal.timeout(3000) }
+      )
+      const data = await res.json()
+      const rate = data.rates?.[preferredCurrency]
+      if (rate) rates[`${cur}_${preferredCurrency}`] = rate
+    } catch {
+      // If rate fetch fails, skip — calculateMonthlySpending will use 1 as fallback
+    }
+  }
+
   const monthlyTotal = calculateMonthlySpending(
     spendingData,
     preferredCurrency,
-    {} // rates — same currency for now
+    rates
   )
 
   const pendingBills = getPendingBills(db, userId).map((b) => ({

@@ -5,7 +5,15 @@ import { getDb } from '@/db'
 import * as schema from '@/db/schema'
 
 const SESSION_COOKIE = 'subshare_session'
-const SECRET = process.env.SESSION_SECRET || 'dev-secret-change-in-production-min-32-chars!'
+function getSecret(): string {
+  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET
+  if (process.env.NODE_ENV === 'production' && !process.env.NEXT_PHASE) {
+    throw new Error('SESSION_SECRET env var is required in production')
+  }
+  return 'dev-only-secret-not-for-production-use'
+}
+
+const SECRET = getSecret()
 
 function sign(payload: object): string {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url')

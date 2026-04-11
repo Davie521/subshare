@@ -407,7 +407,7 @@ describe('handleMarkPaid', () => {
 // --- Dashboard ---
 
 describe('handleGetDashboard', () => {
-  it('returns spending summary and pending bills', () => {
+  it('returns spending summary and pending bills', async () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
 
@@ -433,7 +433,7 @@ describe('handleGetDashboard', () => {
     })
     generateAndSaveBillingRecords(db, 2)
 
-    const result = handleGetDashboard(db, userB)
+    const result = await handleGetDashboard(db, userB)
     expect(result.monthlyTotal).toBe(10500) // 1500 + 18000/2
     expect(result.pendingBills).toHaveLength(1)
     expect(result.subscriptions).toHaveLength(2)

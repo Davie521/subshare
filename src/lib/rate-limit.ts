@@ -7,6 +7,14 @@ export function checkRateLimit(
   windowMs = 60_000
 ): boolean {
   const now = Date.now()
+
+  // Lazy cleanup of stale entries
+  if (attempts.size > 1000) {
+    for (const [k, entry] of attempts) {
+      if (now > entry.resetAt) attempts.delete(k)
+    }
+  }
+
   const entry = attempts.get(key)
 
   if (!entry || now > entry.resetAt) {
@@ -21,11 +29,3 @@ export function checkRateLimit(
   entry.count++
   return true
 }
-
-// Cleanup stale entries every 5 minutes
-setInterval(() => {
-  const now = Date.now()
-  for (const [key, entry] of attempts) {
-    if (now > entry.resetAt) attempts.delete(key)
-  }
-}, 5 * 60_000).unref()

@@ -7,6 +7,6 @@ export async function GET() {
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const dashboard = handleGetDashboard(db, userId)
+  const dashboard = await handleGetDashboard(db, userId)
   return NextResponse.json(dashboard)
 }
