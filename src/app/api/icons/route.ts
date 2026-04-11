@@ -8,9 +8,6 @@ export async function GET(req: NextRequest) {
   }
 
   const icon = findBrandIcon(name)
-  if (!icon) {
-    return NextResponse.json({ icon: null })
-  }
 
   return NextResponse.json({
     icon: {
