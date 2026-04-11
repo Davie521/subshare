@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type Database from 'better-sqlite3'
-import { eq, and } from 'drizzle-orm'
+import { eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser, createGroup, addMember } from './helpers'
 import * as schema from '@/db/schema'
