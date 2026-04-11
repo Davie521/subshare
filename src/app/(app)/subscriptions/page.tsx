@@ -90,7 +90,8 @@ export default function SubscriptionsPage() {
 
 function SubCard({ sub }: { sub: Sub }) {
   return (
-    <Card>
+    <Link href={`/subscriptions/${sub.id}/edit`}>
+    <Card className="cursor-pointer hover:bg-muted/50 transition-colors duration-150">
       <CardContent className="pt-4 pb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <BrandIcon name={sub.name} size={24} />
@@ -119,5 +120,6 @@ function SubCard({ sub }: { sub: Sub }) {
         </p>
       </CardContent>
     </Card>
+    </Link>
   );
 }
