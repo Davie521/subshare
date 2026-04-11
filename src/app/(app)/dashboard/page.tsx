@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Check, CreditCard, Users, ArrowRight } from "lucide-react";
+import { BrandIcon } from "@/components/brand-icon";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 
@@ -123,11 +124,14 @@ export default function DashboardPage() {
               {data.pendingBills.map((bill) => (
                 <Card key={bill.id}>
                   <CardContent className="pt-4 pb-4 flex items-center justify-between">
-                    <div>
+                    <div className="flex items-center gap-3">
+                      <BrandIcon name={bill.subscriptionName} size={24} />
+                      <div>
                       <p className="font-medium text-sm">{bill.subscriptionName}</p>
                       <p className="text-sm text-muted-foreground">
                         {formatMoney(bill.amount, bill.currency)}
                       </p>
+                    </div>
                     </div>
                     <Button
                       size="sm"
@@ -163,7 +167,10 @@ export default function DashboardPage() {
             {personalSubs.map((sub, i) => (
               <Card key={`p-${i}`}>
                 <CardContent className="pt-3 pb-3 flex items-center justify-between">
-                  <p className="font-medium text-sm">{sub.name}</p>
+                  <div className="flex items-center gap-3">
+                    <BrandIcon name={sub.name} size={20} />
+                    <p className="font-medium text-sm">{sub.name}</p>
+                  </div>
                   <p className="text-sm tabular-nums">
                     {formatMoney(sub.price, sub.currency)}
                     <span className="text-muted-foreground text-xs">/mo</span>
@@ -179,7 +186,8 @@ export default function DashboardPage() {
             {sharedSubs.map((sub, i) => (
               <Card key={`s-${i}`}>
                 <CardContent className="pt-3 pb-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
+                    <BrandIcon name={sub.name} size={20} />
                     <p className="font-medium text-sm">{sub.name}</p>
                     <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
                       {sub.memberCount}p

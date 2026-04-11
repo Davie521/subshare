@@ -1,36 +1,111 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# SubShare
 
-## Getting Started
+Split subscription costs with friends. Self-hosted, minimal, mobile-friendly.
 
-First, run the development server:
+## Features
+
+- **Personal subscriptions** — Track your own Netflix, Spotify, iCloud, etc.
+- **Shared subscriptions** — Create a group, invite friends, split costs equally
+- **Dashboard** — See total monthly spending across all subscriptions
+- **Billing** — Auto-generated bills for group members, one-click "Paid" to settle
+- **Multi-currency** — Support for CNY, USD, HKD, CAD, EUR, GBP, JPY with real-time exchange rates
+- **Pro-rated joining** — Members who join mid-cycle pay only for remaining days
+- **Invite links** — Share a link to let friends join your group
+- **Mobile + Desktop** — Bottom nav on mobile, sidebar on desktop
+
+## Tech Stack
+
+- **Framework**: Next.js 16 + TypeScript
+- **UI**: shadcn/ui + Tailwind CSS
+- **Database**: SQLite + Drizzle ORM
+- **Auth**: HMAC-signed session cookies
+- **Deployment**: Docker + Caddy (HTTPS)
+
+## Quick Start (Docker)
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/Davie521/subshare.git
+cd subshare
+docker compose up --build -d
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open **https://localhost** and register an account.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+> Browser will warn about the self-signed certificate — click "Continue" to proceed.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Environment Variables
 
-## Learn More
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SESSION_SECRET` | Yes (production) | dev fallback | HMAC signing key for session cookies (min 32 chars) |
+| `DATABASE_URL` | No | `data/subshare.db` | Path to SQLite database file |
+| `CRON_SECRET` | No | — | Bearer token for `/api/cron/billing` endpoint |
 
-To learn more about Next.js, take a look at the following resources:
+## Development
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```bash
+npm install
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open http://localhost:3000
 
-## Deploy on Vercel
+### Run Tests
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm test              # run all tests
+npm run test:watch    # watch mode
+npm run test:coverage # with coverage report
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+### Project Structure
+
+```
+src/
+├── app/
+│   ├── (app)/          # Authenticated pages (dashboard, groups, subscriptions, settings)
+│   ├── (auth)/         # Login, register
+│   ├── api/            # API routes
+│   └── join/           # Invite link handler
+├── components/         # Shared UI components
+├── db/                 # Schema, migrations, DB connection
+├── lib/                # Business logic
+│   ├── billing.ts      # Core billing calculations
+│   ├── db-operations.ts # Database CRUD operations
+│   ├── api-handlers.ts # API business logic
+│   ├── auth.ts         # Registration, login
+│   ├── session.ts      # HMAC-signed cookie sessions
+│   ├── validators.ts   # Zod input schemas
+│   └── rate-limit.ts   # Login rate limiting
+└── __tests__/          # 65 tests (billing, db-ops, API handlers)
+```
+
+## API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/auth/register` | Create account |
+| POST | `/api/auth/login` | Sign in |
+| GET | `/api/auth/me` | Current user |
+| GET | `/api/dashboard` | Monthly spending + pending bills |
+| GET/POST | `/api/groups` | List / create groups |
+| GET/DELETE | `/api/groups/[id]` | Group detail / delete |
+| POST | `/api/groups/[id]/join` | Join via invite |
+| POST | `/api/groups/[id]/leave` | Leave group |
+| GET/POST | `/api/subscriptions` | List / create subscriptions |
+| GET/PUT/DELETE | `/api/subscriptions/[id]` | Subscription CRUD |
+| PUT | `/api/billing/[id]/paid` | Mark bill as paid |
+| GET | `/api/exchange-rate` | Fetch FX rate |
+| POST | `/api/cron/billing` | Advance billing cycles (protected) |
+
+## How It Works
+
+1. **Create a group** and share the invite link with friends
+2. **Add subscriptions** to the group — costs are split equally
+3. The **group creator is the payer** (the person whose card is charged)
+4. Other members see **pending bills** on their dashboard
+5. After transferring money (WeChat, bank, etc.), click **"Paid"** to mark as settled
+
+## License
+
+MIT

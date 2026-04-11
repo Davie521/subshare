@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Plus } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
+import { BrandIcon } from "@/components/brand-icon";
 
 type Sub = {
   id: number;
@@ -91,7 +92,9 @@ function SubCard({ sub }: { sub: Sub }) {
   return (
     <Card>
       <CardContent className="pt-4 pb-4 flex items-center justify-between">
-        <div>
+        <div className="flex items-center gap-3">
+          <BrandIcon name={sub.name} size={24} />
+          <div>
           <p className="font-medium">{sub.name}</p>
           <div className="flex items-center gap-2 mt-1">
             {sub.memberCount > 1 && (
@@ -103,6 +106,7 @@ function SubCard({ sub }: { sub: Sub }) {
               Next: {sub.nextPayment}
             </span>
           </div>
+        </div>
         </div>
         <p className="text-sm font-medium tabular-nums">
           {formatMoney(

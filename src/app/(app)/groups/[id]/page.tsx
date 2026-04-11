@@ -10,6 +10,7 @@ import { Separator } from "@/components/ui/separator";
 import { Copy, Plus, Users, Trash2 } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
+import { BrandIcon } from "@/components/brand-icon";
 
 type GroupDetail = {
   id: number;
@@ -127,7 +128,10 @@ export default function GroupDetailPage() {
           group.subscriptions.map((sub) => (
             <Card key={sub.id}>
               <CardContent className="pt-4 pb-4 flex items-center justify-between">
-                <p className="font-medium">{sub.name}</p>
+                <div className="flex items-center gap-3">
+                  <BrandIcon name={sub.name} size={24} />
+                  <p className="font-medium">{sub.name}</p>
+                </div>
                 <div className="text-right">
                   <p className="text-sm font-medium tabular-nums">
                     {formatMoney(sub.price, sub.currency)}
