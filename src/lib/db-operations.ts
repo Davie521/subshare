@@ -86,6 +86,7 @@ export function getSubscriptionsForUser(
 
   if (groupIds.length === 0) return personal
 
+  // Single query with subquery for member count (avoids N+1)
   const shared = db
     .select({
       id: schema.subscriptions.id,
@@ -95,18 +96,13 @@ export function getSubscriptionsForUser(
       nextPayment: schema.subscriptions.nextPayment,
       groupId: schema.subscriptions.groupId,
       inactive: schema.subscriptions.inactive,
+      memberCount: sql<number>`(
+        SELECT count(*) FROM group_members WHERE group_id = ${schema.subscriptions.groupId}
+      )`,
     })
     .from(schema.subscriptions)
     .where(inArray(schema.subscriptions.groupId, groupIds))
     .all()
-    .map((s) => {
-      const memberCount = db
-        .select({ count: sql<number>`count(*)` })
-        .from(schema.groupMembers)
-        .where(eq(schema.groupMembers.groupId, s.groupId!))
-        .get()!.count
-      return { ...s, memberCount }
-    })
 
   return [...personal, ...shared]
 }
@@ -119,7 +115,7 @@ export function getGroupWithMembers(
   name: string
   publicId: string
   createdBy: number
-  members: Array<{ userId: number; name: string; email: string }>
+  members: Array<{ userId: number; name: string }>
 } | null {
   const group = db
     .select()
@@ -133,7 +129,6 @@ export function getGroupWithMembers(
     .select({
       userId: schema.groupMembers.userId,
       name: schema.users.name,
-      email: schema.users.email,
     })
     .from(schema.groupMembers)
     .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))

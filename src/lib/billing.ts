@@ -49,12 +49,15 @@ function toUTC(dateStr: string): number {
   return Date.UTC(y, m - 1, d)
 }
 
-/** Get the same day one month earlier as ISO string */
+/** Get the same day one month earlier as ISO string, clamping to valid day */
 function oneMonthBefore(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number)
-  const prevMonth = m - 1 < 1 ? 12 : m - 1
-  const prevYear = m - 1 < 1 ? y - 1 : y
-  return `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+  const prevMonth = m === 1 ? 12 : m - 1
+  const prevYear = m === 1 ? y - 1 : y
+  // Clamp day to max days in the target month (e.g. Mar 31 → Feb 28)
+  const maxDay = new Date(prevYear, prevMonth, 0).getDate()
+  const clampedDay = Math.min(d, maxDay)
+  return `${prevYear}-${String(prevMonth).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`
 }
 
 function daysBetween(from: string, to: string): number {
@@ -100,7 +103,7 @@ export async function generateBillingRecords(
   const periodStart = oneMonthBefore(nextPayment)
 
   for (const member of nonPayerMembers) {
-    const joinedMidCycle = member.joinedAt > periodStart
+    const joinedMidCycle = member.joinedAt.slice(0, 10) > periodStart
 
     const amount = joinedMidCycle
       ? calculateProRate(price, memberCount, member.joinedAt, nextPayment)

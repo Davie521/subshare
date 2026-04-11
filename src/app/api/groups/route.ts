@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { eq } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { requireAuth } from '@/lib/api-utils'
 import { handleCreateGroup } from '@/lib/api-handlers'
+import { createGroupSchema } from '@/lib/validators'
 import * as schema from '@/db/schema'
 
 export async function GET() {
@@ -15,14 +16,15 @@ export async function GET() {
     .where(eq(schema.groupMembers.userId, userId))
     .all()
 
-  const groups = memberships.map((m) => {
-    const group = db
-      .select()
-      .from(schema.groups)
-      .where(eq(schema.groups.id, m.groupId))
-      .get()
-    return group
-  }).filter(Boolean)
+  const groupIds = memberships.map((m) => m.groupId)
+  if (groupIds.length === 0) return NextResponse.json([])
+
+  // Fix N+1: single query
+  const groups = db
+    .select()
+    .from(schema.groups)
+    .where(inArray(schema.groups.id, groupIds))
+    .all()
 
   return NextResponse.json(groups)
 }
@@ -32,10 +34,12 @@ export async function POST(req: NextRequest) {
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const { name } = await req.json()
-  if (!name) return NextResponse.json({ error: 'Name required' }, { status: 400 })
+  const parsed = createGroupSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: 'Name required (max 100 chars)' }, { status: 400 })
+  }
 
-  const result = handleCreateGroup(db, userId, { name })
+  const result = handleCreateGroup(db, userId, parsed.data)
   if (!result.success) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return NextResponse.json(result.data, { status: 201 })

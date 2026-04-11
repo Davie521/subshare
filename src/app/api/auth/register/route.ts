@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getDb } from '@/db'
 import { registerUser } from '@/lib/auth'
 import { setSession } from '@/lib/session'
+import { registerSchema } from '@/lib/validators'
 
 export async function POST(req: NextRequest) {
-  const body = await req.json()
-  const { name, email, password, preferredCurrency } = body
-
-  if (!name || !email || !password) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  const parsed = registerSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
   }
 
+  const { name, email, password, preferredCurrency } = parsed.data
   const db = getDb()
   const result = registerUser(db, { name, email, password, preferredCurrency })
 
