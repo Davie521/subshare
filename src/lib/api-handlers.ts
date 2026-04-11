@@ -1,68 +1,329 @@
+import { eq, and } from 'drizzle-orm'
+import { nanoid } from 'nanoid'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import type * as schema from '@/db/schema'
+import * as schema from '@/db/schema'
+import {
+  createSubscription,
+  getSubscriptionsForUser,
+  generateAndSaveBillingRecords,
+  getPendingBills,
+  markBillPaid,
+  getMonthlySpendingData,
+  canLeaveGroup,
+  removeGroupMember,
+} from './db-operations'
+import { calculateMonthlySpending } from './billing'
 
 type DB = BetterSQLite3Database<typeof schema>
-type Result<T = unknown> = { success: true; data?: T } | { success: false; error: string }
+type Result<T = unknown> =
+  | { success: true; data?: T }
+  | { success: false; error: string }
 
 export function handleCreateGroup(
-  db: DB, userId: number, input: { name: string }
+  db: DB,
+  userId: number,
+  input: { name: string }
 ): Result<{ id: number; name: string; publicId: string }> {
-  throw new Error('Not implemented')
+  const publicId = nanoid(10)
+
+  const group = db
+    .insert(schema.groups)
+    .values({
+      name: input.name,
+      publicId,
+      createdBy: userId,
+    })
+    .returning()
+    .get()
+
+  // Add creator as member
+  db.insert(schema.groupMembers)
+    .values({ groupId: group.id, userId })
+    .run()
+
+  return {
+    success: true,
+    data: { id: group.id, name: group.name, publicId: group.publicId },
+  }
 }
 
 export function handleJoinGroup(
-  db: DB, userId: number, publicId: string
+  db: DB,
+  userId: number,
+  publicId: string
 ): Result {
-  throw new Error('Not implemented')
+  const group = db
+    .select()
+    .from(schema.groups)
+    .where(eq(schema.groups.publicId, publicId))
+    .get()
+
+  if (!group) return { success: false, error: 'Group not found' }
+
+  // Check if already a member
+  const existing = db
+    .select()
+    .from(schema.groupMembers)
+    .where(
+      and(
+        eq(schema.groupMembers.groupId, group.id),
+        eq(schema.groupMembers.userId, userId)
+      )
+    )
+    .get()
+
+  if (existing) return { success: false, error: 'Already a member' }
+
+  db.insert(schema.groupMembers)
+    .values({ groupId: group.id, userId })
+    .run()
+
+  return { success: true }
 }
 
 export function handleLeaveGroup(
-  db: DB, userId: number, groupId: number
+  db: DB,
+  userId: number,
+  groupId: number
 ): Result {
-  throw new Error('Not implemented')
+  if (!canLeaveGroup(db, groupId, userId)) {
+    const group = db
+      .select()
+      .from(schema.groups)
+      .where(eq(schema.groups.id, groupId))
+      .get()
+
+    if (group && group.createdBy === userId) {
+      return { success: false, error: 'Creator cannot leave. Dissolve the group instead.' }
+    }
+    return { success: false, error: 'Cannot leave with unpaid bills' }
+  }
+
+  removeGroupMember(db, groupId, userId)
+  return { success: true }
 }
 
 export function handleDeleteGroup(
-  db: DB, userId: number, groupId: number
+  db: DB,
+  userId: number,
+  groupId: number
 ): Result {
-  throw new Error('Not implemented')
+  const group = db
+    .select()
+    .from(schema.groups)
+    .where(eq(schema.groups.id, groupId))
+    .get()
+
+  if (!group) return { success: false, error: 'Group not found' }
+  if (group.createdBy !== userId)
+    return { success: false, error: 'Only the creator can delete the group' }
+
+  // Check for unpaid bills
+  const unpaid = db
+    .select({ id: schema.billingRecords.id })
+    .from(schema.billingRecords)
+    .innerJoin(
+      schema.subscriptions,
+      eq(schema.billingRecords.subscriptionId, schema.subscriptions.id)
+    )
+    .where(
+      and(
+        eq(schema.subscriptions.groupId, groupId),
+        eq(schema.billingRecords.isPaid, 0)
+      )
+    )
+    .limit(1)
+    .all()
+
+  if (unpaid.length > 0)
+    return { success: false, error: 'Cannot delete group with unpaid bills' }
+
+  // Cascade delete: group → group_members, subscriptions → billing_records
+  db.delete(schema.groups).where(eq(schema.groups.id, groupId)).run()
+
+  return { success: true }
 }
 
 export function handleCreateSubscription(
-  db: DB, userId: number, input: {
-    name: string; price: number; currency: string; nextPayment: string;
-    groupId?: number; logo?: string; url?: string; notes?: string; categoryId?: number
+  db: DB,
+  userId: number,
+  input: {
+    name: string
+    price: number
+    currency: string
+    nextPayment: string
+    groupId?: number
+    logo?: string
+    url?: string
+    notes?: string
+    categoryId?: number
   }
 ): Result<{ id: number; name: string; groupId: number | null }> {
-  throw new Error('Not implemented')
+  // If groupId provided, verify user is a member
+  if (input.groupId) {
+    const membership = db
+      .select()
+      .from(schema.groupMembers)
+      .where(
+        and(
+          eq(schema.groupMembers.groupId, input.groupId),
+          eq(schema.groupMembers.userId, userId)
+        )
+      )
+      .get()
+
+    if (!membership)
+      return { success: false, error: 'You are not a member of this group' }
+  }
+
+  const sub = createSubscription(db, { ...input, ownerId: userId })
+  return { success: true, data: sub }
 }
 
 export function handleUpdateSubscription(
-  db: DB, userId: number, subId: number, input: {
-    name?: string; price?: number; nextPayment?: string; inactive?: number
+  db: DB,
+  userId: number,
+  subId: number,
+  input: {
+    name?: string
+    price?: number
+    nextPayment?: string
+    inactive?: number
   }
 ): Result {
-  throw new Error('Not implemented')
+  const sub = db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subId))
+    .get()
+
+  if (!sub) return { success: false, error: 'Subscription not found' }
+  if (sub.ownerId !== userId)
+    return { success: false, error: 'Only the owner can update this subscription' }
+
+  const updates: Record<string, unknown> = {}
+  if (input.name !== undefined) updates.name = input.name
+  if (input.price !== undefined) updates.price = input.price
+  if (input.nextPayment !== undefined) updates.nextPayment = input.nextPayment
+  if (input.inactive !== undefined) updates.inactive = input.inactive
+
+  if (Object.keys(updates).length > 0) {
+    db.update(schema.subscriptions)
+      .set(updates)
+      .where(eq(schema.subscriptions.id, subId))
+      .run()
+  }
+
+  return { success: true }
 }
 
 export function handleDeleteSubscription(
-  db: DB, userId: number, subId: number
+  db: DB,
+  userId: number,
+  subId: number
 ): Result {
-  throw new Error('Not implemented')
+  const sub = db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subId))
+    .get()
+
+  if (!sub) return { success: false, error: 'Subscription not found' }
+  if (sub.ownerId !== userId)
+    return { success: false, error: 'Only the owner can delete this subscription' }
+
+  // Check for unpaid bills
+  const unpaid = db
+    .select({ id: schema.billingRecords.id })
+    .from(schema.billingRecords)
+    .where(
+      and(
+        eq(schema.billingRecords.subscriptionId, subId),
+        eq(schema.billingRecords.isPaid, 0)
+      )
+    )
+    .limit(1)
+    .all()
+
+  if (unpaid.length > 0) {
+    // Soft delete
+    db.update(schema.subscriptions)
+      .set({ inactive: 1 })
+      .where(eq(schema.subscriptions.id, subId))
+      .run()
+  } else {
+    // Hard delete
+    db.delete(schema.subscriptions)
+      .where(eq(schema.subscriptions.id, subId))
+      .run()
+  }
+
+  return { success: true }
 }
 
 export function handleMarkPaid(
-  db: DB, userId: number, billId: number
+  db: DB,
+  userId: number,
+  billId: number
 ): Result {
-  throw new Error('Not implemented')
+  const bill = db
+    .select()
+    .from(schema.billingRecords)
+    .where(eq(schema.billingRecords.id, billId))
+    .get()
+
+  if (!bill) return { success: false, error: 'Bill not found' }
+  if (bill.userId !== userId)
+    return { success: false, error: 'This bill does not belong to you' }
+
+  markBillPaid(db, billId)
+  return { success: true }
 }
 
 export function handleGetDashboard(
-  db: DB, userId: number
+  db: DB,
+  userId: number
 ): {
   monthlyTotal: number
-  pendingBills: Array<{ id: number; subscriptionName: string; amount: number; currency: string }>
-  subscriptions: Array<{ name: string; price: number; currency: string; memberCount: number }>
+  pendingBills: Array<{
+    id: number
+    subscriptionName: string
+    amount: number
+    currency: string
+  }>
+  subscriptions: Array<{
+    name: string
+    price: number
+    currency: string
+    memberCount: number
+  }>
 } {
-  throw new Error('Not implemented')
+  const spendingData = getMonthlySpendingData(db, userId)
+
+  const user = db
+    .select()
+    .from(schema.users)
+    .where(eq(schema.users.id, userId))
+    .get()
+
+  const preferredCurrency = user?.preferredCurrency ?? 'CNY'
+
+  const monthlyTotal = calculateMonthlySpending(
+    spendingData,
+    preferredCurrency,
+    {} // rates — same currency for now
+  )
+
+  const pendingBills = getPendingBills(db, userId).map((b) => ({
+    id: b.id,
+    subscriptionName: b.subscriptionName,
+    amount: b.amount,
+    currency: b.currency,
+  }))
+
+  return {
+    monthlyTotal,
+    pendingBills,
+    subscriptions: spendingData,
+  }
 }
