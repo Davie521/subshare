@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/api-utils'
+import { requireAuth, parseId } from '@/lib/api-utils'
 import { handleUpdateSubscription, handleDeleteSubscription } from '@/lib/api-handlers'
 import { updateSubscriptionSchema } from '@/lib/validators'
 import { and, eq } from 'drizzle-orm'
 import * as schema from '@/db/schema'
-
-function parseId(id: string): number | null {
-  const n = Number(id)
-  return Number.isInteger(n) && n > 0 ? n : null
-}
 
 export async function GET(
   _req: Request,

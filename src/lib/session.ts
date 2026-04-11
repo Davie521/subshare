@@ -5,19 +5,25 @@ import { getDb } from '@/db'
 import * as schema from '@/db/schema'
 
 const SESSION_COOKIE = 'subshare_session'
+
+/** Lazy-evaluated secret — only resolved at request time, not module load */
+let _secret: string | null = null
 function getSecret(): string {
-  if (process.env.SESSION_SECRET) return process.env.SESSION_SECRET
-  if (process.env.NODE_ENV === 'production' && !process.env.NEXT_PHASE) {
+  if (_secret) return _secret
+  if (process.env.SESSION_SECRET) {
+    _secret = process.env.SESSION_SECRET
+    return _secret
+  }
+  if (process.env.NODE_ENV === 'production') {
     throw new Error('SESSION_SECRET env var is required in production')
   }
-  return 'dev-only-secret-not-for-production-use'
+  _secret = 'dev-only-secret-not-for-production-use'
+  return _secret
 }
-
-const SECRET = getSecret()
 
 function sign(payload: object): string {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url')
-  const sig = createHmac('sha256', SECRET).update(data).digest('base64url')
+  const sig = createHmac('sha256', getSecret()).update(data).digest('base64url')
   return `${data}.${sig}`
 }
 
@@ -27,14 +33,18 @@ function verify(token: string): { userId: number; ts: number } | null {
   const [data, sig] = parts
   if (!data || !sig) return null
 
-  const expected = createHmac('sha256', SECRET).update(data).digest('base64url')
+  const expected = createHmac('sha256', getSecret()).update(data).digest('base64url')
   const expectedBuf = Buffer.from(expected)
   const sigBuf = Buffer.from(sig)
   if (expectedBuf.length !== sigBuf.length) return null
   if (!timingSafeEqual(expectedBuf, sigBuf)) return null
 
   try {
-    return JSON.parse(Buffer.from(data, 'base64url').toString())
+    const parsed = JSON.parse(Buffer.from(data, 'base64url').toString())
+    // Enforce server-side token expiry (30 days)
+    const MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000
+    if (!parsed.ts || Date.now() - parsed.ts > MAX_AGE_MS) return null
+    return parsed
   } catch {
     return null
   }
@@ -60,15 +70,19 @@ export async function getSession(): Promise<{ userId: number } | null> {
   const data = verify(token)
   if (!data || !data.userId) return null
 
-  const db = getDb()
-  const user = db
-    .select({ id: schema.users.id })
+  try {
+    const db = getDb()
+    const user = db
+      .select({ id: schema.users.id })
     .from(schema.users)
     .where(eq(schema.users.id, data.userId))
     .get()
 
-  if (!user) return null
-  return { userId: user.id }
+    if (!user) return null
+    return { userId: user.id }
+  } catch {
+    return null
+  }
 }
 
 export async function clearSession() {

@@ -12,12 +12,13 @@ const CRON_SECRET = process.env.CRON_SECRET
  * Protected by CRON_SECRET header in production.
  */
 export async function POST(req: NextRequest) {
-  // Auth: require secret in production
-  if (CRON_SECRET) {
-    const auth = req.headers.get('authorization')
-    if (auth !== `Bearer ${CRON_SECRET}`) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-    }
+  // Auth: fail closed — refuse to run without a configured secret
+  if (!CRON_SECRET) {
+    return NextResponse.json({ error: 'Cron not configured' }, { status: 503 })
+  }
+  const authHeader = req.headers.get('authorization')
+  if (authHeader !== `Bearer ${CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
   const db = getDb()

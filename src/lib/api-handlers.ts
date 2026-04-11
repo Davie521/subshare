@@ -321,19 +321,22 @@ export async function handleGetDashboard(
       .map((s) => s.currency)
   )
 
-  for (const cur of foreignCurrencies) {
-    try {
-      const res = await fetch(
-        `https://api.frankfurter.dev/v1/latest?base=${cur}&symbols=${preferredCurrency}`,
-        { signal: AbortSignal.timeout(3000) }
-      )
-      const data = await res.json()
-      const rate = data.rates?.[preferredCurrency]
-      if (rate) rates[`${cur}_${preferredCurrency}`] = rate
-    } catch {
-      // If rate fetch fails, skip — calculateMonthlySpending will use 1 as fallback
-    }
-  }
+  // Fetch all rates in parallel
+  await Promise.all(
+    [...foreignCurrencies].map(async (cur) => {
+      try {
+        const res = await fetch(
+          `https://api.frankfurter.dev/v1/latest?base=${cur}&symbols=${preferredCurrency}`,
+          { signal: AbortSignal.timeout(3000) }
+        )
+        const data = await res.json()
+        const rate = data.rates?.[preferredCurrency]
+        if (rate) rates[`${cur}_${preferredCurrency}`] = rate
+      } catch {
+        // If rate fetch fails, skip — calculateMonthlySpending will use 1 as fallback
+      }
+    })
+  )
 
   const monthlyTotal = calculateMonthlySpending(
     spendingData,

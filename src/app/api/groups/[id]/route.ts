@@ -1,14 +1,9 @@
 import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/api-utils'
+import { requireAuth, parseId } from '@/lib/api-utils'
 import { getGroupWithMembers } from '@/lib/db-operations'
 import { handleDeleteGroup } from '@/lib/api-handlers'
 import { and, eq } from 'drizzle-orm'
 import * as schema from '@/db/schema'
-
-function parseId(id: string): number | null {
-  const n = Number(id)
-  return Number.isInteger(n) && n > 0 ? n : null
-}
 
 export async function GET(
   _req: Request,

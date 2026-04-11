@@ -12,3 +12,9 @@ export async function requireAuth(): Promise<
   }
   return { userId: session.userId, db: getDb() }
 }
+
+/** Parse and validate a path parameter as a positive integer */
+export function parseId(id: string): number | null {
+  const n = Number(id)
+  return Number.isInteger(n) && n > 0 ? n : null
+}

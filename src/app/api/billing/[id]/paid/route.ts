@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/api-utils'
+import { requireAuth, parseId } from '@/lib/api-utils'
 import { handleMarkPaid } from '@/lib/api-handlers'
 
 export async function PUT(
@@ -10,8 +10,10 @@ export async function PUT(
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
   const { id } = await params
+  const numId = parseId(id)
+  if (!numId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
-  const result = handleMarkPaid(db, userId, parseInt(id))
+  const result = handleMarkPaid(db, userId, numId)
   if (!result.success) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return NextResponse.json({ ok: true })
