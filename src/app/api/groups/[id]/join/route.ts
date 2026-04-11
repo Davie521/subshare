@@ -1,8 +1,6 @@
 import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/api-utils'
 import { handleJoinGroup } from '@/lib/api-handlers'
-import { eq } from 'drizzle-orm'
-import * as schema from '@/db/schema'
 
 export async function POST(
   _req: Request,

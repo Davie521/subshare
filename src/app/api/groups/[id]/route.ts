@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/api-utils'
 import { getGroupWithMembers } from '@/lib/db-operations'
 import { handleDeleteGroup } from '@/lib/api-handlers'
-import { getSubscriptionsForUser } from '@/lib/db-operations'
 import { eq } from 'drizzle-orm'
 import * as schema from '@/db/schema'
 

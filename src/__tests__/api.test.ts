@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import type Database from 'better-sqlite3'
+import { eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser, createGroup, addMember } from './helpers'
 import * as schema from '@/db/schema'
@@ -83,7 +84,7 @@ describe('handleCreateGroup', () => {
       .select()
       .from(schema.groupMembers)
       .where(
-        require('drizzle-orm').eq(
+        eq(
           schema.groupMembers.groupId,
           result.data!.id
         )
@@ -106,7 +107,7 @@ describe('handleJoinGroup', () => {
     const members = db
       .select()
       .from(schema.groupMembers)
-      .where(require('drizzle-orm').eq(schema.groupMembers.groupId, group.id))
+      .where(eq(schema.groupMembers.groupId, group.id))
       .all()
     expect(members).toHaveLength(2)
   })
@@ -178,7 +179,7 @@ describe('handleDeleteGroup', () => {
     const found = db
       .select()
       .from(schema.groups)
-      .where(require('drizzle-orm').eq(schema.groups.id, group.id))
+      .where(eq(schema.groups.id, group.id))
       .get()
     expect(found).toBeUndefined()
   })
@@ -277,7 +278,7 @@ describe('handleUpdateSubscription', () => {
     const updated = db
       .select()
       .from(schema.subscriptions)
-      .where(require('drizzle-orm').eq(schema.subscriptions.id, sub.id))
+      .where(eq(schema.subscriptions.id, sub.id))
       .get()
     expect(updated!.price).toBe(20000)
   })
@@ -315,7 +316,7 @@ describe('handleDeleteSubscription', () => {
     const found = db
       .select()
       .from(schema.subscriptions)
-      .where(require('drizzle-orm').eq(schema.subscriptions.id, sub.id))
+      .where(eq(schema.subscriptions.id, sub.id))
       .get()
     expect(found).toBeUndefined()
   })
@@ -342,7 +343,7 @@ describe('handleDeleteSubscription', () => {
     const found = db
       .select()
       .from(schema.subscriptions)
-      .where(require('drizzle-orm').eq(schema.subscriptions.id, sub.id))
+      .where(eq(schema.subscriptions.id, sub.id))
       .get()
     expect(found).toBeDefined()
     expect(found!.inactive).toBe(1)
@@ -375,7 +376,7 @@ describe('handleMarkPaid', () => {
     const updated = db
       .select()
       .from(schema.billingRecords)
-      .where(require('drizzle-orm').eq(schema.billingRecords.id, bills[0].id))
+      .where(eq(schema.billingRecords.id, bills[0].id))
       .get()
     expect(updated!.isPaid).toBe(1)
   })
