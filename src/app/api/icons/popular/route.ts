@@ -10,7 +10,7 @@ export async function GET() {
   }
 
   const services = POPULAR_SERVICES.map((s) => {
-    const icon = findBrandIcon(s.name, s.slug)
+    const icon = findBrandIcon(s.name)
     return {
       name: s.name,
       category: s.category,
