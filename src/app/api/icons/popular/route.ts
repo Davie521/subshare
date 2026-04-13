@@ -10,13 +10,18 @@ export async function GET() {
   }
 
   const services = POPULAR_SERVICES.map((s) => {
-    const icon = findBrandIcon(s.slug || s.name)
+    const icon = findBrandIcon(s.name, s.slug)
     return {
       name: s.name,
       category: s.category,
       defaultPrice: s.defaultPrice,
       defaultCurrency: s.defaultCurrency,
-      icon: { svg: icon.svg, color: `#${icon.hex}` },
+      icon: {
+        svg: icon.svg,
+        color: `#${icon.hex}`,
+        faviconUrl: icon.faviconUrl,
+        letter: icon.letter,
+      },
     }
   })
 

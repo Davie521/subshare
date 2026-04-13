@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { CreditCard } from "lucide-react";
 
 interface BrandIconProps {
   name: string;
@@ -10,12 +9,12 @@ interface BrandIconProps {
 }
 
 interface IconData {
-  title: string;
-  svg: string;
+  svg: string | null;
   color: string;
+  faviconUrl: string | null;
+  letter: string;
 }
 
-// Client-side cache to avoid repeated fetches
 const iconCache = new Map<string, IconData | null>();
 
 export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
@@ -23,10 +22,10 @@ export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
   const cached = iconCache.get(key);
   const [icon, setIcon] = useState<IconData | null>(cached ?? null);
   const [loaded, setLoaded] = useState(iconCache.has(key));
+  const [faviconFailed, setFaviconFailed] = useState(false);
 
   useEffect(() => {
     if (iconCache.has(key)) return;
-
     let cancelled = false;
     fetch(`/api/icons?name=${encodeURIComponent(name)}`)
       .then((r) => r.json())
@@ -42,13 +41,12 @@ export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
         iconCache.set(key, null);
         setLoaded(true);
       });
-
     return () => {
       cancelled = true;
     };
   }, [key, name]);
 
-  if (!loaded) {
+  if (!loaded || !icon) {
     return (
       <div className={className} style={{ width: size, height: size }}>
         <div className="w-full h-full rounded bg-muted animate-pulse" />
@@ -56,27 +54,50 @@ export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
     );
   }
 
-  if (!icon) {
+  // 1. Real Simple Icons SVG
+  if (icon.svg) {
     return (
       <div
-        className={`flex items-center justify-center rounded bg-muted ${className ?? ""}`}
-        style={{ width: size, height: size }}
-      >
-        <CreditCard className="w-3 h-3 text-muted-foreground" />
-      </div>
+        className={className}
+        style={{ width: size, height: size, color: icon.color }}
+        dangerouslySetInnerHTML={{
+          __html: icon.svg.replace(
+            "<svg",
+            `<svg width="${size}" height="${size}"`
+          ),
+        }}
+      />
     );
   }
 
+  // 2. Favicon from Google
+  if (icon.faviconUrl && !faviconFailed) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={icon.faviconUrl}
+        alt={name}
+        width={size}
+        height={size}
+        className={`rounded ${className ?? ""}`}
+        style={{ width: size, height: size }}
+        onError={() => setFaviconFailed(true)}
+      />
+    );
+  }
+
+  // 3. Letter fallback
   return (
     <div
-      className={className}
-      style={{ width: size, height: size, color: icon.color }}
-      dangerouslySetInnerHTML={{
-        __html: icon.svg.replace(
-          "<svg",
-          `<svg width="${size}" height="${size}"`
-        ),
+      className={`flex items-center justify-center rounded font-semibold text-white ${className ?? ""}`}
+      style={{
+        width: size,
+        height: size,
+        backgroundColor: icon.color,
+        fontSize: size * 0.55,
       }}
-    />
+    >
+      {icon.letter}
+    </div>
   );
 }
