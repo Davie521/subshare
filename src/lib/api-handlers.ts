@@ -190,8 +190,11 @@ export async function handleCreateSubscription(
   const sub = createSubscription(db, { ...input, ownerId: userId })
 
   if (sub.groupId) {
-    const rates = await fetchRatesForGroup(db, sub.groupId, input.currency)
-    generateAndSaveBillingRecords(db, sub.id, rates)
+    void fetchRatesForGroup(db, sub.groupId, input.currency)
+      .then((rates) => generateAndSaveBillingRecords(db, sub.id, rates))
+      .catch((err) =>
+        console.error('[billing] initial generation failed for sub', sub.id, err)
+      )
   }
 
   return { success: true, data: sub }

@@ -25,6 +25,11 @@ npm run fetch-icons    # regenerate public/icons/* + manifest.json
 
 Docker: `docker compose up --build -d` → `https://localhost` (Caddy fronts Next with a self-signed cert).
 
+## Deployment constraints
+
+- **Single-instance only.** `src/lib/rate-limit.ts` stores attempt counters in a per-process `Map`. Do not run multiple Node processes (no pm2 cluster, no horizontal scaling, no Vercel multi-region). Before scaling out, replace with Redis/Upstash-backed rate limiting.
+- **Long-running process.** `handleCreateSubscription` uses fire-and-forget background billing generation after returning. This only works in persistent runtimes (Docker, bare Node). Serverless platforms kill the function after the response — migrate to a queue before switching.
+
 ## Environment
 
 - `SESSION_SECRET` — required in production; HMAC key for signed session cookies (min 32 chars). Dev fallback exists.
