@@ -1,4 +1,11 @@
-import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core'
+import {
+  sqliteTable,
+  text,
+  integer,
+  uniqueIndex,
+  primaryKey,
+  index,
+} from 'drizzle-orm/sqlite-core'
 
 export const users = sqliteTable('users', {
   id: integer('id').primaryKey({ autoIncrement: true }),
@@ -8,6 +15,8 @@ export const users = sqliteTable('users', {
   avatar: text('avatar'),
   preferredCurrency: text('preferred_currency').notNull().default('CNY'),
   monthlyBudget: integer('monthly_budget'), // BigInt cents, nullable
+  displayName: text('display_name'),
+  showEmail: integer('show_email').notNull().default(0),
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
 })
 
@@ -54,6 +63,9 @@ export const subscriptions = sqliteTable('subscriptions', {
   ownerId: integer('owner_id')
     .notNull()
     .references(() => users.id),
+  payerId: integer('payer_id')
+    .notNull()
+    .references(() => users.id),
   groupId: integer('group_id').references(() => groups.id, {
     onDelete: 'cascade',
   }),
@@ -61,6 +73,60 @@ export const subscriptions = sqliteTable('subscriptions', {
   notifyDaysBefore: integer('notify_days_before').notNull().default(3),
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
 })
+
+export const subscriptionMembers = sqliteTable(
+  'subscription_members',
+  {
+    subscriptionId: integer('subscription_id')
+      .notNull()
+      .references(() => subscriptions.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    addedAt: text('added_at').notNull(),
+    addedBy: integer('added_by')
+      .notNull()
+      .references(() => users.id),
+    leftAt: text('left_at'),
+  },
+  (t) => [
+    primaryKey({ columns: [t.subscriptionId, t.userId] }),
+    index('sub_members_by_sub').on(t.subscriptionId),
+  ]
+)
+
+export const friendships = sqliteTable(
+  'friendships',
+  {
+    userAId: integer('user_a_id')
+      .notNull()
+      .references(() => users.id),
+    userBId: integer('user_b_id')
+      .notNull()
+      .references(() => users.id),
+    createdAt: text('created_at').notNull().default("(datetime('now'))"),
+  },
+  (t) => [primaryKey({ columns: [t.userAId, t.userBId] })]
+)
+
+export const notifications = sqliteTable(
+  'notifications',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id),
+    type: text('type').notNull(),
+    subscriptionId: integer('subscription_id').references(
+      () => subscriptions.id,
+      { onDelete: 'cascade' }
+    ),
+    payload: text('payload').notNull(),
+    createdAt: text('created_at').notNull().default("(datetime('now'))"),
+    readAt: text('read_at'),
+  },
+  (t) => [index('notif_user_unread').on(t.userId, t.readAt)]
+)
 
 export const billingRecords = sqliteTable(
   'billing_records',

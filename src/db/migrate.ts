@@ -11,6 +11,8 @@ export function migrate(sqlite: Database.Database) {
       avatar TEXT,
       preferred_currency TEXT NOT NULL DEFAULT 'CNY',
       monthly_budget INTEGER,
+      display_name TEXT,
+      show_email INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -51,6 +53,7 @@ export function migrate(sqlite: Database.Database) {
       inactive INTEGER NOT NULL DEFAULT 0,
       category_id INTEGER REFERENCES categories(id),
       owner_id INTEGER NOT NULL REFERENCES users(id),
+      payer_id INTEGER NOT NULL REFERENCES users(id),
       group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
       notify INTEGER NOT NULL DEFAULT 1,
       notify_days_before INTEGER NOT NULL DEFAULT 3,
@@ -73,6 +76,39 @@ export function migrate(sqlite: Database.Database) {
       UNIQUE(subscription_id, user_id, billing_date)
     );
 
+    CREATE TABLE IF NOT EXISTS subscription_members (
+      subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      added_at TEXT NOT NULL,
+      added_by INTEGER NOT NULL REFERENCES users(id),
+      left_at TEXT,
+      PRIMARY KEY (subscription_id, user_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS sub_members_by_sub
+      ON subscription_members(subscription_id);
+
+    CREATE TABLE IF NOT EXISTS friendships (
+      user_a_id INTEGER NOT NULL REFERENCES users(id),
+      user_b_id INTEGER NOT NULL REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (user_a_id, user_b_id),
+      CHECK (user_a_id < user_b_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL REFERENCES users(id),
+      type TEXT NOT NULL,
+      subscription_id INTEGER REFERENCES subscriptions(id) ON DELETE CASCADE,
+      payload TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      read_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS notif_user_unread
+      ON notifications(user_id, read_at);
+
     -- Seed default categories
     INSERT OR IGNORE INTO categories (id, name, icon) VALUES
       (1, 'Entertainment', '🎬'),
@@ -84,4 +120,36 @@ export function migrate(sqlite: Database.Database) {
       (7, 'Education', '📚'),
       (8, 'Other', '📦');
   `)
+
+  // Idempotent column additions for databases created before the
+  // subscription-centric redesign.
+  function hasColumn(table: string, column: string): boolean {
+    const rows = sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+      name: string
+    }>
+    return rows.some((r) => r.name === column)
+  }
+
+  if (!hasColumn('users', 'display_name')) {
+    sqlite.exec(`ALTER TABLE users ADD COLUMN display_name TEXT`)
+  }
+  if (!hasColumn('users', 'show_email')) {
+    sqlite.exec(
+      `ALTER TABLE users ADD COLUMN show_email INTEGER NOT NULL DEFAULT 0`
+    )
+  }
+  if (!hasColumn('subscriptions', 'payer_id')) {
+    // Add as nullable first, backfill, then enforce via application layer.
+    // (SQLite cannot retroactively add NOT NULL without a default, and we
+    // don't want a placeholder user id polluting the data.)
+    sqlite.exec(`ALTER TABLE subscriptions ADD COLUMN payer_id INTEGER`)
+    sqlite.exec(`
+      UPDATE subscriptions
+      SET payer_id = COALESCE(
+        (SELECT created_by FROM groups WHERE groups.id = subscriptions.group_id),
+        owner_id
+      )
+      WHERE payer_id IS NULL
+    `)
+  }
 }

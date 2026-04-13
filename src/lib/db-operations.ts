@@ -13,6 +13,7 @@ export function createSubscription(
     currency: string
     nextPayment: string
     ownerId: number
+    payerId?: number
     groupId?: number
     logo?: string
     url?: string
@@ -29,6 +30,7 @@ export function createSubscription(
       nextPayment: input.nextPayment,
       startDate: input.nextPayment,
       ownerId: input.ownerId,
+      payerId: input.payerId ?? input.ownerId,
       groupId: input.groupId ?? null,
       logo: input.logo ?? null,
       url: input.url ?? null,
