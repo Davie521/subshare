@@ -456,6 +456,80 @@ export function getGroupWithMembers(
  * @returns number of bills inserted
  */
 /**
+ * T13 — transfer the payer role to another active member.
+ *
+ * Updates subscriptions.payer_id. Emits one payer_changed notification to
+ * every active member (including old and new payer) so everyone sees where
+ * money now flows.
+ *
+ * Rejects if new payer is not an active member, or equals current payer.
+ * Existing billing_records are unchanged; next monthly cron will exclude
+ * the new payer and include the former payer (if they're still a member).
+ */
+export function transferPayer(
+  db: DB,
+  input: { subscriptionId: number; newPayerId: number }
+): void {
+  const sub = db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, input.subscriptionId))
+    .get()
+  if (!sub) throw new Error('Subscription not found')
+
+  if (sub.payerId === input.newPayerId) {
+    throw new Error('User is already the payer')
+  }
+
+  const today = new Date().toISOString().slice(0, 10)
+  const members = getActiveMembersAt(db, input.subscriptionId, today)
+  const isMember = members.some((m) => m.userId === input.newPayerId)
+  if (!isMember) {
+    throw new Error('New payer must be an active member of the subscription')
+  }
+
+  const oldPayer = db
+    .select({
+      name: schema.users.name,
+      displayName: schema.users.displayName,
+    })
+    .from(schema.users)
+    .where(eq(schema.users.id, sub.payerId))
+    .get()
+  const newPayer = db
+    .select({
+      name: schema.users.name,
+      displayName: schema.users.displayName,
+    })
+    .from(schema.users)
+    .where(eq(schema.users.id, input.newPayerId))
+    .get()
+
+  db.update(schema.subscriptions)
+    .set({ payerId: input.newPayerId })
+    .where(eq(schema.subscriptions.id, input.subscriptionId))
+    .run()
+
+  const oldPayerName = oldPayer?.displayName || oldPayer?.name || 'Previous'
+  const newPayerName = newPayer?.displayName || newPayer?.name || 'New'
+
+  for (const m of members) {
+    insertNotification(db, {
+      userId: m.userId,
+      type: 'payer_changed',
+      subscriptionId: input.subscriptionId,
+      payload: {
+        sub_name: sub.name,
+        old_payer_id: sub.payerId,
+        old_payer_name: oldPayerName,
+        new_payer_id: input.newPayerId,
+        new_payer_name: newPayerName,
+      },
+    })
+  }
+}
+
+/**
  * T12 — change the price of a subscription (R5 non-retroactive).
  *
  * Updates subscriptions.price only. Does NOT touch any existing

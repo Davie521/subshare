@@ -20,9 +20,9 @@ beforeEach(() => {
 })
 
 function setup3() {
-  const a = createUser(sqlite, { email: 'a@t.com' })
-  const b = createUser(sqlite, { email: 'b@t.com' })
-  const c = createUser(sqlite, { email: 'c@t.com' })
+  const a = createUser(sqlite, { name: 'Alice', email: 'a@t.com' })
+  const b = createUser(sqlite, { name: 'Bob', email: 'b@t.com' })
+  const c = createUser(sqlite, { name: 'Carol', email: 'c@t.com' })
   const sub = createSubscription(db, {
     name: 'Netflix',
     price: 15000,
