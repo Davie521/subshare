@@ -14,9 +14,10 @@ function getSecret(): string {
     _secret = process.env.SESSION_SECRET
     return _secret
   }
-  if (process.env.NODE_ENV === 'production') {
-    throw new Error('SESSION_SECRET env var is required in production')
+  if (process.env.NODE_ENV !== 'development') {
+    throw new Error('SESSION_SECRET env var is required outside development')
   }
+  console.warn('[session] SESSION_SECRET missing — using insecure dev fallback. Do not expose this process to the network.')
   _secret = 'dev-only-secret-not-for-production-use'
   return _secret
 }

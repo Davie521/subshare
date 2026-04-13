@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/api-utils'
-import { exchangeRateSchema } from '@/lib/validators'
+import { exchangeRateSchema, frankfurterResponseSchema } from '@/lib/validators'
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth()
@@ -23,8 +23,11 @@ export async function GET(req: NextRequest) {
       `https://api.frankfurter.dev/v1/latest?base=${parsed.data.from}&symbols=${parsed.data.to}`,
       { signal: AbortSignal.timeout(5000) }
     )
-    const data = await res.json()
-    const rate = data.rates?.[parsed.data.to]
+    const body = frankfurterResponseSchema.safeParse(await res.json())
+    if (!body.success) {
+      return NextResponse.json({ error: 'Invalid upstream response' }, { status: 502 })
+    }
+    const rate = body.data.rates[parsed.data.to]
 
     if (!rate) {
       return NextResponse.json({ error: 'Rate not available' }, { status: 404 })

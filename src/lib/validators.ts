@@ -42,3 +42,7 @@ export const exchangeRateSchema = z.object({
   from: z.enum(CURRENCIES),
   to: z.enum(CURRENCIES),
 })
+
+export const frankfurterResponseSchema = z.object({
+  rates: z.record(z.string(), z.number().positive().finite()),
+})

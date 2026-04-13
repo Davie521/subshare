@@ -12,6 +12,7 @@ import {
   removeGroupMember,
 } from './db-operations'
 import { calculateMonthlySpending } from './billing'
+import { frankfurterResponseSchema } from './validators'
 
 type DB = BetterSQLite3Database<typeof schema>
 type Result<T = unknown> =
@@ -329,8 +330,9 @@ export async function handleGetDashboard(
           `https://api.frankfurter.dev/v1/latest?base=${cur}&symbols=${preferredCurrency}`,
           { signal: AbortSignal.timeout(3000) }
         )
-        const data = await res.json()
-        const rate = data.rates?.[preferredCurrency]
+        const body = frankfurterResponseSchema.safeParse(await res.json())
+        if (!body.success) return
+        const rate = body.data.rates[preferredCurrency]
         if (rate) rates[`${cur}_${preferredCurrency}`] = rate
       } catch {
         // If rate fetch fails, skip — calculateMonthlySpending will use 1 as fallback

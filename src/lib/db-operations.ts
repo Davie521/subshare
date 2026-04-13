@@ -146,7 +146,8 @@ export function getGroupWithMembers(
 
 export function generateAndSaveBillingRecords(
   db: DB,
-  subscriptionId: number
+  subscriptionId: number,
+  rates?: Record<string, number>
 ): number {
   const sub = db
     .select()
@@ -198,8 +199,17 @@ export function generateAndSaveBillingRecords(
 
     if (existing) continue
 
-    // For now, same currency = rate 1.0
-    const rate = sub.currency === member.preferredCurrency ? 1 : 1
+    let rate: number
+    if (sub.currency === member.preferredCurrency) {
+      rate = 1
+    } else {
+      const rateKey = `${sub.currency}_${member.preferredCurrency}`
+      const r = rates?.[rateKey]
+      if (r === undefined || !Number.isFinite(r) || r <= 0) {
+        throw new Error(`Missing exchange rate for ${rateKey}`)
+      }
+      rate = r
+    }
     const localAmount = Math.floor(share * rate)
 
     db.insert(schema.billingRecords)
