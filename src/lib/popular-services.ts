@@ -364,14 +364,14 @@ export const POPULAR_SERVICES: ServiceTemplate[] = [
   { name: '掘金小册', slug: 'juejin', category: 'China' },
 
   // --- Japan (5) ---
-  { name: 'Amazon Prime Japan', slug: 'amazon', category: 'Japan', defaultPrice: 60000, defaultCurrency: 'JPY' },
-  { name: 'LINE Music', slug: 'linemusic', category: 'Japan', defaultPrice: 98000, defaultCurrency: 'JPY' },
+  { name: 'Amazon Prime Japan', slug: 'amazon', category: 'Japan', defaultPrice: 600, defaultCurrency: 'JPY' },
+  { name: 'LINE Music', slug: 'linemusic', category: 'Japan', defaultPrice: 980, defaultCurrency: 'JPY' },
   { name: 'ABEMA', slug: 'abema', category: 'Japan', defaultPrice: 1080, defaultCurrency: 'JPY' },
-  { name: 'U-NEXT', slug: 'unext', category: 'Japan', defaultPrice: 218900, defaultCurrency: 'JPY' },
+  { name: 'U-NEXT', slug: 'unext', category: 'Japan', defaultPrice: 2189, defaultCurrency: 'JPY' },
   { name: 'Niconico', slug: 'niconico', category: 'Japan', defaultPrice: 790, defaultCurrency: 'JPY' },
   // --- Korea (5) ---
   { name: 'Melon', slug: 'melon', category: 'Korea', defaultPrice: 10900, defaultCurrency: 'KRW' },
-  { name: 'Coupang Rocket WOW', slug: 'coupang', category: 'Korea', defaultPrice: 499000, defaultCurrency: 'KRW' },
+  { name: 'Coupang Rocket WOW', slug: 'coupang', category: 'Korea', defaultPrice: 4990, defaultCurrency: 'KRW' },
   { name: 'Toss', slug: 'toss', category: 'Korea', defaultPrice: 5900, defaultCurrency: 'KRW' },
   { name: 'Kakao Pay', slug: 'kakaopay', category: 'Korea' },
   { name: 'Wavve', slug: 'wavve', category: 'Korea', defaultPrice: 10900, defaultCurrency: 'KRW' },

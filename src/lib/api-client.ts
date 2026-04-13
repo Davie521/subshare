@@ -9,6 +9,8 @@ async function request<T>(
     const res = await fetch(`${BASE}${path}`, {
       headers: { "Content-Type": "application/json" },
       signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      credentials: "same-origin",
+      cache: "no-store",
       ...opts,
     });
     const json = await res.json();
