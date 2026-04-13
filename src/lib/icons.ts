@@ -775,6 +775,18 @@ const DOMAIN_MAP: Record<string, string> = {
   'allegro smart': 'allegro.pl',
 }
 
+// Services where DuckDuckGo has better favicon than Google
+const PREFER_DDG: Set<string> = new Set([
+  'hulu', 'tunein premium', 'bookbeat', 'udio', 'neon', 'craft',
+  'adobe stock', 'onedrive', 'hinge preferred', 'feeld',
+  'nintendo switch online', 'eve online omega', 'minecraft realms',
+  'financial times', 'the economist', 'wired', 'the information',
+  'readly', 'les mills+', 'alo moves', 'waking up', 'hims', 'daily harvest',
+  "harry's", 'barkbox', 'onx maps', '酷狗音乐', '唯品会超级vip',
+  '讯飞星火', '丁香医生', '17live', 'melon', 'genie music',
+  '요기요 yogiyo', 'simplilearn', 'osn+', 'dstv',
+])
+
 // Aliases for Simple Icons lookup
 const ALIASES: Record<string, string> = {
   'chatgpt': 'openai',
@@ -855,14 +867,18 @@ export function findBrandIcon(name: string, slug?: string): BrandIcon {
     }
   }
 
-  // 3. Favicon via Google
+  // 3. Favicon: Google by default, DDG for known-better brands
   const domain = deriveDomain(name, slug ?? '')
   if (domain) {
+    const useDDG = PREFER_DDG.has(normalized)
+    const faviconUrl = useDDG
+      ? `https://icons.duckduckgo.com/ip3/${domain}.ico`
+      : `https://www.google.com/s2/favicons?domain=${domain}&sz=64`
     return {
       title: name,
       svg: null,
       hex: '6B7280',
-      faviconUrl: `https://www.google.com/s2/favicons?domain=${domain}&sz=64`,
+      faviconUrl,
       letter,
     }
   }
