@@ -234,8 +234,8 @@ export default function DashboardPage() {
             </Card>
           ) : (
             <div className="space-y-2">
-              {personalSubs.slice(0, 4).map((sub, i) => (
-                <SubRow key={`p-${i}`} sub={sub} />
+              {personalSubs.slice(0, 4).map((sub) => (
+                <SubRow key={`p-${sub.name}`} sub={sub} />
               ))}
 
               {sharedSubs.length > 0 && personalSubs.length > 0 && (
@@ -246,8 +246,8 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {sharedSubs.slice(0, 4).map((sub, i) => (
-                <SubRow key={`s-${i}`} sub={sub} shared />
+              {sharedSubs.slice(0, 4).map((sub) => (
+                <SubRow key={`s-${sub.name}`} sub={sub} shared />
               ))}
             </div>
           )}

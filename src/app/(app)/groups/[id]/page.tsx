@@ -71,6 +71,7 @@ export default function GroupDetailPage() {
         <Button
           size="sm"
           variant="ghost"
+          aria-label="Delete group"
           className="cursor-pointer text-muted-foreground"
           onClick={handleDelete}
         >

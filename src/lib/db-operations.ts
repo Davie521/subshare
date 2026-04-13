@@ -181,54 +181,56 @@ export function generateAndSaveBillingRecords(
 
   const memberCount = members.length
   const share = calculateShares(sub.price, memberCount)
-  let inserted = 0
 
-  for (const member of nonPayerMembers) {
-    // Check for existing record (prevent duplicates)
-    const existing = db
-      .select({ id: schema.billingRecords.id })
-      .from(schema.billingRecords)
-      .where(
-        and(
-          eq(schema.billingRecords.subscriptionId, subscriptionId),
-          eq(schema.billingRecords.userId, member.userId),
-          eq(schema.billingRecords.billingDate, sub.nextPayment)
+  return db.transaction((tx) => {
+    let inserted = 0
+
+    for (const member of nonPayerMembers) {
+      const existing = tx
+        .select({ id: schema.billingRecords.id })
+        .from(schema.billingRecords)
+        .where(
+          and(
+            eq(schema.billingRecords.subscriptionId, subscriptionId),
+            eq(schema.billingRecords.userId, member.userId),
+            eq(schema.billingRecords.billingDate, sub.nextPayment)
+          )
         )
-      )
-      .get()
+        .get()
 
-    if (existing) continue
+      if (existing) continue
 
-    let rate: number
-    if (sub.currency === member.preferredCurrency) {
-      rate = 1
-    } else {
-      const rateKey = `${sub.currency}_${member.preferredCurrency}`
-      const r = rates?.[rateKey]
-      if (r === undefined || !Number.isFinite(r) || r <= 0) {
-        throw new Error(`Missing exchange rate for ${rateKey}`)
+      let rate: number
+      if (sub.currency === member.preferredCurrency) {
+        rate = 1
+      } else {
+        const rateKey = `${sub.currency}_${member.preferredCurrency}`
+        const r = rates?.[rateKey]
+        if (r === undefined || !Number.isFinite(r) || r <= 0) {
+          throw new Error(`Missing exchange rate for ${rateKey}`)
+        }
+        rate = r
       }
-      rate = r
+      const localAmount = Math.floor(share * rate)
+
+      tx.insert(schema.billingRecords)
+        .values({
+          subscriptionId,
+          userId: member.userId,
+          amount: share,
+          currency: sub.currency,
+          localAmount,
+          localCurrency: member.preferredCurrency,
+          exchangeRate: rate * 1000000,
+          billingDate: sub.nextPayment,
+        })
+        .run()
+
+      inserted++
     }
-    const localAmount = Math.floor(share * rate)
 
-    db.insert(schema.billingRecords)
-      .values({
-        subscriptionId,
-        userId: member.userId,
-        amount: share,
-        currency: sub.currency,
-        localAmount,
-        localCurrency: member.preferredCurrency,
-        exchangeRate: rate * 1000000,
-        billingDate: sub.nextPayment,
-      })
-      .run()
-
-    inserted++
-  }
-
-  return inserted
+    return inserted
+  })
 }
 
 export function getPendingBills(

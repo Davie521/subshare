@@ -86,6 +86,7 @@ src/
 |--------|------|-------------|
 | POST | `/api/auth/register` | Create account |
 | POST | `/api/auth/login` | Sign in |
+| POST | `/api/auth/logout` | Sign out |
 | GET | `/api/auth/me` | Current user |
 | GET | `/api/dashboard` | Monthly spending + pending bills |
 | GET/POST | `/api/groups` | List / create groups |
@@ -96,6 +97,7 @@ src/
 | GET/PUT/DELETE | `/api/subscriptions/[id]` | Subscription CRUD |
 | PUT | `/api/billing/[id]/paid` | Mark bill as paid |
 | GET | `/api/exchange-rate` | Fetch FX rate |
+| GET | `/api/icons` / `/api/icons/popular` | Icon manifest lookup |
 | POST | `/api/cron/billing` | Advance billing cycles (protected) |
 
 ## How It Works

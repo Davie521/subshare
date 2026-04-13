@@ -93,6 +93,7 @@ export default function EditSubscriptionPage() {
           <Button
             variant="ghost"
             size="icon"
+            aria-label="Go back"
             className="cursor-pointer h-8 w-8"
             onClick={() => router.back()}
           >
@@ -104,6 +105,7 @@ export default function EditSubscriptionPage() {
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Delete subscription"
           className="cursor-pointer text-destructive"
           onClick={handleDelete}
         >

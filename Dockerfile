@@ -31,10 +31,6 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-# Copy migration script for DB init
-COPY --from=builder /app/src/db/migrate.ts ./src/db/migrate.ts
-COPY --from=builder /app/src/db/init.ts ./src/db/init.ts
-
 # Create data directory for SQLite
 RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 

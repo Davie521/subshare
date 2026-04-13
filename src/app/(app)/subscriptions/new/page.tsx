@@ -279,6 +279,7 @@ function SubscriptionForm({
         <Button
           variant="ghost"
           size="icon"
+          aria-label="Go back"
           className="cursor-pointer h-8 w-8"
           onClick={onBack}
         >
