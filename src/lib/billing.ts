@@ -65,6 +65,31 @@ function daysBetween(from: string, to: string): number {
 }
 
 /**
+ * Pre-paid mid-cycle join pro-rata (R2).
+ *
+ * Computes the amount a member owes when they join on `dayOfMonth` of a
+ * month with `daysInMonth` days. Covers the join day through month end:
+ *   floor(share × (daysInMonth − dayOfMonth + 1) / daysInMonth)
+ *
+ * @throws if inputs are out of range
+ */
+export function calculateJoinProRata(
+  share: number,
+  dayOfMonth: number,
+  daysInMonth: number
+): number {
+  if (share < 0) throw new Error('share must be non-negative')
+  if (daysInMonth < 28 || daysInMonth > 31) {
+    throw new Error('daysInMonth must be 28–31')
+  }
+  if (dayOfMonth < 1 || dayOfMonth > daysInMonth) {
+    throw new Error('dayOfMonth out of range')
+  }
+  const daysCovered = daysInMonth - dayOfMonth + 1
+  return Math.floor((share * daysCovered) / daysInMonth)
+}
+
+/**
  * Calculate pro-rated amount for a member who joined mid-cycle.
  */
 export function calculateProRate(
