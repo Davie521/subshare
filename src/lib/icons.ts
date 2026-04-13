@@ -315,7 +315,7 @@ const DOMAIN_MAP: Record<string, string> = {
   'coursera plus': 'coursera.org',
   'udemy': 'udemy.com',
   'edx': 'edx.org',
-  'linkedin learning': 'learning.linkedin.com',
+  'linkedin learning': 'linkedin.com',
   'skillshare': 'skillshare.com',
   'masterclass': 'masterclass.com',
   'pluralsight': 'pluralsight.com',
@@ -377,7 +377,7 @@ const DOMAIN_MAP: Record<string, string> = {
   'strava premium': 'strava.com',
   'fitbit premium': 'fitbit.com',
   'whoop': 'whoop.com',
-  'oura ring': 'ouraring.com',
+  'oura ring': 'oura.com',
   'freeletics': 'freeletics.com',
   'classpass': 'classpass.com',
   'gympass / wellhub': 'wellhub.com',
@@ -399,7 +399,7 @@ const DOMAIN_MAP: Record<string, string> = {
   'clue plus': 'helloclue.com',
   'natural cycles': 'naturalcycles.com',
   'hims': 'forhims.com',
-  'hers': 'forhers.com',
+  'hers': 'hers.com',
   'ro': 'ro.co',
   'teladoc': 'teladoc.com',
   'one medical': 'onemedical.com',
@@ -557,7 +557,7 @@ const DOMAIN_MAP: Record<string, string> = {
   '同花顺': '10jqka.com.cn',
   '东方财富': 'eastmoney.com',
   '雪球': 'xueqiu.com',
-  'keep 会员': 'keep.com',
+  'keep 会员': 'gotokeep.com',
   '薄荷健康': 'boohee.com',
   '丁香医生': 'dxy.com',
   '春雨医生': 'chunyuyisheng.com',
@@ -775,16 +775,29 @@ const DOMAIN_MAP: Record<string, string> = {
   'allegro smart': 'allegro.pl',
 }
 
+// Services with no good favicon anywhere — force letter fallback with brand color
+const FORCE_LETTER: Record<string, string> = {
+  "match.com": 'E00058',
+  'financial times': 'FFF1E5',
+  'talkspace': '6B4EFF',
+  "harry's": '323232',
+}
+
 // Services where DuckDuckGo has better favicon than Google
 const PREFER_DDG: Set<string> = new Set([
+  // Previously identified
   'hulu', 'tunein premium', 'bookbeat', 'udio', 'neon', 'craft',
   'adobe stock', 'onedrive', 'hinge preferred', 'feeld',
   'nintendo switch online', 'eve online omega', 'minecraft realms',
-  'financial times', 'the economist', 'wired', 'the information',
+  'the economist', 'wired', 'the information',
   'readly', 'les mills+', 'alo moves', 'waking up', 'hims', 'daily harvest',
-  "harry's", 'barkbox', 'onx maps', '酷狗音乐', '唯品会超级vip',
+  'barkbox', 'onx maps', '酷狗音乐', '唯品会超级vip',
   '讯飞星火', '丁香医生', '17live', 'melon', 'genie music',
   '요기요 yogiyo', 'simplilearn', 'osn+', 'dstv',
+  // Newly identified
+  'espn+', 'amazon music', 'scribd/everand', 'descript', 'synthesia', 'tuta',
+  'linkedin learning', 'masterclass', 'readwise', 'myfitnesspal premium',
+  'noom', 'rent the runway', 'motley fool', 'abema', 'wavve',
 ])
 
 // Aliases for Simple Icons lookup
@@ -867,7 +880,18 @@ export function findBrandIcon(name: string, slug?: string): BrandIcon {
     }
   }
 
-  // 3. Favicon: Google by default, DDG for known-better brands
+  // 3. Force letter fallback for services with no usable favicon
+  if (FORCE_LETTER[normalized]) {
+    return {
+      title: name,
+      svg: null,
+      hex: FORCE_LETTER[normalized],
+      faviconUrl: null,
+      letter,
+    }
+  }
+
+  // 4. Favicon: Google by default, DDG for known-better brands
   const domain = deriveDomain(name, slug ?? '')
   if (domain) {
     const useDDG = PREFER_DDG.has(normalized)
