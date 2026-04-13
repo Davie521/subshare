@@ -1,4 +1,4 @@
-import { eq, and, sql, inArray, isNull } from 'drizzle-orm'
+import { eq, and, sql, inArray, isNull, or, gte, lte } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from '@/db/schema'
 import { calculateShares } from './billing'
@@ -19,8 +19,12 @@ export function createSubscription(
     url?: string
     notes?: string
     categoryId?: number
+    startDate?: string // defaults to today; owner's addedAt matches this
   }
 ): { id: number; name: string; groupId: number | null } {
+  const today = new Date().toISOString().slice(0, 10)
+  const startDate = input.startDate ?? today
+
   const result = db
     .insert(schema.subscriptions)
     .values({
@@ -28,7 +32,7 @@ export function createSubscription(
       price: input.price,
       currency: input.currency,
       nextPayment: input.nextPayment,
-      startDate: input.nextPayment,
+      startDate,
       ownerId: input.ownerId,
       payerId: input.payerId ?? input.ownerId,
       groupId: input.groupId ?? null,
@@ -46,7 +50,7 @@ export function createSubscription(
       subscriptionId: result.id,
       userId: input.ownerId,
       addedBy: input.ownerId,
-      addedAt: new Date().toISOString().slice(0, 10),
+      addedAt: startDate,
     })
     .onConflictDoNothing()
     .run()
@@ -127,6 +131,44 @@ export function leaveSubscription(
       )
     )
     .run()
+}
+
+/**
+ * Active membership at a specific date. A member is active iff:
+ *   addedAt <= atDate  AND  (leftAt IS NULL OR leftAt >= atDate)
+ *
+ * The "leftAt >= atDate" convention treats the leave day as still-billable
+ * (last active day) — pre-paid model, member used the service that day.
+ */
+export function getActiveMembersAt(
+  db: DB,
+  subscriptionId: number,
+  atDate: string
+): Array<{
+  userId: number
+  addedAt: string
+  addedBy: number
+  leftAt: string | null
+}> {
+  return db
+    .select({
+      userId: schema.subscriptionMembers.userId,
+      addedAt: schema.subscriptionMembers.addedAt,
+      addedBy: schema.subscriptionMembers.addedBy,
+      leftAt: schema.subscriptionMembers.leftAt,
+    })
+    .from(schema.subscriptionMembers)
+    .where(
+      and(
+        eq(schema.subscriptionMembers.subscriptionId, subscriptionId),
+        lte(schema.subscriptionMembers.addedAt, atDate),
+        or(
+          isNull(schema.subscriptionMembers.leftAt),
+          gte(schema.subscriptionMembers.leftAt, atDate)
+        )
+      )
+    )
+    .all()
 }
 
 export function getMembersOfSubscription(

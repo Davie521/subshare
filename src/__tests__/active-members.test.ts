@@ -29,6 +29,7 @@ describe('T6 getActiveMembersAt', () => {
       price: 15000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
+      startDate: '2026-03-01', // A has been on this sub since March
       ownerId: a,
     })
     addMemberToSubscription(db, {
@@ -89,18 +90,14 @@ describe('T6 getActiveMembersAt', () => {
   })
 
   it('excludes members whose addedAt is AFTER atDate', () => {
-    const { a, b, sub } = setup3()
-    // March 20 — before anyone joined in April. But owner was added
-    // at subscription creation (today = the test date). Use the
-    // subscription's own creation date as a reference.
-    // Here we assert no member added AFTER the reference appears:
+    const { a, b, c, sub } = setup3()
+    // April 10 — A (joined Mar 1) and B (joined Apr 1) are in;
+    // C (joined Apr 15) is NOT in yet.
     const members = getActiveMembersAt(db, sub.id, '2026-04-10')
     const ids = members.map((m) => m.userId).sort()
-    // Only A (owner, addedAt=today ~fresh) and B (April 1) should appear;
-    // C was added on April 15 which is after April 10.
     expect(ids).toContain(a)
     expect(ids).toContain(b)
-    expect(ids).not.toContain(setup3().c)
+    expect(ids).not.toContain(c)
   })
 
   it('returns empty array when subscription has no members', () => {
