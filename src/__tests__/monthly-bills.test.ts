@@ -1,0 +1,247 @@
+import { describe, it, expect, beforeEach } from 'vitest'
+import type Database from 'better-sqlite3'
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import { setupTestDb, createUser } from './helpers'
+import * as schema from '@/db/schema'
+import {
+  createSubscription,
+  addMemberToSubscription,
+  leaveSubscription,
+  generateMonthlyBills,
+} from '@/lib/db-operations'
+
+/**
+ * T8 — R1 monthly cron.
+ *
+ * On the 1st of month M, for each shared sub, insert one billing_record
+ * per active non-payer member: amount = floor(price / memberCount),
+ * billing_date = '<M>-01', currency = sub.currency.
+ * Payer absorbs rounding remainder (by not being billed).
+ * Idempotent: re-running the same month doesn't duplicate.
+ */
+
+let db: BetterSQLite3Database<typeof schema>
+let sqlite: Database.Database
+
+beforeEach(() => {
+  const setup = setupTestDb()
+  db = setup.db
+  sqlite = setup.sqlite
+})
+
+function allBills(): Array<{
+  subscriptionId: number
+  userId: number
+  amount: number
+  currency: string
+  billingDate: string
+}> {
+  return sqlite
+    .prepare(
+      `SELECT subscription_id as subscriptionId, user_id as userId,
+              amount, currency, billing_date as billingDate
+       FROM billing_records ORDER BY user_id`
+    )
+    .all() as never
+}
+
+describe('T8 generateMonthlyBills (R1)', () => {
+  it('generates one bill per active non-payer member', () => {
+    const a = createUser(sqlite, { email: 'a@t.com' })
+    const b = createUser(sqlite, { email: 'b@t.com' })
+    const c = createUser(sqlite, { email: 'c@t.com' })
+    const sub = createSubscription(db, {
+      name: 'Netflix',
+      price: 15000, // ¥150
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-03-15',
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      addedBy: a,
+      addedAt: '2026-04-01',
+    })
+
+    const count = generateMonthlyBills(db, '2026-05')
+
+    const bills = allBills()
+    expect(count).toBe(2)
+    expect(bills).toHaveLength(2)
+
+    // n=3 (A,B,C), share = floor(15000/3) = 5000
+    for (const bill of bills) {
+      expect(bill.subscriptionId).toBe(sub.id)
+      expect(bill.amount).toBe(5000)
+      expect(bill.currency).toBe('CNY')
+      expect(bill.billingDate).toBe('2026-05-01')
+      expect(bill.userId).not.toBe(a) // payer excluded
+    }
+  })
+
+  it('skips members who left before month start', () => {
+    const a = createUser(sqlite, { email: 'a@t.com' })
+    const b = createUser(sqlite, { email: 'b@t.com' })
+    const c = createUser(sqlite, { email: 'c@t.com' })
+    const sub = createSubscription(db, {
+      name: 'Netflix',
+      price: 15000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-03-15',
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      addedBy: a,
+      addedAt: '2026-03-20',
+    })
+    // B leaves April 20. April 20 < May 1 → B excluded for May billing.
+    leaveSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      leftAt: '2026-04-20',
+    })
+
+    generateMonthlyBills(db, '2026-05')
+
+    const bills = allBills()
+    expect(bills.map((b) => b.userId)).toEqual([c])
+    // After B leaves, members = {A, C}. share = floor(15000/2) = 7500.
+    expect(bills[0].amount).toBe(7500)
+  })
+
+  it('skips members added after month start (R2 covers them)', () => {
+    const a = createUser(sqlite, { email: 'a@t.com' })
+    const b = createUser(sqlite, { email: 'b@t.com' })
+    const sub = createSubscription(db, {
+      name: 'Netflix',
+      price: 15000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    // B joins mid-May — not part of May 1 cron.
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-05-15',
+    })
+
+    generateMonthlyBills(db, '2026-05')
+
+    const bills = allBills()
+    expect(bills).toHaveLength(0)
+  })
+
+  it('is idempotent — running twice for the same month does not duplicate', () => {
+    const a = createUser(sqlite, { email: 'a@t.com' })
+    const b = createUser(sqlite, { email: 'b@t.com' })
+    const sub = createSubscription(db, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-03-10',
+    })
+
+    generateMonthlyBills(db, '2026-05')
+    generateMonthlyBills(db, '2026-05')
+
+    expect(allBills()).toHaveLength(1)
+  })
+
+  it('skips personal subs (no group_id AND only one member)', () => {
+    const a = createUser(sqlite)
+    createSubscription(db, {
+      name: 'Spotify',
+      price: 1500,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+
+    generateMonthlyBills(db, '2026-05')
+    expect(allBills()).toHaveLength(0)
+  })
+
+  it('skips inactive subscriptions', () => {
+    const a = createUser(sqlite, { email: 'a@t.com' })
+    const b = createUser(sqlite, { email: 'b@t.com' })
+    const sub = createSubscription(db, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-03-10',
+    })
+    sqlite
+      .prepare('UPDATE subscriptions SET inactive = 1 WHERE id = ?')
+      .run(sub.id)
+
+    generateMonthlyBills(db, '2026-05')
+    expect(allBills()).toHaveLength(0)
+  })
+
+  it('stores local_amount in each member preferred currency', () => {
+    const a = createUser(sqlite, { email: 'a@t.com', currency: 'USD' })
+    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
+    const sub = createSubscription(db, {
+      name: 'Netflix',
+      price: 1500, // $15.00 USD
+      currency: 'USD',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-03-10',
+    })
+
+    generateMonthlyBills(db, '2026-05', { USD_CNY: 7.2 })
+
+    const row = sqlite
+      .prepare(
+        `SELECT local_amount, local_currency FROM billing_records`
+      )
+      .get() as { local_amount: number; local_currency: string }
+    // share = floor(1500/2) = 750 cents. 750 * 7.2 = 5400.
+    expect(row.local_amount).toBe(5400)
+    expect(row.local_currency).toBe('CNY')
+  })
+})
