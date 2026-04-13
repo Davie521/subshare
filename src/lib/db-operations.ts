@@ -308,6 +308,100 @@ export function getGroupWithMembers(
   }
 }
 
+/**
+ * R1 monthly cron. On the 1st of month `yearMonth`, insert one billing_record
+ * per active non-payer member per shared subscription.
+ *
+ * A "shared" sub is any non-inactive sub that has more than one active member.
+ * Skips personal subs (no co-members) and inactive subs.
+ * Active members = getActiveMembersAt(sub.id, '<YYYY-MM>-01').
+ * Share = floor(price / activeMemberCount).
+ * Idempotent via UNIQUE(subscription_id, user_id, billing_date).
+ *
+ * @param yearMonth like '2026-05'
+ * @param rates optional FX map, keys like 'USD_CNY' → numeric rate
+ * @returns number of bills inserted
+ */
+export function generateMonthlyBills(
+  db: DB,
+  yearMonth: string,
+  rates: Record<string, number> = {}
+): number {
+  const billingDate = `${yearMonth}-01`
+
+  const subs = db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.inactive, 0))
+    .all()
+
+  let inserted = 0
+
+  for (const sub of subs) {
+    const members = getActiveMembersAt(db, sub.id, billingDate)
+    if (members.length < 2) continue // personal or empty
+
+    const nonPayers = members.filter((m) => m.userId !== sub.payerId)
+    if (nonPayers.length === 0) continue
+
+    const share = Math.floor(sub.price / members.length)
+
+    inserted += db.transaction((tx) => {
+      let count = 0
+      for (const member of nonPayers) {
+        const user = tx
+          .select({ preferredCurrency: schema.users.preferredCurrency })
+          .from(schema.users)
+          .where(eq(schema.users.id, member.userId))
+          .get()
+        if (!user) continue
+
+        const rate =
+          sub.currency === user.preferredCurrency
+            ? 1
+            : rates[`${sub.currency}_${user.preferredCurrency}`]
+        if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
+          throw new Error(
+            `Missing exchange rate for ${sub.currency}_${user.preferredCurrency}`
+          )
+        }
+
+        const localAmount = Math.floor(share * rate)
+
+        const existing = tx
+          .select({ id: schema.billingRecords.id })
+          .from(schema.billingRecords)
+          .where(
+            and(
+              eq(schema.billingRecords.subscriptionId, sub.id),
+              eq(schema.billingRecords.userId, member.userId),
+              eq(schema.billingRecords.billingDate, billingDate)
+            )
+          )
+          .get()
+        if (existing) continue
+
+        tx.insert(schema.billingRecords)
+          .values({
+            subscriptionId: sub.id,
+            userId: member.userId,
+            amount: share,
+            currency: sub.currency,
+            localAmount,
+            localCurrency: user.preferredCurrency,
+            exchangeRate: Math.round(rate * 1000000),
+            billingDate,
+          })
+          .run()
+        count++
+      }
+      return count
+    })
+  }
+
+  return inserted
+}
+
 export function generateAndSaveBillingRecords(
   db: DB,
   subscriptionId: number,
