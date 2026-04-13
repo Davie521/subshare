@@ -76,6 +76,19 @@ export function addMemberToSubscription(
     })
     .onConflictDoNothing()
     .run()
+
+  // Auto-create friendship between inviter and invitee (T7).
+  // Self-adds (owner-insert) produce no friendship.
+  if (input.addedBy !== input.userId) {
+    const [lo, hi] =
+      input.addedBy < input.userId
+        ? [input.addedBy, input.userId]
+        : [input.userId, input.addedBy]
+    db.insert(schema.friendships)
+      .values({ userAId: lo, userBId: hi })
+      .onConflictDoNothing()
+      .run()
+  }
 }
 
 /**
