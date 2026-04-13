@@ -91,21 +91,28 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
     const { a, b, c, sub } = setup3()
     changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
+    const priceNotifsFor = (uid: number) =>
+      listNotifications(db, uid).filter((n) => n.type === 'price_changed')
+
     // Only B and C receive — A is payer.
-    expect(listNotifications(db, a)).toHaveLength(0)
-    expect(listNotifications(db, b)).toHaveLength(1)
-    expect(listNotifications(db, c)).toHaveLength(1)
+    expect(priceNotifsFor(a)).toHaveLength(0)
+    expect(priceNotifsFor(b)).toHaveLength(1)
+    expect(priceNotifsFor(c)).toHaveLength(1)
 
     for (const recipient of [b, c]) {
-      const n = listNotifications<{
-        sub_name: string
-        old_price: number
-        new_price: number
-        old_share: number
-        new_share: number
-        delta: number
-        effective_from: string
-      }>(db, recipient)[0]
+      const n = priceNotifsFor(recipient)[0] as {
+        type: string
+        subscriptionId: number | null
+        payload: {
+          sub_name: string
+          old_price: number
+          new_price: number
+          old_share: number
+          new_share: number
+          delta: number
+          effective_from: string
+        }
+      }
       expect(n.type).toBe('price_changed')
       expect(n.subscriptionId).toBe(sub.id)
       expect(n.payload.sub_name).toBe('Netflix')
@@ -136,8 +143,10 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
   it('does not emit notification when new price equals old', () => {
     const { a, b, sub } = setup3()
     changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 15000 })
-    expect(listNotifications(db, a)).toHaveLength(0)
-    expect(listNotifications(db, b)).toHaveLength(0)
+    const priceNotifsFor = (uid: number) =>
+      listNotifications(db, uid).filter((n) => n.type === 'price_changed')
+    expect(priceNotifsFor(a)).toHaveLength(0)
+    expect(priceNotifsFor(b)).toHaveLength(0)
   })
 
   it('rejects negative or non-numeric price', () => {

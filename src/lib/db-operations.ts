@@ -455,6 +455,75 @@ export function getGroupWithMembers(
  * @param rates optional FX map, keys like 'USD_CNY' → numeric rate
  * @returns number of bills inserted
  */
+/**
+ * T12 — change the price of a subscription (R5 non-retroactive).
+ *
+ * Updates subscriptions.price only. Does NOT touch any existing
+ * billing_records. Emits one price_changed notification to each active
+ * non-payer member with old/new price, old/new share, delta, and the
+ * first billing date the new price takes effect (YYYY-MM-01 of next month).
+ */
+export function changeSubscriptionPrice(
+  db: DB,
+  input: { subscriptionId: number; newPrice: number }
+): void {
+  if (
+    typeof input.newPrice !== 'number' ||
+    !Number.isFinite(input.newPrice) ||
+    input.newPrice < 0
+  ) {
+    throw new Error('newPrice must be a non-negative number')
+  }
+
+  const sub = db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, input.subscriptionId))
+    .get()
+  if (!sub) throw new Error('Subscription not found')
+
+  const oldPrice = sub.price
+  if (oldPrice === input.newPrice) return
+
+  db.update(schema.subscriptions)
+    .set({ price: input.newPrice })
+    .where(eq(schema.subscriptions.id, input.subscriptionId))
+    .run()
+
+  const today = new Date().toISOString().slice(0, 10)
+  const members = getActiveMembersAt(db, input.subscriptionId, today)
+  const nonPayers = members.filter((m) => m.userId !== sub.payerId)
+  if (nonPayers.length === 0) return
+
+  const n = members.length
+  const oldShare = calculateShares(oldPrice, n)
+  const newShare = calculateShares(input.newPrice, n)
+
+  const [yy, mm] = today.split('-').map(Number)
+  const effectiveFrom =
+    mm === 12
+      ? `${yy + 1}-01-01`
+      : `${yy}-${String(mm + 1).padStart(2, '0')}-01`
+
+  for (const m of nonPayers) {
+    insertNotification(db, {
+      userId: m.userId,
+      type: 'price_changed',
+      subscriptionId: input.subscriptionId,
+      payload: {
+        sub_name: sub.name,
+        currency: sub.currency,
+        old_price: oldPrice,
+        new_price: input.newPrice,
+        old_share: oldShare,
+        new_share: newShare,
+        delta: newShare - oldShare,
+        effective_from: effectiveFrom,
+      },
+    })
+  }
+}
+
 export function generateMonthlyBills(
   db: DB,
   yearMonth: string,
