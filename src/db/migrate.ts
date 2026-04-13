@@ -1,4 +1,4 @@
-import type Database from 'better-sqlite3'
+import Database from 'better-sqlite3'
 
 /** Run migrations on a SQLite database instance */
 export function migrate(sqlite: Database.Database) {
@@ -139,6 +139,7 @@ export function migrate(sqlite: Database.Database) {
     )
   }
   if (!hasColumn('subscriptions', 'payer_id')) {
+    // pre-existing live DB path: add without NOT NULL, backfill, move on.
     // Add as nullable first, backfill, then enforce via application layer.
     // (SQLite cannot retroactively add NOT NULL without a default, and we
     // don't want a placeholder user id polluting the data.)
@@ -152,4 +153,98 @@ export function migrate(sqlite: Database.Database) {
       WHERE payer_id IS NULL
     `)
   }
+}
+
+/**
+ * T15 — backfill subscription_members and friendships from legacy
+ * groups/group_members structures. Idempotent.
+ *
+ * Rules:
+ *  - Each (sub with group_id, group member) → subscription_members row
+ *    with addedAt = group_members.joined_at (or today if missing),
+ *    addedBy = groups.created_by.
+ *  - Personal sub (no group_id) that lacks any subscription_members row
+ *    → insert owner as sole member.
+ *  - For each (group member != group.created_by) → friendship
+ *    (min, max) between creator and member.
+ *
+ * Returns the number of subscription_members rows that were newly inserted
+ * (useful for scripts that want to report progress).
+ */
+export function backfillFromGroups(sqlite: Database.Database): number {
+  let insertedMembers = 0
+
+  const today = new Date().toISOString().slice(0, 10)
+
+  // Step 1 — shared subscriptions.
+  const sharedPairs = sqlite
+    .prepare(
+      `
+      SELECT s.id AS sub_id,
+             gm.user_id AS user_id,
+             COALESCE(gm.joined_at, ?) AS added_at,
+             g.created_by AS added_by
+      FROM subscriptions s
+      INNER JOIN groups g ON g.id = s.group_id
+      INNER JOIN group_members gm ON gm.group_id = g.id
+      `
+    )
+    .all(today) as Array<{
+    sub_id: number
+    user_id: number
+    added_at: string
+    added_by: number
+  }>
+
+  const insertMember = sqlite.prepare(
+    `INSERT OR IGNORE INTO subscription_members
+     (subscription_id, user_id, added_at, added_by) VALUES (?, ?, ?, ?)`
+  )
+
+  for (const p of sharedPairs) {
+    const res = insertMember.run(p.sub_id, p.user_id, p.added_at, p.added_by)
+    insertedMembers += Number(res.changes)
+  }
+
+  // Step 2 — personal subscriptions without a member row.
+  const orphans = sqlite
+    .prepare(
+      `
+      SELECT s.id AS sub_id, s.owner_id AS owner_id, COALESCE(s.start_date, ?) AS start
+      FROM subscriptions s
+      WHERE s.group_id IS NULL
+        AND NOT EXISTS (
+          SELECT 1 FROM subscription_members m WHERE m.subscription_id = s.id
+        )
+      `
+    )
+    .all(today) as Array<{ sub_id: number; owner_id: number; start: string }>
+
+  for (const o of orphans) {
+    const res = insertMember.run(o.sub_id, o.owner_id, o.start, o.owner_id)
+    insertedMembers += Number(res.changes)
+  }
+
+  // Step 3 — friendships between group creator and each other member.
+  const pairs = sqlite
+    .prepare(
+      `
+      SELECT DISTINCT g.created_by AS creator, gm.user_id AS member
+      FROM groups g INNER JOIN group_members gm ON gm.group_id = g.id
+      WHERE gm.user_id != g.created_by
+      `
+    )
+    .all() as Array<{ creator: number; member: number }>
+
+  const insertFriendship = sqlite.prepare(
+    `INSERT OR IGNORE INTO friendships (user_a_id, user_b_id) VALUES (?, ?)`
+  )
+
+  for (const p of pairs) {
+    const [lo, hi] =
+      p.creator < p.member ? [p.creator, p.member] : [p.member, p.creator]
+    insertFriendship.run(lo, hi)
+  }
+
+  return insertedMembers
 }
