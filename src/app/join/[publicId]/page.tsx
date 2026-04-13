@@ -9,18 +9,27 @@ import { api } from "@/lib/api-client";
 export default function JoinPage() {
   const params = useParams();
   const router = useRouter();
-  const publicId = params.publicId as string;
+  const rawPublicId = params.publicId as string;
+  const publicId = /^[A-Za-z0-9_-]{1,32}$/.test(rawPublicId) ? rawPublicId : "";
   const [status, setStatus] = useState<"loading" | "ready" | "joining" | "error">("loading");
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (!publicId) {
+      router.replace("/login");
+      return;
+    }
     api.me().then((res) => {
-      if (res.error) {
-        // Not logged in — redirect to login, then come back
+      if (res.data) {
+        setStatus("ready");
+        return;
+      }
+      if (res.status === 401) {
         router.push(`/login?redirect=/join/${publicId}`);
         return;
       }
-      setStatus("ready");
+      setError(res.error || "Couldn't verify session");
+      setStatus("error");
     });
   }, [publicId, router]);
 

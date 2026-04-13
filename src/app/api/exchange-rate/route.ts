@@ -1,10 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/api-utils'
-import { exchangeRateSchema, frankfurterResponseSchema } from '@/lib/validators'
+import { exchangeRateSchema } from '@/lib/validators'
+import { checkRateLimit } from '@/lib/rate-limit'
+import { getRate } from '@/lib/fx-cache'
 
 export async function GET(req: NextRequest) {
   const auth = await requireAuth()
   if (auth instanceof NextResponse) return auth
+
+  if (!checkRateLimit(`fx:${auth.userId}`, 30, 60_000)) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+  }
 
   const from = req.nextUrl.searchParams.get('from')
   const to = req.nextUrl.searchParams.get('to')
@@ -14,27 +20,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid currency code' }, { status: 400 })
   }
 
-  if (parsed.data.from === parsed.data.to) {
-    return NextResponse.json({ rate: 1 })
-  }
-
-  try {
-    const res = await fetch(
-      `https://api.frankfurter.dev/v1/latest?base=${parsed.data.from}&symbols=${parsed.data.to}`,
-      { signal: AbortSignal.timeout(5000) }
-    )
-    const body = frankfurterResponseSchema.safeParse(await res.json())
-    if (!body.success) {
-      return NextResponse.json({ error: 'Invalid upstream response' }, { status: 502 })
-    }
-    const rate = body.data.rates[parsed.data.to]
-
-    if (!rate) {
-      return NextResponse.json({ error: 'Rate not available' }, { status: 404 })
-    }
-
-    return NextResponse.json({ from: parsed.data.from, to: parsed.data.to, rate })
-  } catch {
+  const rate = await getRate(parsed.data.from, parsed.data.to)
+  if (rate === null) {
     return NextResponse.json({ error: 'Failed to fetch exchange rate' }, { status: 502 })
   }
+
+  return NextResponse.json({ from: parsed.data.from, to: parsed.data.to, rate })
 }

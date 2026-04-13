@@ -25,7 +25,11 @@ export const createSubscriptionSchema = z.object({
   currency: z.enum(CURRENCIES),
   nextPayment: z.string().regex(DATE_REGEX, 'Must be YYYY-MM-DD'),
   groupId: z.number().int().positive().optional(),
-  logo: z.string().max(500).optional(),
+  logo: z
+    .string()
+    .max(500)
+    .regex(/^(https?:\/\/|\/icons\/)/, 'Logo must be an http(s) URL or /icons/ path')
+    .optional(),
   url: z.string().url().max(500).optional().or(z.literal('')),
   notes: z.string().max(1000).optional(),
   categoryId: z.number().int().positive().optional(),

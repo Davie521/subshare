@@ -4,7 +4,7 @@ const REQUEST_TIMEOUT_MS = 10_000;
 async function request<T>(
   path: string,
   opts?: RequestInit
-): Promise<{ data?: T; error?: string }> {
+): Promise<{ data?: T; error?: string; status?: number }> {
   try {
     const res = await fetch(`${BASE}${path}`, {
       headers: { "Content-Type": "application/json" },
@@ -14,8 +14,8 @@ async function request<T>(
       ...opts,
     });
     const json = await res.json();
-    if (!res.ok) return { error: json.error || "Request failed" };
-    return { data: json as T };
+    if (!res.ok) return { error: json.error || "Request failed", status: res.status };
+    return { data: json as T, status: res.status };
   } catch (err) {
     if (err instanceof DOMException && err.name === "TimeoutError") {
       return { error: "Request timed out" };

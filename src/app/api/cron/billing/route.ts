@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { eq, and, sql } from 'drizzle-orm'
+import { eq, and, sql, inArray } from 'drizzle-orm'
 import { getDb } from '@/db'
 import * as schema from '@/db/schema'
 import { generateAndSaveBillingRecords } from '@/lib/db-operations'
+import { getRate } from '@/lib/fx-cache'
 
 const CRON_SECRET = process.env.CRON_SECRET
 
@@ -38,11 +39,12 @@ export async function POST(req: NextRequest) {
     )
     .all()
 
+  const rates = await fetchRequiredRates(db, dueSubs)
+
   let totalGenerated = 0
 
   for (const sub of dueSubs) {
-    // Generate billing records for current period
-    const count = generateAndSaveBillingRecords(db, sub.id)
+    const count = generateAndSaveBillingRecords(db, sub.id, rates)
     totalGenerated += count
 
     // Advance next_payment by one month
@@ -63,4 +65,53 @@ export async function POST(req: NextRequest) {
     processed: dueSubs.length,
     billsGenerated: totalGenerated,
   })
+}
+
+type Sub = typeof schema.subscriptions.$inferSelect
+
+async function fetchRequiredRates(
+  db: ReturnType<typeof getDb>,
+  subs: Sub[]
+): Promise<Record<string, number>> {
+  const groupIds = Array.from(
+    new Set(subs.map((s) => s.groupId).filter((g): g is number => g !== null))
+  )
+  if (groupIds.length === 0) return {}
+
+  const memberCurrencies = db
+    .select({
+      groupId: schema.groupMembers.groupId,
+      preferredCurrency: schema.users.preferredCurrency,
+    })
+    .from(schema.groupMembers)
+    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
+    .where(inArray(schema.groupMembers.groupId, groupIds))
+    .all()
+
+  const byGroup = new Map<number, Set<string>>()
+  for (const row of memberCurrencies) {
+    const s = byGroup.get(row.groupId) ?? new Set<string>()
+    s.add(row.preferredCurrency)
+    byGroup.set(row.groupId, s)
+  }
+
+  const pairs = new Set<string>()
+  for (const sub of subs) {
+    if (sub.groupId === null) continue
+    const currencies = byGroup.get(sub.groupId)
+    if (!currencies) continue
+    for (const to of currencies) {
+      if (to !== sub.currency) pairs.add(`${sub.currency}_${to}`)
+    }
+  }
+
+  const rates: Record<string, number> = {}
+  await Promise.all(
+    Array.from(pairs).map(async (key) => {
+      const [from, to] = key.split('_')
+      const rate = await getRate(from, to)
+      if (rate !== null) rates[key] = rate
+    })
+  )
+  return rates
 }

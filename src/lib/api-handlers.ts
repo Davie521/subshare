@@ -12,7 +12,7 @@ import {
   removeGroupMember,
 } from './db-operations'
 import { calculateMonthlySpending } from './billing'
-import { frankfurterResponseSchema } from './validators'
+import { getRate } from './fx-cache'
 
 type DB = BetterSQLite3Database<typeof schema>
 type Result<T = unknown> =
@@ -144,7 +144,7 @@ export function handleDeleteGroup(
   return { success: true }
 }
 
-export function handleCreateSubscription(
+export async function handleCreateSubscription(
   db: DB,
   userId: number,
   input: {
@@ -158,8 +158,7 @@ export function handleCreateSubscription(
     notes?: string
     categoryId?: number
   }
-): Result<{ id: number; name: string; groupId: number | null }> {
-  // If groupId provided, verify user is a member
+): Promise<Result<{ id: number; name: string; groupId: number | null }>> {
   if (input.groupId) {
     const membership = db
       .select()
@@ -178,12 +177,39 @@ export function handleCreateSubscription(
 
   const sub = createSubscription(db, { ...input, ownerId: userId })
 
-  // Generate initial billing records for shared subscriptions
   if (sub.groupId) {
-    generateAndSaveBillingRecords(db, sub.id)
+    const rates = await fetchRatesForGroup(db, sub.groupId, input.currency)
+    generateAndSaveBillingRecords(db, sub.id, rates)
   }
 
   return { success: true, data: sub }
+}
+
+async function fetchRatesForGroup(
+  db: DB,
+  groupId: number,
+  subCurrency: string
+): Promise<Record<string, number>> {
+  const memberCurrencies = db
+    .select({ preferredCurrency: schema.users.preferredCurrency })
+    .from(schema.groupMembers)
+    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
+    .where(eq(schema.groupMembers.groupId, groupId))
+    .all()
+
+  const targets = new Set(
+    memberCurrencies
+      .map((m) => m.preferredCurrency)
+      .filter((c) => c !== subCurrency)
+  )
+  const rates: Record<string, number> = {}
+  await Promise.all(
+    Array.from(targets).map(async (to) => {
+      const rate = await getRate(subCurrency, to)
+      if (rate !== null) rates[`${subCurrency}_${to}`] = rate
+    })
+  )
+  return rates
 }
 
 export function handleUpdateSubscription(
@@ -322,21 +348,10 @@ export async function handleGetDashboard(
       .map((s) => s.currency)
   )
 
-  // Fetch all rates in parallel
   await Promise.all(
     [...foreignCurrencies].map(async (cur) => {
-      try {
-        const res = await fetch(
-          `https://api.frankfurter.dev/v1/latest?base=${cur}&symbols=${preferredCurrency}`,
-          { signal: AbortSignal.timeout(3000) }
-        )
-        const body = frankfurterResponseSchema.safeParse(await res.json())
-        if (!body.success) return
-        const rate = body.data.rates[preferredCurrency]
-        if (rate) rates[`${cur}_${preferredCurrency}`] = rate
-      } catch {
-        // If rate fetch fails, skip — calculateMonthlySpending will use 1 as fallback
-      }
+      const rate = await getRate(cur, preferredCurrency)
+      if (rate !== null) rates[`${cur}_${preferredCurrency}`] = rate
     })
   )
 

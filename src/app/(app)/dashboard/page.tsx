@@ -33,13 +33,21 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [markPaidError, setMarkPaidError] = useState<number | null>(null);
 
+  const [loadError, setLoadError] = useState<string | null>(null);
+
   useEffect(() => {
     api.dashboard().then((res) => {
-      if (res.error) {
+      if (res.data) {
+        setData(res.data);
+        setLoadError(null);
+        setLoading(false);
+        return;
+      }
+      if (res.status === 401) {
         router.push("/login");
         return;
       }
-      setData(res.data!);
+      setLoadError(res.error || "Failed to load");
       setLoading(false);
     });
   }, [router]);
@@ -51,6 +59,20 @@ export default function DashboardPage() {
     if (h < 18) return "Good afternoon";
     return "Good evening";
   }, []);
+
+  if (loadError && !data) {
+    return (
+      <div className="space-y-6 max-w-md">
+        <div className="space-y-1.5">
+          <h1 className="text-[24px] font-bold tracking-[-0.022em]">
+            Couldn&apos;t load dashboard
+          </h1>
+          <p className="text-sm text-muted-foreground">{loadError}</p>
+        </div>
+        <Button onClick={() => window.location.reload()}>Retry</Button>
+      </div>
+    );
+  }
 
   if (loading || !data) {
     return (

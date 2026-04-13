@@ -15,7 +15,6 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
-    "@auth/drizzle-adapter": "^1.11.1",
     "@base-ui/react": "^1.3.0",
     "bcryptjs": "^3.0.3",
     "better-sqlite3": "^12.8.0",
@@ -25,7 +24,6 @@
     "lucide-react": "^1.8.0",
     "nanoid": "^5.1.7",
     "next": "16.2.3",
-    "next-auth": "^4.24.13",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "shadcn": "^4.2.0",

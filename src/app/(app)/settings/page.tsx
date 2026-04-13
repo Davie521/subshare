@@ -19,11 +19,14 @@ export default function SettingsPage() {
 
   useEffect(() => {
     api.me().then((res) => {
-      if (res.error) {
-        router.push("/login");
+      if (res.data) {
+        setUser(res.data);
         return;
       }
-      if (res.data) setUser(res.data);
+      if (res.status === 401) {
+        router.push("/login");
+      }
+      // Other errors: keep skeleton — user stays on page, next navigation retries.
     });
   }, [router]);
 

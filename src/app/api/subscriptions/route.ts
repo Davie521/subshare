@@ -23,7 +23,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
   }
 
-  const result = handleCreateSubscription(db, userId, parsed.data)
+  const result = await handleCreateSubscription(db, userId, parsed.data)
   if (!result.success) return NextResponse.json({ error: result.error }, { status: 400 })
   return NextResponse.json(result.data, { status: 201 })
 }

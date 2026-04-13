@@ -218,9 +218,9 @@ describe('handleDeleteGroup', () => {
 // --- Subscriptions ---
 
 describe('handleCreateSubscription', () => {
-  it('creates personal subscription', () => {
+  it('creates personal subscription', async () => {
     const userId = createUser(sqlite)
-    const result = handleCreateSubscription(db, userId, {
+    const result = await handleCreateSubscription(db, userId, {
       name: 'Spotify',
       price: 1500,
       currency: 'CNY',
@@ -230,11 +230,11 @@ describe('handleCreateSubscription', () => {
     expect(result.data!.groupId).toBeNull()
   })
 
-  it('creates shared subscription in a group', () => {
+  it('creates shared subscription in a group', async () => {
     const userId = createUser(sqlite)
     const group = createGroup(sqlite, { createdBy: userId })
 
-    const result = handleCreateSubscription(db, userId, {
+    const result = await handleCreateSubscription(db, userId, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
@@ -245,12 +245,12 @@ describe('handleCreateSubscription', () => {
     expect(result.data!.groupId).toBe(group.id)
   })
 
-  it('rejects adding to group user is not member of', () => {
+  it('rejects adding to group user is not member of', async () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
     const group = createGroup(sqlite, { createdBy: userA })
 
-    const result = handleCreateSubscription(db, userB, {
+    const result = await handleCreateSubscription(db, userB, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
