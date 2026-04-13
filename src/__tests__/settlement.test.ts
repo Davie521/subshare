@@ -40,6 +40,8 @@ describe('T16 getSettlementSummary', () => {
 
   it('reports net when only I owe (one direction)', () => {
     // A hosts Netflix, B owes A.
+    // B joins May 1 (day 1, 31 days) → R2 generates a full-month bill
+    // (5000). The May 1 monthly cron sees it exists and is a no-op.
     const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
     const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
     const sub = createSubscription(db, {
@@ -54,7 +56,7 @@ describe('T16 getSettlementSummary', () => {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01',
     })
     generateMonthlyBills(db, '2026-05')
 
@@ -83,7 +85,7 @@ describe('T16 getSettlementSummary', () => {
       subscriptionId: sub1.id,
       userId: b,
       addedBy: a,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01',
     })
     // B hosts Spotify → A owes B 5000
     const sub2 = createSubscription(db, {
@@ -98,7 +100,7 @@ describe('T16 getSettlementSummary', () => {
       subscriptionId: sub2.id,
       userId: a,
       addedBy: b,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01',
     })
     generateMonthlyBills(db, '2026-05')
 
@@ -123,7 +125,7 @@ describe('T16 getSettlementSummary', () => {
       subscriptionId: sub1.id,
       userId: b,
       addedBy: a,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01',
     })
     const sub2 = createSubscription(db, {
       name: 'Spotify',
@@ -137,7 +139,7 @@ describe('T16 getSettlementSummary', () => {
       subscriptionId: sub2.id,
       userId: a,
       addedBy: b,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01',
     })
     generateMonthlyBills(db, '2026-05')
 
@@ -166,7 +168,7 @@ describe('T16 getSettlementSummary', () => {
       subscriptionId: sub1.id,
       userId: b,
       addedBy: a,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01',
     })
     const sub2 = createSubscription(db, {
       name: 'Spotify',
@@ -180,7 +182,7 @@ describe('T16 getSettlementSummary', () => {
       subscriptionId: sub2.id,
       userId: a,
       addedBy: b,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01',
     })
     generateMonthlyBills(db, '2026-05', { CNY_USD: 0.14, USD_CNY: 7.2 })
 
@@ -207,7 +209,7 @@ describe('T16 markPairSettled', () => {
       subscriptionId: sub1.id,
       userId: b,
       addedBy: a,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01',
     })
     const sub2 = createSubscription(db, {
       name: 'Spotify',
@@ -221,7 +223,7 @@ describe('T16 markPairSettled', () => {
       subscriptionId: sub2.id,
       userId: a,
       addedBy: b,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01',
     })
     generateMonthlyBills(db, '2026-05')
     return { a, b }
@@ -257,12 +259,12 @@ describe('T16 markPairSettled', () => {
 
   it('currency scoping — leaves other-currency bills untouched', () => {
     const { a, b } = pair()
-    // Add a USD bill between A and B manually.
+    // Add a USD bill between A and B manually on a different billing_date.
     sqlite
       .prepare(
         `INSERT INTO billing_records
          (subscription_id, user_id, amount, currency, local_amount, local_currency, exchange_rate, billing_date)
-         SELECT id, ?, 500, 'USD', 500, 'USD', 1000000, '2026-05-01'
+         SELECT id, ?, 500, 'USD', 500, 'USD', 1000000, '2026-06-01'
          FROM subscriptions LIMIT 1`
       )
       .run(b)
@@ -292,13 +294,12 @@ describe('T16 markPairSettled', () => {
       subscriptionId: sub3.id,
       userId: c,
       addedBy: a,
-      addedAt: '2026-03-10',
+      addedAt: '2026-05-01', // day 1 of May → one full-month R2 bill, no R1 dup
     })
-    generateMonthlyBills(db, '2026-05')
 
     markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
 
-    // C's bill to A should remain unpaid.
+    // C's one unpaid bill to A should remain unpaid.
     const cUnpaid = sqlite
       .prepare(
         `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = 0 AND user_id = ?`
