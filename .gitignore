@@ -47,3 +47,11 @@ next-env.d.ts
 
 # build-time generated icons
 /public/icons
+
+# planning / scratch (not shipped)
+task_plan.md
+findings.md
+progress.md
+
+# playwright-mcp artifacts (local dev only)
+.playwright-mcp/

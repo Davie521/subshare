@@ -1,4 +1,5 @@
 const BASE = "";
+const REQUEST_TIMEOUT_MS = 10_000;
 
 async function request<T>(
   path: string,
@@ -7,12 +8,16 @@ async function request<T>(
   try {
     const res = await fetch(`${BASE}${path}`, {
       headers: { "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       ...opts,
     });
     const json = await res.json();
     if (!res.ok) return { error: json.error || "Request failed" };
     return { data: json as T };
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") {
+      return { error: "Request timed out" };
+    }
     return { error: "Network error" };
   }
 }
@@ -24,6 +29,7 @@ export const api = {
   login: (body: { email: string; password: string }) =>
     request("/api/auth/login", { method: "POST", body: JSON.stringify(body) }),
   me: () => request<{ id: number; name: string; email: string; preferredCurrency: string; monthlyBudget: number | null }>("/api/auth/me"),
+  logout: () => request("/api/auth/logout", { method: "POST" }),
 
   // Dashboard
   dashboard: () =>
