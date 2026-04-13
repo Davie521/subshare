@@ -2,6 +2,7 @@ import { eq, and, sql, inArray, isNull, or, gte, lte } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from '@/db/schema'
 import { calculateShares, calculateJoinProRata } from './billing'
+import { insertNotification } from './notifications'
 
 type DB = BetterSQLite3Database<typeof schema>
 
@@ -67,6 +68,19 @@ export function addMemberToSubscription(
     addedAt: string // ISO date YYYY-MM-DD
   }
 ): void {
+  // Detect whether this is a genuine new insert vs. a no-op re-add.
+  const existingMember = db
+    .select({ userId: schema.subscriptionMembers.userId })
+    .from(schema.subscriptionMembers)
+    .where(
+      and(
+        eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
+        eq(schema.subscriptionMembers.userId, input.userId)
+      )
+    )
+    .get()
+  const isNewMember = !existingMember
+
   db.insert(schema.subscriptionMembers)
     .values({
       subscriptionId: input.subscriptionId,
@@ -167,6 +181,47 @@ export function addMemberToSubscription(
       billingDate: canonicalAddedAt,
     })
     .run()
+
+  // T11 — added_to_sub notification (only on first-time insert).
+  if (isNewMember) {
+    const inviter = db
+      .select({
+        name: schema.users.name,
+        displayName: schema.users.displayName,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, input.addedBy))
+      .get()
+    const payer = db
+      .select({
+        name: schema.users.name,
+        displayName: schema.users.displayName,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, sub.payerId))
+      .get()
+
+    const [yy, mm] = canonicalAddedAt.split('-').map(Number)
+    const nextBillingDate =
+      mm === 12
+        ? `${yy + 1}-01-01`
+        : `${yy}-${String(mm + 1).padStart(2, '0')}-01`
+
+    insertNotification(db, {
+      userId: input.userId,
+      type: 'added_to_sub',
+      subscriptionId: input.subscriptionId,
+      payload: {
+        sub_name: sub.name,
+        actor_name: inviter?.displayName || inviter?.name || 'Someone',
+        payer_name: payer?.displayName || payer?.name || 'Payer',
+        share,
+        share_currency: sub.currency,
+        this_cycle_prorated: amount,
+        next_billing_date: nextBillingDate,
+      },
+    })
+  }
 }
 
 /**
