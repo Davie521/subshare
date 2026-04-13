@@ -74,6 +74,61 @@ export function addMemberToSubscription(
     .run()
 }
 
+/**
+ * Remove a member from a subscription. Sets left_at on the membership row.
+ * Generates NO billing records (R3 — pre-paid, no refund).
+ * Rejects when the leaving user is the payer (R7) — transfer first.
+ * Idempotent: re-calling on an already-left member is a no-op (keeps
+ * the original leftAt so accounting history is stable).
+ */
+export function leaveSubscription(
+  db: DB,
+  input: {
+    subscriptionId: number
+    userId: number
+    leftAt: string // ISO date YYYY-MM-DD
+  }
+): void {
+  const sub = db
+    .select({ payerId: schema.subscriptions.payerId })
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, input.subscriptionId))
+    .get()
+
+  if (!sub) throw new Error('Subscription not found')
+
+  if (sub.payerId === input.userId) {
+    throw new Error(
+      'Payer cannot leave — transfer payer to another member first'
+    )
+  }
+
+  const row = db
+    .select({ leftAt: schema.subscriptionMembers.leftAt })
+    .from(schema.subscriptionMembers)
+    .where(
+      and(
+        eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
+        eq(schema.subscriptionMembers.userId, input.userId)
+      )
+    )
+    .get()
+
+  if (!row) throw new Error('User is not a member of this subscription')
+
+  if (row.leftAt !== null) return // idempotent
+
+  db.update(schema.subscriptionMembers)
+    .set({ leftAt: input.leftAt })
+    .where(
+      and(
+        eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
+        eq(schema.subscriptionMembers.userId, input.userId)
+      )
+    )
+    .run()
+}
+
 export function getMembersOfSubscription(
   db: DB,
   subscriptionId: number
