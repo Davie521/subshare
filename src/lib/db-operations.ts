@@ -237,10 +237,17 @@ export function leaveSubscription(
     subscriptionId: number
     userId: number
     leftAt: string // ISO date YYYY-MM-DD
+    actorId?: number // defaults to userId (self-leave)
   }
 ): void {
+  const actorId = input.actorId ?? input.userId
+  const isKick = actorId !== input.userId
+
   const sub = db
-    .select({ payerId: schema.subscriptions.payerId })
+    .select({
+      name: schema.subscriptions.name,
+      payerId: schema.subscriptions.payerId,
+    })
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, input.subscriptionId))
     .get()
@@ -277,6 +284,26 @@ export function leaveSubscription(
       )
     )
     .run()
+
+  if (isKick) {
+    const actor = db
+      .select({
+        name: schema.users.name,
+        displayName: schema.users.displayName,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, actorId))
+      .get()
+    insertNotification(db, {
+      userId: input.userId,
+      type: 'removed_from_sub',
+      subscriptionId: input.subscriptionId,
+      payload: {
+        sub_name: sub.name,
+        actor_name: actor?.displayName || actor?.name || 'Someone',
+      },
+    })
+  }
 }
 
 /**
