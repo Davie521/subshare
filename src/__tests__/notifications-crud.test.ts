@@ -3,6 +3,7 @@ import type Database from 'better-sqlite3'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
+import { createSubscription } from '@/lib/db-operations'
 import {
   insertNotification,
   listNotifications,
@@ -102,14 +103,21 @@ describe('T10 notifications CRUD', () => {
 
   it('supports subscriptionId link for drill-through', () => {
     const u = createUser(sqlite)
+    const sub = createSubscription(db, {
+      name: 'Netflix',
+      price: 1000,
+      currency: 'CNY',
+      nextPayment: '2026-05-01',
+      ownerId: u,
+    })
     insertNotification(db, {
       userId: u,
       type: 'added_to_sub',
-      subscriptionId: 999,
+      subscriptionId: sub.id,
       payload: {},
     })
 
     const rows = listNotifications(db, u)
-    expect(rows[0].subscriptionId).toBe(999)
+    expect(rows[0].subscriptionId).toBe(sub.id)
   })
 })
