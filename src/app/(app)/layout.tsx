@@ -1,6 +1,7 @@
 import { SidebarNav } from "@/components/sidebar-nav";
 import { BottomNav } from "@/components/bottom-nav";
 import { MobileHeader } from "@/components/mobile-header";
+import { Fab } from "@/components/fab";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
@@ -13,10 +14,13 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main content */}
       <main className="lg:pl-60">
-        <div className="max-w-3xl mx-auto px-4 py-6 lg:px-8 lg:py-8 pb-20 lg:pb-8">
+        <div className="max-w-5xl mx-auto px-4 py-6 lg:px-10 lg:py-10 pb-24 lg:pb-16">
           {children}
         </div>
       </main>
+
+      {/* Floating action button — persistent CTA */}
+      <Fab />
 
       {/* Mobile bottom nav */}
       <BottomNav />
