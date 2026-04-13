@@ -30,14 +30,17 @@ function NewSubscriptionFlow() {
   const presetGroupId = searchParams.get("groupId");
   const [step, setStep] = useState<Step>("pick");
   const [selected, setSelected] = useState<ServiceTemplate | null>(null);
+  const [customName, setCustomName] = useState("");
 
   function handleSelectService(service: ServiceTemplate) {
     setSelected(service);
+    setCustomName("");
     setStep("form");
   }
 
-  function handleCustom() {
+  function handleCustom(initialName = "") {
     setSelected(null);
+    setCustomName(initialName);
     setStep("form");
   }
 
@@ -48,6 +51,7 @@ function NewSubscriptionFlow() {
   return (
     <SubscriptionForm
       service={selected}
+      initialName={customName}
       presetGroupId={presetGroupId ? Number(presetGroupId) : undefined}
       onBack={() => setStep("pick")}
     />
@@ -61,7 +65,7 @@ function ServicePicker({
   onCustom,
 }: {
   onSelect: (s: ServiceTemplate) => void;
-  onCustom: () => void;
+  onCustom: (initialName?: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
@@ -153,9 +157,18 @@ function ServicePicker({
       </div>
 
       {filtered.length === 0 && search && (
-        <p className="text-sm text-muted-foreground text-center py-4">
-          No match for &quot;{search}&quot;
-        </p>
+        <div className="flex flex-col items-center gap-3 py-6">
+          <p className="text-sm text-muted-foreground">
+            No match for &quot;{search}&quot;
+          </p>
+          <Button
+            className="cursor-pointer"
+            onClick={() => onCustom(search)}
+          >
+            <Plus className="h-4 w-4 mr-2" />
+            Add &quot;{search}&quot; as custom
+          </Button>
+        </div>
       )}
 
       {/* Custom entry */}
@@ -163,7 +176,7 @@ function ServicePicker({
       <Button
         variant="outline"
         className="w-full cursor-pointer"
-        onClick={onCustom}
+        onClick={() => onCustom()}
       >
         <Pencil className="h-4 w-4 mr-2" />
         Add custom subscription
@@ -176,16 +189,18 @@ function ServicePicker({
 
 function SubscriptionForm({
   service,
+  initialName,
   presetGroupId,
   onBack,
 }: {
   service: ServiceTemplate | null;
+  initialName?: string;
   presetGroupId?: number;
   onBack: () => void;
 }) {
   const router = useRouter();
   const [form, setForm] = useState({
-    name: service?.name || "",
+    name: service?.name || initialName || "",
     price: service?.defaultPrice ? (service.defaultPrice / 100).toFixed(2) : "",
     currency: service?.defaultCurrency || "CNY",
     nextPayment: new Date().toISOString().split("T")[0],
@@ -270,9 +285,9 @@ function SubscriptionForm({
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex items-center gap-2">
-          {service && <BrandIcon name={service.name} size={24} />}
+          <BrandIcon name={service?.name || form.name || "?"} size={24} />
           <h1 className="text-2xl font-semibold tracking-tight">
-            {service ? service.name : "Custom Subscription"}
+            {service ? service.name : form.name.trim() || "Custom Subscription"}
           </h1>
         </div>
       </div>

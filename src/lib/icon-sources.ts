@@ -432,12 +432,7 @@ export const ALIASES: Record<string, string> = {
 }
 
 // Services with no good favicon — force letter with brand color
-export const FORCE_LETTER: Record<string, string> = {
-  'match.com': 'E00058',
-  'financial times': 'FFF1E5',
-  'talkspace': '6B4EFF',
-  "harry's": '323232',
-}
+export const FORCE_LETTER: Record<string, string> = {}
 
 // Services where DuckDuckGo has better favicon than Google
 export const PREFER_DDG: Set<string> = new Set([

@@ -178,7 +178,6 @@ export const POPULAR_SERVICES: ServiceTemplate[] = [
   { name: 'Tinder Plus/Gold/Platinum', slug: 'tinder', category: 'Dating', defaultPrice: 999, defaultCurrency: 'USD' },
   { name: 'Bumble Premium', slug: 'bumble', category: 'Dating', defaultPrice: 1699, defaultCurrency: 'USD' },
   { name: 'Hinge Preferred', slug: 'hinge', category: 'Dating', defaultPrice: 2999, defaultCurrency: 'USD' },
-  { name: 'Match.com', slug: 'matchdotcom', category: 'Dating', defaultPrice: 4599, defaultCurrency: 'USD' },
   { name: 'Grindr', slug: 'grindr', category: 'Dating', defaultPrice: 1999, defaultCurrency: 'USD' },
   // --- Gaming (15) ---
   { name: 'Xbox Game Pass Ultimate', slug: 'xbox', category: 'Gaming', defaultPrice: 2999, defaultCurrency: 'USD' },
@@ -221,7 +220,6 @@ export const POPULAR_SERVICES: ServiceTemplate[] = [
   { name: 'The New York Times', slug: 'newyorktimes', category: 'Reading', defaultPrice: 1700, defaultCurrency: 'USD' },
   { name: 'Wall Street Journal', slug: 'wsj', category: 'Reading', defaultPrice: 3899, defaultCurrency: 'USD' },
   { name: 'Washington Post', slug: 'thewashingtonpost', category: 'Reading', defaultPrice: 1200, defaultCurrency: 'USD' },
-  { name: 'Financial Times', slug: 'financialtimes', category: 'Reading', defaultPrice: 4500, defaultCurrency: 'USD' },
   { name: 'Bloomberg', slug: 'bloomberg', category: 'Reading', defaultPrice: 3499, defaultCurrency: 'USD' },
   { name: 'The Economist', slug: 'economist', category: 'Reading', defaultPrice: 1400, defaultCurrency: 'USD' },
   { name: 'The Atlantic', slug: 'theatlantic', category: 'Reading', defaultPrice: 1000, defaultCurrency: 'USD' },
@@ -250,12 +248,10 @@ export const POPULAR_SERVICES: ServiceTemplate[] = [
   { name: 'Calm', slug: 'calm', category: 'Health', defaultPrice: 1499, defaultCurrency: 'USD' },
   { name: 'Headspace', slug: 'headspace', category: 'Health', defaultPrice: 1299, defaultCurrency: 'USD' },
   { name: 'BetterHelp', slug: 'betterhelp', category: 'Health', defaultPrice: 32000, defaultCurrency: 'USD' },
-  { name: 'Talkspace', slug: 'talkspace', category: 'Health', defaultPrice: 27600, defaultCurrency: 'USD' },
   { name: 'Noom', slug: 'noom', category: 'Health', defaultPrice: 5900, defaultCurrency: 'USD' },
   { name: 'WW (WeightWatchers)', slug: 'weightwatchers', category: 'Health', defaultPrice: 2300, defaultCurrency: 'USD' },
   { name: 'Flo Premium', slug: 'flo', category: 'Health', defaultPrice: 999, defaultCurrency: 'USD' },
   { name: 'Hims', slug: 'hims', category: 'Health', defaultPrice: 2500, defaultCurrency: 'USD' },
-  { name: 'Hers', slug: 'hers', category: 'Health', defaultPrice: 2500, defaultCurrency: 'USD' },
   { name: 'Teladoc', slug: 'teladoc', category: 'Health' },
 
   // --- Shopping (18) ---
@@ -273,7 +269,6 @@ export const POPULAR_SERVICES: ServiceTemplate[] = [
   { name: 'Blue Apron', slug: 'blueapron', category: 'Shopping' },
   { name: 'Home Chef', slug: 'homechef', category: 'Shopping' },
   { name: 'Dollar Shave Club', slug: 'dollarshaveclub', category: 'Shopping', defaultPrice: 500, defaultCurrency: 'USD' },
-  { name: "Harry's", slug: 'harrys', category: 'Shopping' },
   { name: 'Rent the Runway', slug: 'renttherunway', category: 'Shopping', defaultPrice: 9400, defaultCurrency: 'USD' },
   { name: 'Stitch Fix', slug: 'stitchfix', category: 'Shopping' },
   { name: 'BarkBox', slug: 'barkbox', category: 'Shopping', defaultPrice: 2300, defaultCurrency: 'USD' },
@@ -357,7 +352,6 @@ export const POPULAR_SERVICES: ServiceTemplate[] = [
   { name: '和平精英精英手册', slug: 'pubgm', category: 'China', defaultPrice: 6000, defaultCurrency: 'CNY' },
   // AI (4)
   { name: '文心一言', slug: 'wenxin', category: 'China', defaultPrice: 4990, defaultCurrency: 'CNY' },
-  { name: '通义千问', slug: 'tongyi', category: 'China', defaultPrice: 3000, defaultCurrency: 'CNY' },
   { name: '豆包', slug: 'doubao', category: 'China' },
   { name: 'Kimi', slug: 'kimi', category: 'China' },
   // 金融 (2)
