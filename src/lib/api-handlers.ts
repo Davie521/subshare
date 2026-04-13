@@ -74,12 +74,24 @@ export function handleJoinGroup(
 
   if (existing) return { success: false, error: 'Already a member' }
 
+  const memberCount = db
+    .select({ userId: schema.groupMembers.userId })
+    .from(schema.groupMembers)
+    .where(eq(schema.groupMembers.groupId, group.id))
+    .all().length
+
+  if (memberCount >= MAX_GROUP_MEMBERS) {
+    return { success: false, error: 'Group is full' }
+  }
+
   db.insert(schema.groupMembers)
     .values({ groupId: group.id, userId })
     .run()
 
   return { success: true }
 }
+
+const MAX_GROUP_MEMBERS = 20
 
 export function handleLeaveGroup(
   db: DB,

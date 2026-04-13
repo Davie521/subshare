@@ -31,7 +31,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<Dashboard | null>(null);
   const [loading, setLoading] = useState(true);
-  const [markPaidError, setMarkPaidError] = useState<number | null>(null);
+  const [markPaidErrors, setMarkPaidErrors] = useState<Set<number>>(new Set());
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -93,10 +93,15 @@ export default function DashboardPage() {
   async function handleMarkPaid(billId: number) {
     const paid = await api.markPaid(billId);
     if (paid.error) {
-      setMarkPaidError(billId);
+      setMarkPaidErrors((prev) => new Set(prev).add(billId));
       return;
     }
-    setMarkPaidError(null);
+    setMarkPaidErrors((prev) => {
+      if (!prev.has(billId)) return prev;
+      const next = new Set(prev);
+      next.delete(billId);
+      return next;
+    });
     const res = await api.dashboard();
     if (res.data) setData(res.data);
   }
@@ -185,7 +190,7 @@ export default function DashboardPage() {
                         <p className="text-[13px] text-muted-foreground tabular-nums">
                           {formatMoney(bill.amount, bill.currency)}
                         </p>
-                        {markPaidError === bill.id && (
+                        {markPaidErrors.has(bill.id) && (
                           <p className="text-[11px] font-medium text-destructive mt-0.5">
                             Couldn&apos;t mark paid — try again
                           </p>

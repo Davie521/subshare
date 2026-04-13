@@ -18,6 +18,16 @@ import {
   handleGetDashboard,
 } from '@/lib/api-handlers'
 
+type Result<T> = { success: true; data?: T } | { success: false; error: string }
+
+function assertSuccess<T>(r: Result<T>): asserts r is { success: true; data?: T } {
+  if (!r.success) throw new Error(`Expected success, got error: ${r.error}`)
+}
+
+function assertFailure<T>(r: Result<T>): asserts r is { success: false; error: string } {
+  if (r.success) throw new Error('Expected failure, got success')
+}
+
 let db: BetterSQLite3Database<typeof schema>
 let sqlite: Database.Database
 
@@ -74,12 +84,11 @@ describe('handleCreateGroup', () => {
     const userId = createUser(sqlite)
     const result = handleCreateGroup(db, userId, { name: 'Roommates' })
 
-    expect(result.success).toBe(true)
+    assertSuccess(result)
     expect(result.data!.name).toBe('Roommates')
     expect(result.data!.publicId).toBeDefined()
     expect(result.data!.publicId.length).toBeGreaterThan(5)
 
-    // Verify creator is a member
     const members = db
       .select()
       .from(schema.groupMembers)
@@ -115,7 +124,7 @@ describe('handleJoinGroup', () => {
   it('rejects invalid publicId', () => {
     const userId = createUser(sqlite)
     const result = handleJoinGroup(db, userId, 'nonexistent')
-    expect(result.success).toBe(false)
+    assertFailure(result)
     expect(result.error).toBeDefined()
   })
 
@@ -226,7 +235,7 @@ describe('handleCreateSubscription', () => {
       currency: 'CNY',
       nextPayment: '2026-06-01',
     })
-    expect(result.success).toBe(true)
+    assertSuccess(result)
     expect(result.data!.groupId).toBeNull()
   })
 
@@ -241,7 +250,7 @@ describe('handleCreateSubscription', () => {
       nextPayment: '2026-06-01',
       groupId: group.id,
     })
-    expect(result.success).toBe(true)
+    assertSuccess(result)
     expect(result.data!.groupId).toBe(group.id)
   })
 
