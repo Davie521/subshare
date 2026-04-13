@@ -1,7 +1,7 @@
 import { eq, and, sql, inArray, isNull, or, gte, lte } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from '@/db/schema'
-import { calculateShares } from './billing'
+import { calculateShares, calculateJoinProRata } from './billing'
 
 type DB = BetterSQLite3Database<typeof schema>
 
@@ -89,6 +89,84 @@ export function addMemberToSubscription(
       .onConflictDoNothing()
       .run()
   }
+
+  // R2 — immediate pro-rata bill for the joiner (except when joiner is payer).
+  const sub = db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, input.subscriptionId))
+    .get()
+
+  if (!sub || sub.payerId === input.userId) return
+
+  // Use the CANONICAL addedAt from the DB (first successful insert wins,
+  // re-adds are no-ops) so billing_date is stable across re-adds.
+  const memberRow = db
+    .select({ addedAt: schema.subscriptionMembers.addedAt })
+    .from(schema.subscriptionMembers)
+    .where(
+      and(
+        eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
+        eq(schema.subscriptionMembers.userId, input.userId)
+      )
+    )
+    .get()
+  if (!memberRow) return
+  const canonicalAddedAt = memberRow.addedAt
+
+  const members = getActiveMembersAt(
+    db,
+    input.subscriptionId,
+    canonicalAddedAt
+  )
+  if (members.length < 2) return
+
+  const share = calculateShares(sub.price, members.length)
+  const [year, month, day] = canonicalAddedAt.split('-').map(Number)
+  const daysInMonth = new Date(year, month, 0).getDate()
+  const amount = calculateJoinProRata(share, day, daysInMonth)
+  if (amount <= 0) return
+
+  const user = db
+    .select({ preferredCurrency: schema.users.preferredCurrency })
+    .from(schema.users)
+    .where(eq(schema.users.id, input.userId))
+    .get()
+  if (!user) return
+
+  const localAmount =
+    sub.currency === user.preferredCurrency ? amount : amount
+  // NOTE: cross-currency join bills convert via same fetcher pathway as
+  // monthly cron; for now we keep join bills in sub currency and stamp
+  // local_amount = amount when same-currency. Cross-currency flows to
+  // be unified in a later iter alongside API layer.
+
+  // Idempotent: skip if a bill already exists for this sub/user/canonicalDate.
+  const existing = db
+    .select({ id: schema.billingRecords.id })
+    .from(schema.billingRecords)
+    .where(
+      and(
+        eq(schema.billingRecords.subscriptionId, input.subscriptionId),
+        eq(schema.billingRecords.userId, input.userId),
+        eq(schema.billingRecords.billingDate, canonicalAddedAt)
+      )
+    )
+    .get()
+  if (existing) return
+
+  db.insert(schema.billingRecords)
+    .values({
+      subscriptionId: input.subscriptionId,
+      userId: input.userId,
+      amount,
+      currency: sub.currency,
+      localAmount,
+      localCurrency: user.preferredCurrency,
+      exchangeRate: 1_000_000,
+      billingDate: canonicalAddedAt,
+    })
+    .run()
 }
 
 /**

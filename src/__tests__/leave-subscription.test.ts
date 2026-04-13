@@ -53,8 +53,14 @@ describe('T5 leaveSubscription', () => {
     expect(bRow.leftAt).toBe('2026-04-20')
   })
 
-  it('generates ZERO billing records (R3, no refund)', () => {
+  it('generates NO additional billing records on leave (R3, no refund)', () => {
     const { b, sub } = scenario()
+
+    const before = (
+      sqlite
+        .prepare(`SELECT COUNT(*) AS n FROM billing_records`)
+        .get() as { n: number }
+    ).n
 
     leaveSubscription(db, {
       subscriptionId: sub.id,
@@ -62,10 +68,13 @@ describe('T5 leaveSubscription', () => {
       leftAt: '2026-04-20',
     })
 
-    const bills = sqlite
-      .prepare(`SELECT COUNT(*) AS n FROM billing_records`)
-      .get() as { n: number }
-    expect(bills.n).toBe(0)
+    const after = (
+      sqlite
+        .prepare(`SELECT COUNT(*) AS n FROM billing_records`)
+        .get() as { n: number }
+    ).n
+
+    expect(after).toBe(before) // leave never creates a refund/final bill
   })
 
   it('rejects when the leaving user is the payer (R7)', () => {
