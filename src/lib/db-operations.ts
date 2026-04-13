@@ -40,7 +40,59 @@ export function createSubscription(
     .returning()
     .get()
 
+  // Owner is automatically the first member (and payer by default).
+  db.insert(schema.subscriptionMembers)
+    .values({
+      subscriptionId: result.id,
+      userId: input.ownerId,
+      addedBy: input.ownerId,
+      addedAt: new Date().toISOString().slice(0, 10),
+    })
+    .onConflictDoNothing()
+    .run()
+
   return { id: result.id, name: result.name, groupId: result.groupId }
+}
+
+export function addMemberToSubscription(
+  db: DB,
+  input: {
+    subscriptionId: number
+    userId: number
+    addedBy: number
+    addedAt: string // ISO date YYYY-MM-DD
+  }
+): void {
+  db.insert(schema.subscriptionMembers)
+    .values({
+      subscriptionId: input.subscriptionId,
+      userId: input.userId,
+      addedBy: input.addedBy,
+      addedAt: input.addedAt,
+    })
+    .onConflictDoNothing()
+    .run()
+}
+
+export function getMembersOfSubscription(
+  db: DB,
+  subscriptionId: number
+): Array<{
+  userId: number
+  addedAt: string
+  addedBy: number
+  leftAt: string | null
+}> {
+  return db
+    .select({
+      userId: schema.subscriptionMembers.userId,
+      addedAt: schema.subscriptionMembers.addedAt,
+      addedBy: schema.subscriptionMembers.addedBy,
+      leftAt: schema.subscriptionMembers.leftAt,
+    })
+    .from(schema.subscriptionMembers)
+    .where(eq(schema.subscriptionMembers.subscriptionId, subscriptionId))
+    .all()
 }
 
 export function getSubscriptionsForUser(
