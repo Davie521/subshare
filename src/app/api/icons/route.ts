@@ -3,19 +3,18 @@ import { findBrandIcon } from '@/lib/icons'
 
 export async function GET(req: NextRequest) {
   const name = req.nextUrl.searchParams.get('name')
-  const slug = req.nextUrl.searchParams.get('slug') ?? undefined
   if (!name || name.length > 100) {
     return NextResponse.json({ error: 'Name required' }, { status: 400 })
   }
 
-  const icon = findBrandIcon(name, slug)
+  const icon = findBrandIcon(name)
 
   return NextResponse.json({
     icon: {
       title: icon.title,
-      svg: icon.svg,
+      url: icon.url,
       color: `#${icon.hex}`,
-      faviconUrl: icon.faviconUrl,
+      isSvg: icon.isSvg,
       letter: icon.letter,
     },
   })

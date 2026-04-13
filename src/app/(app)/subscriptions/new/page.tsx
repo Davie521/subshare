@@ -137,7 +137,7 @@ function ServicePicker({
           >
             <Card className="hover:bg-muted/50 transition-colors duration-150 cursor-pointer h-full">
               <CardContent className="pt-3 pb-3 px-3 flex items-center gap-2.5">
-                <BrandIcon name={service.slug} size={24} />
+                <BrandIcon name={service.name} size={24} />
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium truncate">{service.name}</p>
                   {service.defaultPrice && (
@@ -270,7 +270,7 @@ function SubscriptionForm({
           <ArrowLeft className="h-4 w-4" />
         </Button>
         <div className="flex items-center gap-2">
-          {service && <BrandIcon name={service.slug} size={24} />}
+          {service && <BrandIcon name={service.name} size={24} />}
           <h1 className="text-2xl font-semibold tracking-tight">
             {service ? service.name : "Custom Subscription"}
           </h1>

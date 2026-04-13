@@ -44,3 +44,6 @@ next-env.d.ts
 /data/*.db
 /data/*.db-shm
 /data/*.db-wal
+
+# build-time generated icons
+/public/icons

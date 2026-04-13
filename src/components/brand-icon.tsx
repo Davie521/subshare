@@ -9,9 +9,9 @@ interface BrandIconProps {
 }
 
 interface IconData {
-  svg: string | null;
+  url: string;
   color: string;
-  faviconUrl: string | null;
+  isSvg: boolean;
   letter: string;
 }
 
@@ -22,7 +22,7 @@ export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
   const cached = iconCache.get(key);
   const [icon, setIcon] = useState<IconData | null>(cached ?? null);
   const [loaded, setLoaded] = useState(iconCache.has(key));
-  const [faviconFailed, setFaviconFailed] = useState(false);
+  const [imgFailed, setImgFailed] = useState(false);
 
   useEffect(() => {
     if (iconCache.has(key)) return;
@@ -54,50 +54,34 @@ export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
     );
   }
 
-  // 1. Real Simple Icons SVG
-  if (icon.svg) {
+  // If image load failed, show letter with brand color as last resort
+  if (imgFailed) {
     return (
       <div
-        className={className}
-        style={{ width: size, height: size, color: icon.color }}
-        dangerouslySetInnerHTML={{
-          __html: icon.svg.replace(
-            "<svg",
-            `<svg width="${size}" height="${size}"`
-          ),
+        className={`flex items-center justify-center rounded font-semibold text-white ${className ?? ""}`}
+        style={{
+          width: size,
+          height: size,
+          backgroundColor: icon.color,
+          fontSize: size * 0.55,
         }}
-      />
+      >
+        {icon.letter}
+      </div>
     );
   }
 
-  // 2. Favicon from Google
-  if (icon.faviconUrl && !faviconFailed) {
-    return (
-      // eslint-disable-next-line @next/next/no-img-element
-      <img
-        src={icon.faviconUrl}
-        alt={name}
-        width={size}
-        height={size}
-        className={`rounded ${className ?? ""}`}
-        style={{ width: size, height: size }}
-        onError={() => setFaviconFailed(true)}
-      />
-    );
-  }
-
-  // 3. Letter fallback
+  // Render local icon (same-origin, always loads)
   return (
-    <div
-      className={`flex items-center justify-center rounded font-semibold text-white ${className ?? ""}`}
-      style={{
-        width: size,
-        height: size,
-        backgroundColor: icon.color,
-        fontSize: size * 0.55,
-      }}
-    >
-      {icon.letter}
-    </div>
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={icon.url}
+      alt={name}
+      width={size}
+      height={size}
+      className={`rounded ${className ?? ""}`}
+      style={{ width: size, height: size }}
+      onError={() => setImgFailed(true)}
+    />
   );
 }

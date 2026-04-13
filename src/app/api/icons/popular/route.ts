@@ -17,9 +17,9 @@ export async function GET() {
       defaultPrice: s.defaultPrice,
       defaultCurrency: s.defaultCurrency,
       icon: {
-        svg: icon.svg,
+        url: icon.url,
         color: `#${icon.hex}`,
-        faviconUrl: icon.faviconUrl,
+        isSvg: icon.isSvg,
         letter: icon.letter,
       },
     }
