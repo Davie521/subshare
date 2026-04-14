@@ -60,4 +60,68 @@ export const api = {
 
   // Billing
   markPaid: (id: number) => request(`/api/billing/${id}/paid`, { method: "PUT" }),
+
+  // Notifications
+  notifications: (limit?: number) =>
+    request<{
+      items: Array<{
+        id: number;
+        type: string;
+        subscriptionId: number | null;
+        payload: Record<string, unknown>;
+        createdAt: string;
+        readAt: string | null;
+      }>;
+      unreadCount: number;
+    }>(`/api/notifications${limit ? `?limit=${limit}` : ""}`),
+  markNotificationRead: (id: number) =>
+    request(`/api/notifications/${id}/read`, { method: "PUT" }),
+  markAllNotificationsRead: () =>
+    request(`/api/notifications/read-all`, { method: "PUT" }),
+
+  // Friends
+  friends: () =>
+    request<
+      Array<{
+        userId: number;
+        displayName: string;
+        email?: string;
+        since: string;
+      }>
+    >("/api/friends"),
+
+  // Settlement
+  settlement: () =>
+    request<
+      Array<{
+        counterpartyUserId: number;
+        counterpartyName: string;
+        currency: string;
+        owedByMe: number;
+        owedToMe: number;
+        net: number;
+        billIds: number[];
+      }>
+    >("/api/settlement"),
+  markPairSettled: (counterpartyUserId: number, currency: string) =>
+    request<{ marked: number }>("/api/settlement", {
+      method: "POST",
+      body: JSON.stringify({ counterpartyUserId, currency }),
+    }),
+
+  // Subscription members / payer
+  addSubMembers: (subId: number, members: number[]) =>
+    request<{ added: number }>(`/api/subscriptions/${subId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ members }),
+    }),
+  removeSubMember: (subId: number, userId: number) =>
+    request(`/api/subscriptions/${subId}/members/${userId}`, {
+      method: "DELETE",
+    }),
+  transferPayer: (subId: number, newPayerId: number) =>
+    request(`/api/subscriptions/${subId}/payer`, {
+      method: "PUT",
+      body: JSON.stringify({ newPayerId }),
+    }),
 };
