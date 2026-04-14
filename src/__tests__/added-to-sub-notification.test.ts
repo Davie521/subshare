@@ -46,7 +46,7 @@ describe('T11 added_to_sub notification', () => {
       addedAt: '2026-04-20',
     })
 
-    const notifs = listNotifications<{
+    const notifs = await listNotifications<{
       sub_name: string
       actor_name: string
       share: number
@@ -160,7 +160,7 @@ describe('T11 added_to_sub notification', () => {
       addedAt: '2026-04-15',
     })
 
-    const notifs = listNotifications<{ actor_name: string; payer_name: string }>(
+    const notifs = await listNotifications<{ actor_name: string; payer_name: string }>(
       db,
       b
     )

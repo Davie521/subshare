@@ -240,7 +240,7 @@ describe('T16 markPairSettled', () => {
     const n = await markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
     expect(n).toBeGreaterThanOrEqual(2)
 
-    const unpaid = await sqlite.prepare(`SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = 0`)
+    const unpaid = await sqlite.prepare(`SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false`)
       .get() as { n: number }
     expect(unpaid.n).toBe(0)
   })
@@ -276,7 +276,7 @@ describe('T16 markPairSettled', () => {
     await markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
 
     const unpaidUsd = await sqlite.prepare(
-        `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = 0 AND currency = 'USD'`
+        `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false AND currency = 'USD'`
       )
       .get() as { n: number }
     expect(unpaidUsd.n).toBe(1) // USD bill remains unpaid
@@ -304,7 +304,7 @@ describe('T16 markPairSettled', () => {
 
     // C's one unpaid bill to A should remain unpaid.
     const cUnpaid = await sqlite.prepare(
-        `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = 0 AND user_id = ?`
+        `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false AND user_id = ?`
       )
       .get(c) as { n: number }
     expect(cUnpaid.n).toBe(1)

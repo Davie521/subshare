@@ -353,7 +353,7 @@ describe('handleDeleteSubscription', () => {
       .where(eq(schema.subscriptions.id, sub.id))
       
     expect(found).toBeDefined()
-    expect(found!.inactive).toBe(1)
+    expect(found!.inactive).toBe(true)
   })
 })
 
@@ -376,7 +376,7 @@ describe('handleMarkPaid', () => {
     })
     await generateAndSaveBillingRecords(db, 1)
 
-    const bills = db.select().from(schema.billingRecords).all()
+    const bills = await db.select().from(schema.billingRecords)
     const result = await handleMarkPaid(db, userB, bills[0].id)
     expect(result.success).toBe(true)
 
@@ -385,7 +385,7 @@ describe('handleMarkPaid', () => {
       .from(schema.billingRecords)
       .where(eq(schema.billingRecords.id, bills[0].id))
       
-    expect(updated!.isPaid).toBe(1)
+    expect(updated!.isPaid).toBe(true)
   })
 
   it('rejects marking someone else bill as paid', async () => {
@@ -405,7 +405,7 @@ describe('handleMarkPaid', () => {
     })
     await generateAndSaveBillingRecords(db, 1)
 
-    const bills = db.select().from(schema.billingRecords).all()
+    const bills = await db.select().from(schema.billingRecords)
     const result = await handleMarkPaid(db, userC, bills[0].id)
     expect(result.success).toBe(false)
   })

@@ -63,7 +63,7 @@ describe('A7 handleListFriends', () => {
   it('includes email when target user has show_email=true', async () => {
     const a = await createUser(db, { email: 'a@t.com' })
     const b = await createUser(db, { name: 'Bob', email: 'b@t.com' })
-    await sqlite.prepare('UPDATE users SET show_email = 1 WHERE id = ?').run(b)
+    await sqlite.prepare('UPDATE users SET show_email = true WHERE id = ?').run(b)
 
     await handleCreateSubscription(db, a, {
       name: 'Netflix',

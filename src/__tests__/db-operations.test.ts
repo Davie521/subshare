@@ -211,10 +211,9 @@ describe('generateAndSaveBillingRecords', () => {
     })
 
     // Mark as inactive
-    db.update(schema.subscriptions)
+    await db.update(schema.subscriptions)
       .set({ inactive: true })
       .where(eq(schema.subscriptions.id, sub.id))
-      .run()
 
     const count = await generateAndSaveBillingRecords(db, sub.id)
     expect(count).toBe(0)
@@ -243,7 +242,7 @@ describe('getPendingBills', () => {
     expect(bills).toHaveLength(1)
     expect(bills[0].subscriptionName).toBe('Netflix')
     expect(bills[0].amount).toBe(9000) // 18000/2
-    expect(bills[0].isPaid).toBe(0)
+    expect(bills[0].isPaid).toBe(false)
   })
 
   it('does not return paid bills', async () => {
@@ -293,7 +292,7 @@ describe('markBillPaid', () => {
 
     await generateAndSaveBillingRecords(db, sub.id)
 
-    const bills = db.select().from(schema.billingRecords).all()
+    const bills = await db.select().from(schema.billingRecords)
     await markBillPaid(db, bills[0].id)
 
     const [updated] = await db
@@ -302,7 +301,7 @@ describe('markBillPaid', () => {
       .where(eq(schema.billingRecords.id, bills[0].id))
       
 
-    expect(updated!.isPaid).toBe(1)
+    expect(updated!.isPaid).toBe(true)
     expect(updated!.paidAt).toBeDefined()
   })
 })

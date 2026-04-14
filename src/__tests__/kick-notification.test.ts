@@ -71,10 +71,10 @@ describe('T14 removed_from_sub notification', () => {
       actorId: a, // kicker
     })
 
-    const kicks = listNotifications<{
+    const kicks = (await listNotifications<{
       sub_name: string
       actor_name: string
-    }>(db, b).filter((n) => n.type === 'removed_from_sub')
+    }>(db, b)).filter((n) => n.type === 'removed_from_sub')
     expect(kicks).toHaveLength(1)
     expect(kicks[0].subscriptionId).toBe(sub.id)
     expect(kicks[0].payload.sub_name).toBe('Netflix')
