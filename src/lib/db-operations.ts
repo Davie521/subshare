@@ -6,6 +6,24 @@ import { insertNotification } from './notifications'
 
 type DB = BetterSQLite3Database<typeof schema>
 
+/**
+ * R2 minimum-cycle commitment: the earliest date a member may leave
+ * on demand after joining. Partial join-months (day > 1) don't count
+ * as a full cycle, so the member must complete the NEXT full month.
+ */
+export function computeMinimumCycleEnd(addedAt: string): string {
+  const [y, m, d] = addedAt.split('-').map(Number)
+  const targetMonth = d === 1 ? m : m + 1
+  const targetYear = targetMonth > 12 ? y + 1 : y
+  const normalizedMonth = targetMonth > 12 ? 1 : targetMonth
+  const daysInTarget = new Date(targetYear, normalizedMonth, 0).getDate()
+  return `${targetYear}-${String(normalizedMonth).padStart(2, '0')}-${String(daysInTarget).padStart(2, '0')}`
+}
+
+function maxDate(a: string, b: string): string {
+  return a >= b ? a : b
+}
+
 export function createSubscription(
   db: DB,
   input: {
@@ -264,7 +282,10 @@ export function leaveSubscription(
   }
 
   const row = db
-    .select({ leftAt: schema.subscriptionMembers.leftAt })
+    .select({
+      leftAt: schema.subscriptionMembers.leftAt,
+      addedAt: schema.subscriptionMembers.addedAt,
+    })
     .from(schema.subscriptionMembers)
     .where(
       and(
@@ -278,8 +299,15 @@ export function leaveSubscription(
 
   if (row.leftAt !== null) return // idempotent
 
+  // R2 minimum-cycle commitment: a self-initiated leave must stay through
+  // at least one full calendar-month cycle after the join. The partial
+  // join-month (day > 1) doesn't count. Payer-initiated kicks bypass this.
+  const effectiveLeftAt = isKick
+    ? input.leftAt
+    : maxDate(input.leftAt, computeMinimumCycleEnd(row.addedAt))
+
   db.update(schema.subscriptionMembers)
-    .set({ leftAt: input.leftAt })
+    .set({ leftAt: effectiveLeftAt })
     .where(
       and(
         eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
