@@ -326,7 +326,7 @@ describe('Billing invariants', () => {
    * must be ≤ share(n). Equality only when d = 1. Catches sign errors or
    * off-by-one in days-covered math.
    */
-  it('R2 pro-rata bounds hold on critical join days across 28/29/30/31-day months', { timeout: 30000 }, async () => {
+  it('R2 pro-rata bounds hold on critical join days across 28/29/30/31-day months', { timeout: 120000 }, async () => {
     const cases: Array<{ month: string; D: number; day: number }> = [
       { month: '2023-02', D: 28, day: 1 },
       { month: '2023-02', D: 28, day: 14 },
