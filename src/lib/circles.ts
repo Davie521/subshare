@@ -104,8 +104,7 @@ export async function getCircle(
     .select({ userId: schema.circleMembers.userId })
     .from(schema.circleMembers)
     .where(eq(schema.circleMembers.circleId, circleId))
-
-    )  .map((r) => r.userId)
+  ).map((r) => r.userId)
   return {
     id: row.id,
     name: row.name,
@@ -126,7 +125,7 @@ export async function updateCircle(
     defaultPayerId?: number | null
   }
 ): Promise<boolean> {
-  const row = await db
+  const [row] = await db
     .select()
     .from(schema.circles)
     .where(
@@ -135,7 +134,6 @@ export async function updateCircle(
         eq(schema.circles.ownerUserId, ownerUserId)
       )
     )
-    
   if (!row) return false
 
   const updates: Record<string, unknown> = {}

@@ -50,9 +50,11 @@ describe('T3 schema migration (smoke)', () => {
     ).run(1, 2)
     // Reverse direction violates CHECK
     await expect(
-      await sqlite.prepare(
-        'INSERT INTO friendships (user_a_id, user_b_id) VALUES ($1, $2)'
-      ).run(2, 1)
+      sqlite
+        .prepare(
+          'INSERT INTO friendships (user_a_id, user_b_id) VALUES ($1, $2)'
+        )
+        .run(2, 1)
     ).rejects.toThrow(/check|constraint/i)
 
     // notifications: index + row

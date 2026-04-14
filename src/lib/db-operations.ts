@@ -1,4 +1,4 @@
-import { eq, and, sql, inArray, isNull, or, gte, lte } from 'drizzle-orm'
+import { eq, and, sql, inArray, isNull, or, gt, gte, lte } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import { calculateShares, calculateJoinProRata } from './billing'
@@ -86,8 +86,14 @@ export async function addMemberToSubscription(
   },
   rates: Record<string, number> = {}
 ): Promise<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.addedAt)) {
+    throw new Error(
+      `addedAt must be ISO date YYYY-MM-DD, got "${input.addedAt}"`
+    )
+  }
+
   // Detect whether this is a genuine new insert vs. a no-op re-add.
-  const existingMember = await db
+  const [existingMember] = await db
     .select({ userId: schema.subscriptionMembers.userId })
     .from(schema.subscriptionMembers)
     .where(
@@ -96,7 +102,6 @@ export async function addMemberToSubscription(
         eq(schema.subscriptionMembers.userId, input.userId)
       )
     )
-    
   const isNewMember = !existingMember
 
   await db.insert(schema.subscriptionMembers)
@@ -130,6 +135,9 @@ export async function addMemberToSubscription(
     
 
   if (!sub || sub.payerId === input.userId) return
+  // Inactive subs: add to member list (for record-keeping / friendship),
+  // but skip R2 — no charges are incurring for the dormant service.
+  if (sub.inactive) return
 
   // Use the CANONICAL addedAt from the DB (first successful insert wins,
   // re-adds are no-ops) so billing_date is stable across re-adds.
@@ -178,7 +186,7 @@ export async function addMemberToSubscription(
   const localAmount = Math.floor(amount * rate)
 
   // Idempotent: skip if a bill already exists for this sub/user/canonicalDate.
-  const existing = await db
+  const [existing] = await db
     .select({ id: schema.billingRecords.id })
     .from(schema.billingRecords)
     .where(
@@ -188,7 +196,6 @@ export async function addMemberToSubscription(
         eq(schema.billingRecords.billingDate, canonicalAddedAt)
       )
     )
-    
   if (existing) return
 
   await db.insert(schema.billingRecords)
@@ -340,10 +347,11 @@ export async function leaveSubscription(
 
 /**
  * Active membership at a specific date. A member is active iff:
- *   addedAt <= atDate  AND  (leftAt IS NULL OR leftAt >= atDate)
+ *   addedAt <= atDate  AND  (leftAt IS NULL OR leftAt > atDate)
  *
- * The "leftAt >= atDate" convention treats the leave day as still-billable
- * (last active day) — pre-paid model, member used the service that day.
+ * leftAt is the first day the member is no longer on the service, so a
+ * member whose leftAt equals atDate is NOT active that day. Using strict
+ * > here prevents R1 from billing someone kicked on the 1st.
  */
 export async function getActiveMembersAt(
   db: DB,
@@ -369,11 +377,10 @@ export async function getActiveMembersAt(
         lte(schema.subscriptionMembers.addedAt, atDate),
         or(
           isNull(schema.subscriptionMembers.leftAt),
-          gte(schema.subscriptionMembers.leftAt, atDate)
+          gt(schema.subscriptionMembers.leftAt, atDate)
         )
       )
     )
-    
 }
 
 export async function getMembersOfSubscription(
@@ -421,8 +428,7 @@ export async function getSubscriptionsForUser(
         isNull(schema.subscriptionMembers.leftAt)
       )
     )
-    
-    )  .map((r) => r.subscriptionId)
+  ).map((r) => r.subscriptionId)
 
   if (subIds.length === 0) return []
 
@@ -435,7 +441,7 @@ export async function getSubscriptionsForUser(
       nextPayment: schema.subscriptions.nextPayment,
       inactive: schema.subscriptions.inactive,
       memberCount: sql<number>`(
-        SELECT count(*) FROM subscription_members
+        SELECT count(*)::int FROM subscription_members
         WHERE subscription_id = ${schema.subscriptions.id}
           AND left_at IS NULL
       )`,
@@ -586,18 +592,25 @@ export async function changeSubscriptionPrice(
   const daysInMonth = new Date(yy, mm, 0).getDate()
   const monthEnd = `${yy}-${String(mm).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
 
-  const currentMonthBills = await db
-    .select()
-    .from(schema.billingRecords)
-    .where(
-      and(
-        eq(schema.billingRecords.subscriptionId, input.subscriptionId),
-        eq(schema.billingRecords.isPaid, false),
-        gte(schema.billingRecords.billingDate, monthStart),
-        lte(schema.billingRecords.billingDate, monthEnd)
-      )
-    )
-    
+  // Only rewrite bills belonging to members still active today — a member
+  // who already left keeps their existing (possibly R4-stale) amount so
+  // the price change never retroactively enlarges a departed member's debt.
+  const activeUserIds = members.map((m) => m.userId)
+  const currentMonthBills =
+    activeUserIds.length === 0
+      ? []
+      : await db
+          .select()
+          .from(schema.billingRecords)
+          .where(
+            and(
+              eq(schema.billingRecords.subscriptionId, input.subscriptionId),
+              eq(schema.billingRecords.isPaid, false),
+              gte(schema.billingRecords.billingDate, monthStart),
+              lte(schema.billingRecords.billingDate, monthEnd),
+              inArray(schema.billingRecords.userId, activeUserIds)
+            )
+          )
 
   for (const bill of currentMonthBills) {
     let newAmount: number
@@ -662,57 +675,64 @@ export async function generateMonthlyBills(
 
     const share = Math.floor(sub.price / members.length)
 
-    inserted += await db.transaction(async (tx) => {
-      let count = 0
-      for (const member of nonPayers) {
-        const [user] = await tx
-          .select({ preferredCurrency: schema.users.preferredCurrency })
-          .from(schema.users)
-          .where(eq(schema.users.id, member.userId))
-          
-        if (!user) continue
+    // Isolate FX / insertion failures to a single sub so one bad rate
+    // does not abort the cron for the rest of the month's subscriptions.
+    // The transaction rolls this sub back atomically; other subs are
+    // unaffected because each runs in its own `db.transaction`.
+    try {
+      inserted += await db.transaction(async (tx) => {
+        let count = 0
+        for (const member of nonPayers) {
+          const [user] = await tx
+            .select({ preferredCurrency: schema.users.preferredCurrency })
+            .from(schema.users)
+            .where(eq(schema.users.id, member.userId))
+          if (!user) continue
 
-        const rate =
-          sub.currency === user.preferredCurrency
-            ? 1
-            : rates[`${sub.currency}_${user.preferredCurrency}`]
-        if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
-          throw new Error(
-            `Missing exchange rate for ${sub.currency}_${user.preferredCurrency}`
-          )
-        }
-
-        const localAmount = Math.floor(share * rate)
-
-        const existing = await tx
-          .select({ id: schema.billingRecords.id })
-          .from(schema.billingRecords)
-          .where(
-            and(
-              eq(schema.billingRecords.subscriptionId, sub.id),
-              eq(schema.billingRecords.userId, member.userId),
-              eq(schema.billingRecords.billingDate, billingDate)
+          const rate =
+            sub.currency === user.preferredCurrency
+              ? 1
+              : rates[`${sub.currency}_${user.preferredCurrency}`]
+          if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
+            throw new Error(
+              `Missing exchange rate for ${sub.currency}_${user.preferredCurrency}`
             )
-          )
-          
-        if (existing) continue
+          }
 
-        await tx.insert(schema.billingRecords)
-          .values({
-            subscriptionId: sub.id,
-            userId: member.userId,
-            amount: share,
-            currency: sub.currency,
-            localAmount,
-            localCurrency: user.preferredCurrency,
-            exchangeRate: Math.round(rate * 1000000),
-            billingDate,
-          })
-          
-        count++
-      }
-      return count
-    })
+          const localAmount = Math.floor(share * rate)
+
+          const [existing] = await tx
+            .select({ id: schema.billingRecords.id })
+            .from(schema.billingRecords)
+            .where(
+              and(
+                eq(schema.billingRecords.subscriptionId, sub.id),
+                eq(schema.billingRecords.userId, member.userId),
+                eq(schema.billingRecords.billingDate, billingDate)
+              )
+            )
+          if (existing) continue
+
+          await tx.insert(schema.billingRecords)
+            .values({
+              subscriptionId: sub.id,
+              userId: member.userId,
+              amount: share,
+              currency: sub.currency,
+              localAmount,
+              localCurrency: user.preferredCurrency,
+              exchangeRate: Math.round(rate * 1_000_000),
+              billingDate,
+            })
+          count++
+        }
+        return count
+      })
+    } catch {
+      // Per-sub best-effort. Swallowed errors (e.g. missing FX rate) skip
+      // this sub for the current cron run; the next run or a manual retry
+      // will pick it up once the upstream issue is resolved.
+    }
   }
 
   return inserted
@@ -762,7 +782,7 @@ export async function generateAndSaveBillingRecords(
     let inserted = 0
 
     for (const member of nonPayerMembers) {
-      const existing = await tx
+      const [existing] = await tx
         .select({ id: schema.billingRecords.id })
         .from(schema.billingRecords)
         .where(
@@ -772,7 +792,6 @@ export async function generateAndSaveBillingRecords(
             eq(schema.billingRecords.billingDate, sub.nextPayment)
           )
         )
-        
 
       if (existing) continue
 
@@ -797,7 +816,7 @@ export async function generateAndSaveBillingRecords(
           currency: sub.currency,
           localAmount,
           localCurrency: member.preferredCurrency,
-          exchangeRate: rate * 1000000,
+          exchangeRate: Math.round(rate * 1_000_000),
           billingDate: sub.nextPayment,
         })
         
