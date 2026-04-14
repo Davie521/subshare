@@ -24,7 +24,7 @@ interface BillRow {
   amount: number
   currency: string
   payerId: number
-  isPaid: number
+  isPaid: boolean
 }
 
 function fetchBills(db: DB, viewerId: number, paid: boolean): BillRow[] {

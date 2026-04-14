@@ -37,7 +37,7 @@ type Sub = {
   ownerId: number;
   payerId: number;
   logo: string | null;
-  inactive: number;
+  inactive: boolean;
   members: Member[];
 };
 

@@ -203,15 +203,15 @@ export async function addMemberToSubscription(
 
   // T11 — added_to_sub notification (only on first-time insert).
   if (isNewMember) {
-    const inviter = await db
+    const [inviter] = await db
       .select({
         name: schema.users.name,
         displayName: schema.users.displayName,
       })
       .from(schema.users)
       .where(eq(schema.users.id, input.addedBy))
-      
-    const payer = await db
+
+    const [payer] = await db
       .select({
         name: schema.users.name,
         displayName: schema.users.displayName,
@@ -315,7 +315,7 @@ export async function leaveSubscription(
     
 
   if (isKick) {
-    const actor = await db
+    const [actor] = await db
       .select({
         name: schema.users.name,
         displayName: schema.users.displayName,
@@ -404,12 +404,12 @@ export async function getSubscriptionsForUser(
   currency: string
   nextPayment: string
   memberCount: number
-  inactive: number
+  inactive: boolean
 }>> {
   // All subs the user is an active member of (subscription_members is
   // authoritative). Covers both owned personal subs (owner auto-added on
   // create) and shared subs where the user was added later.
-  const subIds = await db
+  const subIds = (await db
     .select({ subscriptionId: schema.subscriptionMembers.subscriptionId })
     .from(schema.subscriptionMembers)
     .where(
@@ -419,7 +419,7 @@ export async function getSubscriptionsForUser(
       )
     )
     
-    .map((r) => r.subscriptionId)
+    )  .map((r) => r.subscriptionId)
 
   if (subIds.length === 0) return []
 
@@ -489,7 +489,7 @@ export async function transferPayer(
     throw new Error('New payer must be an active member of the subscription')
   }
 
-  const oldPayer = await db
+  const [oldPayer] = await db
     .select({
       name: schema.users.name,
       displayName: schema.users.displayName,
@@ -497,7 +497,7 @@ export async function transferPayer(
     .from(schema.users)
     .where(eq(schema.users.id, sub.payerId))
     
-  const newPayer = await db
+  const [newPayer] = await db
     .select({
       name: schema.users.name,
       displayName: schema.users.displayName,
@@ -816,7 +816,7 @@ export async function getPendingBills(
   localAmount: number
   localCurrency: string
   billingDate: string
-  isPaid: number
+  isPaid: boolean
 }>> {
   return db
     .select({

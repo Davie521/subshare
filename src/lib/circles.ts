@@ -99,12 +99,12 @@ export async function getCircle(
     )
     
   if (!row) return null
-  const memberIds = await db
+  const memberIds = (await db
     .select({ userId: schema.circleMembers.userId })
     .from(schema.circleMembers)
     .where(eq(schema.circleMembers.circleId, circleId))
-    
-    .map((r) => r.userId)
+
+    )  .map((r) => r.userId)
   return {
     id: row.id,
     name: row.name,

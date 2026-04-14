@@ -581,7 +581,7 @@ export async function handleGetDashboard(
 }> {
   const spendingData = await getMonthlySpendingData(db, userId)
 
-  const user = await db
+  const [user] = await db
     .select()
     .from(schema.users)
     .where(eq(schema.users.id, userId))

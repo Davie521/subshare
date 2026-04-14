@@ -45,7 +45,7 @@ export const api = {
 
   // Subscriptions
   getSubscriptions: () =>
-    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: number }>>("/api/subscriptions"),
+    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: boolean }>>("/api/subscriptions"),
   createSubscription: (body: {
     name: string;
     price: number;
@@ -70,7 +70,7 @@ export const api = {
       logo: string | null;
       url: string | null;
       notes: string | null;
-      inactive: number;
+      inactive: boolean;
       members: Array<{
         userId: number;
         displayName: string;
