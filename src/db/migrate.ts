@@ -153,6 +153,22 @@ export function migrate(sqlite: Database.Database) {
       WHERE payer_id IS NULL
     `)
   }
+
+  // H1 guard — refuse to leave payer_id NULL on any row. Downstream code
+  // (R7 payer guard, settlement netting) treats sub.payer_id as a trusted
+  // number; a leaked NULL silently breaks every invariant.
+  const orphans = sqlite
+    .prepare(
+      `SELECT id FROM subscriptions WHERE payer_id IS NULL LIMIT 5`
+    )
+    .all() as Array<{ id: number }>
+  if (orphans.length > 0) {
+    const ids = orphans.map((o) => o.id).join(', ')
+    throw new Error(
+      `Migration error: subscriptions with unresolved payer_id: ${ids}. ` +
+        `Fix owner_id / group_id on these rows before restarting.`
+    )
+  }
 }
 
 /**
