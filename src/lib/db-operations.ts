@@ -659,56 +659,64 @@ export async function generateMonthlyBills(
 
     const share = Math.floor(sub.price / members.length)
 
-    inserted += await db.transaction(async (tx) => {
-      let count = 0
-      for (const member of nonPayers) {
-        const [user] = await tx
-          .select({ preferredCurrency: schema.users.preferredCurrency })
-          .from(schema.users)
-          .where(eq(schema.users.id, member.userId))
-          
-        if (!user) continue
+    // Isolate FX / insertion failures to a single sub so one bad rate
+    // does not abort the cron for the rest of the month's subscriptions.
+    // The transaction rolls this sub back atomically; other subs are
+    // unaffected because each runs in its own `db.transaction`.
+    try {
+      inserted += await db.transaction(async (tx) => {
+        let count = 0
+        for (const member of nonPayers) {
+          const [user] = await tx
+            .select({ preferredCurrency: schema.users.preferredCurrency })
+            .from(schema.users)
+            .where(eq(schema.users.id, member.userId))
+          if (!user) continue
 
-        const rate =
-          sub.currency === user.preferredCurrency
-            ? 1
-            : rates[`${sub.currency}_${user.preferredCurrency}`]
-        if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
-          throw new Error(
-            `Missing exchange rate for ${sub.currency}_${user.preferredCurrency}`
-          )
-        }
-
-        const localAmount = Math.floor(share * rate)
-
-        const [existing] = await tx
-          .select({ id: schema.billingRecords.id })
-          .from(schema.billingRecords)
-          .where(
-            and(
-              eq(schema.billingRecords.subscriptionId, sub.id),
-              eq(schema.billingRecords.userId, member.userId),
-              eq(schema.billingRecords.billingDate, billingDate)
+          const rate =
+            sub.currency === user.preferredCurrency
+              ? 1
+              : rates[`${sub.currency}_${user.preferredCurrency}`]
+          if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
+            throw new Error(
+              `Missing exchange rate for ${sub.currency}_${user.preferredCurrency}`
             )
-          )
-        if (existing) continue
+          }
 
-        await tx.insert(schema.billingRecords)
-          .values({
-            subscriptionId: sub.id,
-            userId: member.userId,
-            amount: share,
-            currency: sub.currency,
-            localAmount,
-            localCurrency: user.preferredCurrency,
-            exchangeRate: Math.round(rate * 1000000),
-            billingDate,
-          })
-          
-        count++
-      }
-      return count
-    })
+          const localAmount = Math.floor(share * rate)
+
+          const [existing] = await tx
+            .select({ id: schema.billingRecords.id })
+            .from(schema.billingRecords)
+            .where(
+              and(
+                eq(schema.billingRecords.subscriptionId, sub.id),
+                eq(schema.billingRecords.userId, member.userId),
+                eq(schema.billingRecords.billingDate, billingDate)
+              )
+            )
+          if (existing) continue
+
+          await tx.insert(schema.billingRecords)
+            .values({
+              subscriptionId: sub.id,
+              userId: member.userId,
+              amount: share,
+              currency: sub.currency,
+              localAmount,
+              localCurrency: user.preferredCurrency,
+              exchangeRate: Math.round(rate * 1_000_000),
+              billingDate,
+            })
+          count++
+        }
+        return count
+      })
+    } catch {
+      // Per-sub best-effort. Swallowed errors (e.g. missing FX rate) skip
+      // this sub for the current cron run; the next run or a manual retry
+      // will pick it up once the upstream issue is resolved.
+    }
   }
 
   return inserted
