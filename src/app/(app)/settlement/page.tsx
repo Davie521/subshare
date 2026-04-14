@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -57,6 +57,26 @@ export default function SettlementPage() {
     await load(view);
   }
 
+  const totals = useMemo(() => {
+    if (!rows) return null;
+    const perCurrency = new Map<
+      string,
+      { owe: number; due: number; pairs: number }
+    >();
+    for (const r of rows) {
+      const entry =
+        perCurrency.get(r.currency) ?? { owe: 0, due: 0, pairs: 0 };
+      if (r.net < 0) entry.owe += Math.abs(r.net);
+      else if (r.net > 0) entry.due += r.net;
+      entry.pairs += 1;
+      perCurrency.set(r.currency, entry);
+    }
+    return Array.from(perCurrency.entries()).map(([currency, v]) => ({
+      currency,
+      ...v,
+    }));
+  }, [rows]);
+
   if (loadError && !rows) {
     return (
       <div className="max-w-md space-y-4">
@@ -72,13 +92,13 @@ export default function SettlementPage() {
   const showingPaid = view === "paid";
 
   return (
-    <div className="space-y-8 max-w-2xl">
-      <header className="flex items-start justify-between gap-4">
+    <div className="space-y-10">
+      <header className="flex items-start justify-between gap-4 flex-wrap">
         <div className="space-y-1.5 min-w-0">
           <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
             Settlement
           </h1>
-          <p className="text-[14px] text-muted-foreground max-w-md">
+          <p className="text-[14px] text-muted-foreground max-w-xl">
             {showingPaid
               ? "Already-settled history, grouped by person and currency."
               : "One net transfer per person per currency — instead of paying for each subscription separately."}
@@ -91,30 +111,68 @@ export default function SettlementPage() {
         />
       </header>
 
+      {/* Summary strip: per-currency totals */}
+      {!showingPaid && totals && totals.length > 0 && (
+        <div
+          className={cn(
+            "grid gap-4",
+            totals.length === 1
+              ? "md:grid-cols-2"
+              : "md:grid-cols-2 lg:grid-cols-3"
+          )}
+        >
+          {totals.flatMap((t) => {
+            const items: Array<{
+              key: string;
+              label: string;
+              amount: number;
+              tone: "owe" | "due";
+            }> = [];
+            if (t.owe > 0)
+              items.push({
+                key: `${t.currency}-owe`,
+                label: `You owe · ${t.currency}`,
+                amount: t.owe,
+                tone: "owe",
+              });
+            if (t.due > 0)
+              items.push({
+                key: `${t.currency}-due`,
+                label: `Owed to you · ${t.currency}`,
+                amount: t.due,
+                tone: "due",
+              });
+            return items.map(({ key, label, amount, tone }) => (
+              <TotalCard key={key} label={label} amount={amount} tone={tone} />
+            ));
+          })}
+        </div>
+      )}
+
       {rows === null ? (
-        <div className="space-y-2">
-          {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-28 bg-muted rounded-xl animate-pulse" />
+        <div className="grid gap-3 md:grid-cols-2">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="h-40 bg-muted rounded-xl animate-pulse" />
           ))}
         </div>
       ) : rows.length === 0 ? (
         <Card className="border-dashed bg-muted/30 shadow-none">
-          <CardContent className="py-14 flex flex-col items-center gap-2.5 text-center">
-            <div className="size-9 rounded-full bg-[var(--accent)] flex items-center justify-center">
-              <Sparkles className="size-[16px] text-[var(--accent-foreground)]" />
+          <CardContent className="py-16 flex flex-col items-center gap-2.5 text-center">
+            <div className="size-10 rounded-full bg-[var(--accent)] flex items-center justify-center">
+              <Sparkles className="size-[18px] text-[var(--accent-foreground)]" />
             </div>
             <p className="text-sm font-medium">
               {showingPaid ? "No history yet" : "All settled"}
             </p>
-            <p className="text-[13px] text-muted-foreground max-w-[26ch]">
+            <p className="text-[13px] text-muted-foreground max-w-[28ch]">
               {showingPaid
                 ? "Once you mark balances as settled they'll appear here."
-                : "No outstanding balances with anyone. When new bills arrive they'll show up here."}
+                : "No outstanding balances with anyone. New bills will show up here."}
             </p>
           </CardContent>
         </Card>
       ) : (
-        <ul className="space-y-2.5">
+        <ul className="grid gap-3 md:grid-cols-2">
           {rows.map((row) => {
             const key = `${row.counterpartyUserId}-${row.currency}`;
             const netAbs = Math.abs(row.net);
@@ -123,16 +181,16 @@ export default function SettlementPage() {
             const settling = settlingKey === key;
 
             return (
-              <li key={key}>
+              <li key={key} className="h-full">
                 <Card
                   className={cn(
-                    "transition-all",
+                    "h-full transition-all",
                     !showingPaid && iOwe &&
                       "ring-[var(--brand)]/25 dark:ring-[var(--brand)]/35",
                     showingPaid && "opacity-95"
                   )}
                 >
-                  <CardContent className="space-y-4">
+                  <CardContent className="h-full flex flex-col gap-4">
                     {/* Headline */}
                     <div className="flex items-start gap-3">
                       <UserAvatar name={row.counterpartyName} size="lg" />
@@ -190,31 +248,25 @@ export default function SettlementPage() {
                       </p>
                     </div>
 
-                    {/* Breakdown — only when truly bidirectional (both sides > 0) */}
+                    {/* Breakdown — only when truly bidirectional */}
                     {!even && row.owedByMe > 0 && row.owedToMe > 0 && (
                       <div className="rounded-md bg-muted/50 px-3 py-2 text-[12px] text-muted-foreground space-y-0.5 tabular-nums">
-                        {row.owedByMe > 0 && (
-                          <div className="flex items-center justify-between">
-                            <span>You → {row.counterpartyName}</span>
-                            <span>{formatMoney(row.owedByMe, row.currency)}</span>
-                          </div>
-                        )}
-                        {row.owedToMe > 0 && (
-                          <div className="flex items-center justify-between">
-                            <span>
-                              {row.counterpartyName} → You
-                            </span>
-                            <span>{formatMoney(row.owedToMe, row.currency)}</span>
-                          </div>
-                        )}
+                        <div className="flex items-center justify-between">
+                          <span>You → {row.counterpartyName}</span>
+                          <span>{formatMoney(row.owedByMe, row.currency)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>{row.counterpartyName} → You</span>
+                          <span>{formatMoney(row.owedToMe, row.currency)}</span>
+                        </div>
                       </div>
                     )}
 
-                    {/* Action — only for Unpaid view */}
+                    {/* Action pushed to bottom */}
                     {!showingPaid && !even && (
-                      <div className="flex items-center justify-between">
+                      <div className="mt-auto flex items-center justify-between gap-3 pt-1">
                         <p className="text-[12px] text-muted-foreground">
-                          After you&apos;ve transferred off-app →
+                          After transferring off-app →
                         </p>
                         <Button
                           size="sm"
@@ -255,6 +307,50 @@ export default function SettlementPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+function TotalCard({
+  label,
+  amount,
+  tone,
+}: {
+  label: string;
+  amount: number;
+  tone: "owe" | "due";
+}) {
+  const currency = label.split("·")[1]?.trim() ?? "";
+  return (
+    <Card
+      className={cn(
+        "relative overflow-hidden",
+        tone === "owe" && "ring-[var(--brand)]/25 dark:ring-[var(--brand)]/35"
+      )}
+    >
+      <div
+        className={cn(
+          "absolute inset-y-0 left-0 w-[3px]",
+          tone === "owe"
+            ? "bg-[var(--brand)]"
+            : "bg-[#1aae39] dark:bg-[#10b981]"
+        )}
+      />
+      <CardContent className="space-y-2">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {label}
+        </p>
+        <p
+          className={cn(
+            "text-[28px] font-bold tracking-[-0.022em] tabular-nums leading-none",
+            tone === "owe"
+              ? "text-[var(--brand)]"
+              : "text-[#0d8a2d] dark:text-[#22c55e]"
+          )}
+        >
+          {formatMoney(amount, currency)}
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 
