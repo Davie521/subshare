@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowRight, TrendingUp, Sparkles } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
 import { UserAvatar } from "@/components/user-avatar";
+import { NotificationsList } from "@/components/notifications-list";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
@@ -226,7 +227,7 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* Subscriptions breakdown — narrower */}
+        {/* Subscriptions breakdown + Activity — narrower */}
         <section className="space-y-4 lg:col-span-2">
           <div className="flex items-center justify-between">
             <SectionHeader
@@ -271,6 +272,14 @@ export default function DashboardPage() {
           )}
         </section>
       </div>
+
+      {/* Activity feed */}
+      <section className="space-y-4">
+        <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+          Activity
+        </h2>
+        <NotificationsList limit={10} showMarkAll />
+      </section>
     </div>
   );
 }
