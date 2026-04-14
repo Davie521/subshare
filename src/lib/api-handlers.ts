@@ -382,7 +382,7 @@ export async function handleListFriends(
         displayName: u.displayName?.trim() || u.name,
         since: r.since,
       }
-      if (u.showEmail === 1) out.email = u.email
+      if (u.showEmail) out.email = u.email
       return out
     })
     .filter((x): x is FriendRow => x !== null)
@@ -610,7 +610,7 @@ export async function handleGetDashboard(
     rates
   )
 
-  const pendingBills = await getPendingBills(db, userId).map((b) => ({
+  const pendingBills = (await getPendingBills(db, userId)).map((b) => ({
     id: b.id,
     subscriptionName: b.subscriptionName,
     amount: b.amount,

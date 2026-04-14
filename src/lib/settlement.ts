@@ -27,8 +27,7 @@ interface BillRow {
   isPaid: boolean
 }
 
-function fetchBills(db: DB, viewerId: number, paid: boolean): BillRow[] {
-  const isPaidValue = paid ? 1 : 0
+async function fetchBills(db: DB, viewerId: number, paid: boolean): Promise<BillRow[]> {
   // Outgoing: bills I owe (user_id = viewerId).
   const outgoing = await db
     .select({
@@ -48,7 +47,7 @@ function fetchBills(db: DB, viewerId: number, paid: boolean): BillRow[] {
     .where(
       and(
         eq(schema.billingRecords.userId, viewerId),
-        eq(schema.billingRecords.isPaid, isPaidValue)
+        eq(schema.billingRecords.isPaid, paid)
       )
     )
     
@@ -72,7 +71,7 @@ function fetchBills(db: DB, viewerId: number, paid: boolean): BillRow[] {
     .where(
       and(
         eq(schema.subscriptions.payerId, viewerId),
-        eq(schema.billingRecords.isPaid, isPaidValue)
+        eq(schema.billingRecords.isPaid, paid)
       )
     )
     
@@ -129,7 +128,7 @@ export async function getSettlementSummary(
   db: DB,
   viewerId: number
 ): Promise<SettlementRow[]> {
-  return bucketByPairCurrency(fetchBills(db, viewerId, false), viewerId)
+  return bucketByPairCurrency(await fetchBills(db, viewerId, false), viewerId)
 }
 
 /**
@@ -141,7 +140,7 @@ export async function getSettledHistory(
   db: DB,
   viewerId: number
 ): Promise<SettlementRow[]> {
-  return bucketByPairCurrency(fetchBills(db, viewerId, true), viewerId)
+  return bucketByPairCurrency(await fetchBills(db, viewerId, true), viewerId)
 }
 
 /**

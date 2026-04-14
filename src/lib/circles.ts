@@ -175,7 +175,7 @@ export async function deleteCircle(
   circleId: number,
   ownerUserId: number
 ): Promise<boolean> {
-  const [result] = await db
+  const result = await db
     .delete(schema.circles)
     .where(
       and(
@@ -183,6 +183,7 @@ export async function deleteCircle(
         eq(schema.circles.ownerUserId, ownerUserId)
       )
     )
-    
-  return result.changes > 0
+    .returning({ id: schema.circles.id })
+
+  return result.length > 0
 }

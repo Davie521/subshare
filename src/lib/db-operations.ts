@@ -11,7 +11,7 @@ type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
  * on demand after joining. Partial join-months (day > 1) don't count
  * as a full cycle, so the member must complete the NEXT full month.
  */
-export async function computeMinimumCycleEnd(addedAt: string): Promise<string> {
+export function computeMinimumCycleEnd(addedAt: string): string {
   const [y, m, d] = addedAt.split('-').map(Number)
   const targetMonth = d === 1 ? m : m + 1
   const targetYear = targetMonth > 12 ? y + 1 : y
@@ -188,7 +188,9 @@ export async function addMemberToSubscription(
       )
     )
     
-  if (existing) return await db.insert(schema.billingRecords)
+  if (existing) return
+
+  await db.insert(schema.billingRecords)
     .values({
       subscriptionId: input.subscriptionId,
       userId: input.userId,
@@ -258,7 +260,7 @@ export async function leaveSubscription(
     leftAt: string // ISO date YYYY-MM-DD
     actorId?: number // defaults to userId (self-leave)
   }
-): void {
+): Promise<void> {
   const actorId = input.actorId ?? input.userId
   const isKick = actorId !== input.userId
 
@@ -564,10 +566,11 @@ export async function changeSubscriptionPrice(
   if (!sub) throw new Error('Subscription not found')
 
   const oldPrice = sub.price
-  if (oldPrice === input.newPrice) return await db.update(schema.subscriptions)
+  if (oldPrice === input.newPrice) return
+
+  await db.update(schema.subscriptions)
     .set({ price: input.newPrice })
     .where(eq(schema.subscriptions.id, input.subscriptionId))
-    
 
   const today = new Date().toISOString().slice(0, 10)
   const members = await getActiveMembersAt(db, input.subscriptionId, today)
@@ -658,7 +661,7 @@ export async function generateMonthlyBills(
 
     const share = Math.floor(sub.price / members.length)
 
-    inserted += db.transaction(async (tx) => {
+    inserted += await db.transaction(async (tx) => {
       let count = 0
       for (const member of nonPayers) {
         const [user] = await tx
