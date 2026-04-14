@@ -120,7 +120,7 @@ export const api = {
     >("/api/friends"),
 
   // Settlement
-  settlement: () =>
+  settlement: (view: "unpaid" | "paid" = "unpaid") =>
     request<
       Array<{
         counterpartyUserId: number;
@@ -131,7 +131,7 @@ export const api = {
         net: number;
         billIds: number[];
       }>
-    >("/api/settlement"),
+    >(`/api/settlement${view === "paid" ? "?view=paid" : ""}`),
   markPairSettled: (counterpartyUserId: number, currency: string) =>
     request<{ marked: number }>("/api/settlement", {
       method: "POST",

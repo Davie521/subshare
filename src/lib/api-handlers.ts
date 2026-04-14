@@ -20,6 +20,7 @@ import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
 import {
   getSettlementSummary,
+  getSettledHistory,
   markPairSettled,
   type SettlementRow,
 } from './settlement'
@@ -460,9 +461,13 @@ const CURRENCY_WHITELIST = new Set([
 
 export function handleGetSettlement(
   db: DB,
-  userId: number
+  userId: number,
+  opts: { view?: 'unpaid' | 'paid' } = {}
 ): Result<EnrichedSettlementRow[]> {
-  const rows = getSettlementSummary(db, userId)
+  const rows =
+    opts.view === 'paid'
+      ? getSettledHistory(db, userId)
+      : getSettlementSummary(db, userId)
   if (rows.length === 0) return { success: true, data: [] }
 
   const counterpartyIds = Array.from(

@@ -6,12 +6,13 @@ import {
   handleMarkPairSettled,
 } from '@/lib/api-handlers'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const auth = await requireAuth()
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const result = handleGetSettlement(db, userId)
+  const view = req.nextUrl.searchParams.get('view') === 'paid' ? 'paid' : 'unpaid'
+  const result = handleGetSettlement(db, userId, { view })
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }

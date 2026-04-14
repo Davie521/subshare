@@ -27,7 +27,8 @@ interface BillRow {
   isPaid: number
 }
 
-function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
+function fetchBills(db: DB, viewerId: number, paid: boolean): BillRow[] {
+  const isPaidValue = paid ? 1 : 0
   // Outgoing: bills I owe (user_id = viewerId).
   const outgoing = db
     .select({
@@ -47,7 +48,7 @@ function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
     .where(
       and(
         eq(schema.billingRecords.userId, viewerId),
-        eq(schema.billingRecords.isPaid, 0)
+        eq(schema.billingRecords.isPaid, isPaidValue)
       )
     )
     .all()
@@ -71,7 +72,7 @@ function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
     .where(
       and(
         eq(schema.subscriptions.payerId, viewerId),
-        eq(schema.billingRecords.isPaid, 0)
+        eq(schema.billingRecords.isPaid, isPaidValue)
       )
     )
     .all()
@@ -79,18 +80,10 @@ function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
   return [...outgoing, ...incoming]
 }
 
-/**
- * T16 — netting per (counterparty, currency) bucket.
- * Returns one row per counterparty per currency; may emit multiple rows
- * for the same counterparty if debts span multiple currencies.
- */
-export function getSettlementSummary(
-  db: DB,
+function bucketByPairCurrency(
+  bills: BillRow[],
   viewerId: number
 ): SettlementRow[] {
-  const bills = fetchOutstandingBills(db, viewerId)
-
-  // bucket key = counterparty|currency
   type Bucket = {
     counterpartyUserId: number
     currency: string
@@ -125,6 +118,30 @@ export function getSettlementSummary(
     ...b,
     net: b.owedToMe - b.owedByMe,
   }))
+}
+
+/**
+ * T16 — netting per (counterparty, currency) bucket.
+ * Returns one row per counterparty per currency; may emit multiple rows
+ * for the same counterparty if debts span multiple currencies.
+ */
+export function getSettlementSummary(
+  db: DB,
+  viewerId: number
+): SettlementRow[] {
+  return bucketByPairCurrency(fetchBills(db, viewerId, false), viewerId)
+}
+
+/**
+ * T26 — historical paid view. Same bucketing as getSettlementSummary but
+ * over is_paid=1 bills. `owedByMe` / `owedToMe` represent flow (what you
+ * paid them vs. what they paid you) rather than current balance.
+ */
+export function getSettledHistory(
+  db: DB,
+  viewerId: number
+): SettlementRow[] {
+  return bucketByPairCurrency(fetchBills(db, viewerId, true), viewerId)
 }
 
 /**
