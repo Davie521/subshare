@@ -287,6 +287,55 @@ async function fetchRatesForGroup(
   return rates
 }
 
+export async function handleAddMembers(
+  db: DB,
+  actorId: number,
+  subId: number,
+  memberIds: number[]
+): Promise<Result<{ added: number }>> {
+  const sub = db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subId))
+    .get()
+  if (!sub) return { success: false, error: 'Subscription not found' }
+
+  if (sub.ownerId !== actorId && sub.payerId !== actorId) {
+    return {
+      success: false,
+      error: 'Only the owner or payer can add members',
+    }
+  }
+
+  const invitees = memberIds.filter((id) => id !== actorId)
+  if (invitees.length === 0) return { success: true, data: { added: 0 } }
+
+  const rates = await fetchRatesForUsers(db, invitees, sub.currency)
+  const today = new Date().toISOString().slice(0, 10)
+  let added = 0
+  for (const uid of invitees) {
+    const before = db
+      .select({ userId: schema.subscriptionMembers.userId })
+      .from(schema.subscriptionMembers)
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, subId),
+          eq(schema.subscriptionMembers.userId, uid)
+        )
+      )
+      .get()
+    if (before) continue
+    addMemberToSubscription(
+      db,
+      { subscriptionId: subId, userId: uid, addedBy: actorId, addedAt: today },
+      rates
+    )
+    added++
+  }
+
+  return { success: true, data: { added } }
+}
+
 export function handleUpdateSubscription(
   db: DB,
   userId: number,
