@@ -18,6 +18,19 @@ All UI work **must** follow `docs/DESIGN.md`. It is a Linear × Notion fusion sy
 
 Before writing any component, colour, typography, spacing, or shadow — consult `docs/DESIGN.md` and match its tokens/rules. Run through the iteration checklist in §10 before declaring a UI task done.
 
+## Local development (hybrid mode)
+
+Recommended: run Postgres in Docker, Next locally. Fast HMR, easy debugging.
+
+```bash
+cp .env.example .env.local          # first time only; dev secrets already good-to-go
+docker compose up -d postgres       # start Postgres (port 5432)
+npm install
+npm run dev                         # Next at http://localhost:3000
+```
+
+Stop Postgres when done: `docker compose down`.
+
 ## Commands
 
 ```bash
@@ -32,17 +45,22 @@ npx vitest run -t "calculates pro-rated shares"           # single test by name
 npm run fetch-icons    # regenerate public/icons/* + manifest.json
 ```
 
-Docker: `docker compose up --build -d` → `http://localhost:3000`.
+Full Docker (pre-deploy smoke test): `docker compose up --build -d` → `http://localhost:3000`.
 
-## Deployment constraints
+## Deployment
 
-- **Single-instance only.** `src/lib/rate-limit.ts` stores attempt counters in a per-process `Map`. Do not run multiple Node processes (no pm2 cluster, no horizontal scaling, no Vercel multi-region). Before scaling out, replace with Redis/Upstash-backed rate limiting.
-- **Long-running process.** `handleCreateSubscription` uses fire-and-forget background billing generation after returning. This only works in persistent runtimes (Docker, bare Node). Serverless platforms kill the function after the response — migrate to a queue before switching.
+Target: **Railway** (Dockerfile-based, Postgres plugin). Full setup + env vars + cron scheduling in `docs/DEPLOYMENT.md`.
+
+Two hard constraints (detailed in that doc):
+- **Single-instance only** — rate limiter uses in-process `Map`.
+- **Long-running process required** — background billing generation after HTTP return doesn't survive serverless.
 
 ## Environment
 
-- `SESSION_SECRET` — required in production; HMAC key for signed session cookies (min 32 chars). Dev fallback exists.
+See `.env.example` for the full template.
+
 - `DATABASE_URL` — Postgres connection string (required).
+- `SESSION_SECRET` — HMAC key for session cookies, 32+ chars. Required in production (dev has insecure fallback).
 - `CRON_SECRET` — Bearer token for `POST /api/cron/billing`.
 
 ## Architecture — **subscription-centric**
