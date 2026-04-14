@@ -15,8 +15,16 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 })
 
-export const createGroupSchema = z.object({
-  name: z.string().min(1).max(100),
+export const createCircleSchema = z.object({
+  name: z.string().min(1).max(60),
+  memberIds: z.array(z.number().int().positive()).max(50).optional(),
+  defaultPayerId: z.number().int().positive().nullable().optional(),
+})
+
+export const updateCircleSchema = z.object({
+  name: z.string().min(1).max(60).optional(),
+  memberIds: z.array(z.number().int().positive()).max(50).optional(),
+  defaultPayerId: z.number().int().positive().nullable().optional(),
 })
 
 export const createSubscriptionSchema = z.object({
@@ -24,7 +32,6 @@ export const createSubscriptionSchema = z.object({
   price: z.number().int().positive().max(100_000_000),
   currency: z.enum(CURRENCIES),
   nextPayment: z.string().regex(DATE_REGEX, 'Must be YYYY-MM-DD'),
-  groupId: z.number().int().positive().optional(),
   members: z.array(z.number().int().positive()).max(50).optional(),
   payerId: z.number().int().positive().optional(),
   logo: z

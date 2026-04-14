@@ -43,27 +43,18 @@ export const api = {
       subscriptions: Array<{ name: string; price: number; currency: string; memberCount: number }>;
     }>("/api/dashboard"),
 
-  // Groups
-  getGroups: () => request<Array<{ id: number; name: string; publicId: string; createdBy: number }>>("/api/groups"),
-  createGroup: (name: string) => request("/api/groups", { method: "POST", body: JSON.stringify({ name }) }),
-  getGroup: (id: number) => request<{ id: number; name: string; publicId: string; createdBy: number; members: Array<{ userId: number; name: string }>; subscriptions: Array<{ id: number; name: string; price: number; currency: string }> }>(`/api/groups/${id}`),
-  joinGroup: (publicId: string) => request(`/api/groups/${publicId}/join`, { method: "POST" }),
-  leaveGroup: (id: number) => request(`/api/groups/${id}/leave`, { method: "POST" }),
-  deleteGroup: (id: number) => request(`/api/groups/${id}`, { method: "DELETE" }),
-
   // Subscriptions
   getSubscriptions: () =>
-    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; groupId: number | null; memberCount: number; inactive: number }>>("/api/subscriptions"),
+    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: number }>>("/api/subscriptions"),
   createSubscription: (body: {
     name: string;
     price: number;
     currency: string;
     nextPayment: string;
-    groupId?: number;
     members?: number[];
     payerId?: number;
   }) =>
-    request<{ id: number; name: string; groupId: number | null }>(
+    request<{ id: number; name: string }>(
       "/api/subscriptions",
       { method: "POST", body: JSON.stringify(body) }
     ),
@@ -76,7 +67,6 @@ export const api = {
       nextPayment: string;
       ownerId: number;
       payerId: number;
-      groupId: number | null;
       logo: string | null;
       url: string | null;
       notes: string | null;
@@ -128,7 +118,7 @@ export const api = {
     >("/api/friends"),
 
   // Settlement
-  settlement: () =>
+  settlement: (view: "unpaid" | "paid" = "unpaid") =>
     request<
       Array<{
         counterpartyUserId: number;
@@ -139,12 +129,48 @@ export const api = {
         net: number;
         billIds: number[];
       }>
-    >("/api/settlement"),
+    >(`/api/settlement${view === "paid" ? "?view=paid" : ""}`),
   markPairSettled: (counterpartyUserId: number, currency: string) =>
     request<{ marked: number }>("/api/settlement", {
       method: "POST",
       body: JSON.stringify({ counterpartyUserId, currency }),
     }),
+
+  // Circles (UI label "Group") — member preset templates
+  circles: () =>
+    request<
+      Array<{
+        id: number;
+        name: string;
+        ownerUserId: number;
+        defaultPayerId: number | null;
+        memberIds: number[];
+        createdAt: string;
+      }>
+    >("/api/circles"),
+  createCircle: (body: {
+    name: string;
+    memberIds?: number[];
+    defaultPayerId?: number | null;
+  }) =>
+    request<{ id: number }>("/api/circles", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateCircle: (
+    id: number,
+    body: {
+      name?: string;
+      memberIds?: number[];
+      defaultPayerId?: number | null;
+    }
+  ) =>
+    request(`/api/circles/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteCircle: (id: number) =>
+    request(`/api/circles/${id}`, { method: "DELETE" }),
 
   // Subscription members / payer
   addSubMembers: (subId: number, members: number[]) =>

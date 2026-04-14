@@ -1,41 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
 import { requireAuth } from '@/lib/api-utils'
-import {
-  handleGetSettlement,
-  handleMarkPairSettled,
-} from '@/lib/api-handlers'
+import { handleListCircles, handleCreateCircle } from '@/lib/api-handlers'
+import { createCircleSchema } from '@/lib/validators'
 
-export async function GET(req: NextRequest) {
+export async function GET() {
   const auth = await requireAuth()
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-<<<<<<< HEAD
-  const result = await handleGetSettlement(db, userId)
-||||||| edd84f2
-  const result = handleGetSettlement(db, userId)
-=======
-  const view = req.nextUrl.searchParams.get('view') === 'paid' ? 'paid' : 'unpaid'
-  const result = handleGetSettlement(db, userId, { view })
->>>>>>> origin/main
+  const result = handleListCircles(db, userId)
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }
   return NextResponse.json(result.data)
 }
 
-const settleSchema = z.object({
-  counterpartyUserId: z.number().int().positive(),
-  currency: z.string().min(3).max(5),
-})
-
 export async function POST(req: NextRequest) {
   const auth = await requireAuth()
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const parsed = settleSchema.safeParse(await req.json())
+  const parsed = createCircleSchema.safeParse(await req.json())
   if (!parsed.success) {
     return NextResponse.json(
       { error: parsed.error.issues[0].message },
@@ -43,12 +28,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const result = await handleMarkPairSettled(
-    db,
-    userId,
-    parsed.data.counterpartyUserId,
-    parsed.data.currency
-  )
+  const result = handleCreateCircle(db, userId, parsed.data)
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }

@@ -23,7 +23,7 @@ export async function GET(
 
   if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Authorization: owner, payer, or active subscription_members / legacy group_members
+  // Authorization: owner, payer, or active subscription_members
   let allowed = sub.ownerId === userId || sub.payerId === userId
   if (!allowed) {
     const [subMembership] = await db
@@ -37,6 +37,7 @@ export async function GET(
       )
     if (subMembership) allowed = true
   }
+<<<<<<< HEAD
   if (!allowed && sub.groupId) {
     const [legacy] = await db
       .select()
@@ -49,6 +50,22 @@ export async function GET(
       )
     if (legacy) allowed = true
   }
+||||||| edd84f2
+  if (!allowed && sub.groupId) {
+    const legacy = db
+      .select()
+      .from(schema.groupMembers)
+      .where(
+        and(
+          eq(schema.groupMembers.groupId, sub.groupId),
+          eq(schema.groupMembers.userId, userId)
+        )
+      )
+      .get()
+    if (legacy) allowed = true
+  }
+=======
+>>>>>>> origin/main
   if (!allowed) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }

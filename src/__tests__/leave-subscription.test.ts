@@ -40,7 +40,14 @@ describe('T5 leaveSubscription', () => {
   it('sets left_at on the member row', async () => {
     const { b, sub } = await scenario()
 
+<<<<<<< HEAD
     await leaveSubscription(db, {
+||||||| edd84f2
+    leaveSubscription(db, {
+=======
+    // B joined 4/15 → R2 minimum-cycle end = 5/31. Leaving 4/20 clamps.
+    leaveSubscription(db, {
+>>>>>>> origin/main
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-04-20',
@@ -48,7 +55,7 @@ describe('T5 leaveSubscription', () => {
 
     const rows = await getMembersOfSubscription(db, sub.id)
     const bRow = rows.find((r) => r.userId === b)!
-    expect(bRow.leftAt).toBe('2026-04-20')
+    expect(bRow.leftAt).toBe('2026-05-31')
   })
 
   it('generates NO additional billing records on leave (R3, no refund)', async () => {
@@ -88,22 +95,37 @@ describe('T5 leaveSubscription', () => {
   it('is a no-op when the user already left (idempotent)', async () => {
     const { b, sub } = await scenario()
 
+<<<<<<< HEAD
     await leaveSubscription(db, {
+||||||| edd84f2
+    leaveSubscription(db, {
+=======
+    // First call: 4/20 clamps to 5/31 (R2 minimum).
+    leaveSubscription(db, {
+>>>>>>> origin/main
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-04-20',
     })
+<<<<<<< HEAD
     // Second call with a later date must NOT overwrite the first.
     await leaveSubscription(db, {
+||||||| edd84f2
+    // Second call with a later date must NOT overwrite the first.
+    leaveSubscription(db, {
+=======
+    // Second call must NOT overwrite the first.
+    leaveSubscription(db, {
+>>>>>>> origin/main
       subscriptionId: sub.id,
       userId: b,
-      leftAt: '2026-04-30',
+      leftAt: '2026-06-15',
     })
 
     const bRow = (await getMembersOfSubscription(db, sub.id)).find(
       (r) => r.userId === b
     )!
-    expect(bRow.leftAt).toBe('2026-04-20')
+    expect(bRow.leftAt).toBe('2026-05-31')
   })
 
   it('throws when the user is not a member at all', async () => {

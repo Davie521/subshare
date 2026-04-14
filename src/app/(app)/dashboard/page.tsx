@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, TrendingUp, Sparkles } from "lucide-react";
+import { ArrowRight, TrendingUp } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
 import { UserAvatar } from "@/components/user-avatar";
 import { cn } from "@/lib/utils";
@@ -104,7 +104,9 @@ export default function DashboardPage() {
     );
   }
 
-  const outstandingPairs = (settlement ?? []).filter((r) => r.net !== 0);
+  // "You need to transfer" = only outgoing direction (I owe).
+  // Incoming balances go on /settlement, not here.
+  const outgoingPairs = (settlement ?? []).filter((r) => r.net < 0);
 
   const personalSubs = data.subscriptions.filter((s) => s.memberCount === 1);
   const sharedSubs = data.subscriptions.filter((s) => s.memberCount > 1);
@@ -142,55 +144,49 @@ export default function DashboardPage() {
           }
         />
         <StatCard
-          label="Settlement"
-          value={String(outstandingPairs.length)}
+          label="To transfer"
+          value={String(outgoingPairs.length)}
           sub={
-            outstandingPairs.length === 0
-              ? "All settled"
-              : outstandingPairs.length === 1
-              ? "1 open balance"
-              : `${outstandingPairs.length} open balances`
+            outgoingPairs.length === 0
+              ? "Nothing owed"
+              : outgoingPairs.length === 1
+              ? "1 person"
+              : `${outgoingPairs.length} people`
           }
-          tone={outstandingPairs.length > 0 ? "warn" : "neutral"}
+          tone={outgoingPairs.length > 0 ? "warn" : "neutral"}
         />
       </div>
 
       {/* Two-column layout on desktop */}
       <div className="grid gap-8 lg:grid-cols-5">
-        {/* Settlement — wider */}
+        {/* Activity preview — wider, links to /activity for full view */}
         <section className="space-y-4 lg:col-span-3">
           <div className="flex items-center justify-between">
-            <SectionHeader title="Settlement" count={outstandingPairs.length} />
-            {outstandingPairs.length > 0 && (
-              <Link
-                href="/settlement"
-                className="text-[13px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
-              >
-                All <ArrowRight className="size-3" />
-              </Link>
-            )}
+            <SectionHeader title="Activity" count={outgoingPairs.length} />
+            <Link
+              href="/activity"
+              className="text-[13px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+            >
+              View all <ArrowRight className="size-3" />
+            </Link>
           </div>
 
-          {outstandingPairs.length === 0 ? (
+          {outgoingPairs.length === 0 ? (
             <Card className="border-dashed bg-muted/30 shadow-none">
-              <CardContent className="py-12 flex flex-col items-center gap-2.5 text-center">
-                <div className="size-9 rounded-full bg-[var(--accent)] flex items-center justify-center">
-                  <Sparkles className="size-[16px] text-[var(--accent-foreground)]" />
-                </div>
-                <p className="text-sm font-medium">All settled</p>
+              <CardContent className="py-10 flex flex-col items-center gap-2 text-center">
+                <p className="text-sm font-medium">Nothing to transfer</p>
                 <p className="text-[13px] text-muted-foreground">
-                  No outstanding balances with anyone.
+                  You don&apos;t owe anyone right now.
                 </p>
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-2.5">
-              {outstandingPairs.slice(0, 4).map((row) => {
+              {outgoingPairs.slice(0, 3).map((row) => {
                 const key = `${row.counterpartyUserId}-${row.currency}`;
-                const iOwe = row.net < 0;
                 const netAbs = Math.abs(row.net);
                 return (
-                  <Link key={key} href="/settlement" className="block group">
+                  <Link key={key} href="/activity" className="block group">
                     <Card
                       size="sm"
                       className="transition-all duration-150 group-hover:ring-[rgba(0,0,0,0.14)] dark:group-hover:ring-white/[0.12] dark:group-hover:bg-white/[0.03]"
@@ -203,16 +199,14 @@ export default function DashboardPage() {
                               {row.counterpartyName}
                             </p>
                             <p className="text-[13px] text-muted-foreground">
-                              {iOwe ? "You owe" : "They owe you"} · {row.currency}
+                              You owe · {row.currency}
                             </p>
                           </div>
                         </div>
                         <p
                           className={cn(
                             "text-[16px] font-semibold tabular-nums tracking-[-0.015em] shrink-0",
-                            iOwe
-                              ? "text-[var(--brand)]"
-                              : "text-[#0d8a2d] dark:text-[#22c55e]"
+                            "text-[var(--brand)]"
                           )}
                         >
                           {formatMoney(netAbs, row.currency)}
@@ -226,7 +220,7 @@ export default function DashboardPage() {
           )}
         </section>
 
-        {/* Subscriptions breakdown — narrower */}
+        {/* Subscriptions — narrower */}
         <section className="space-y-4 lg:col-span-2">
           <div className="flex items-center justify-between">
             <SectionHeader
@@ -274,6 +268,7 @@ export default function DashboardPage() {
     </div>
   );
 }
+
 
 /* -------------------- local components -------------------- */
 

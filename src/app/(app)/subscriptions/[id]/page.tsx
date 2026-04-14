@@ -36,7 +36,6 @@ type Sub = {
   nextPayment: string;
   ownerId: number;
   payerId: number;
-  groupId: number | null;
   logo: string | null;
   inactive: number;
   members: Member[];

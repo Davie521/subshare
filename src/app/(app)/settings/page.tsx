@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
-import { LogOut, ArrowRight, Check } from "lucide-react";
+import { LogOut, Check, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
@@ -154,16 +154,16 @@ export default function SettingsPage() {
         </Card>
       </section>
 
-      {/* Friends */}
+      {/* Groups */}
       <section className="space-y-4">
-        <SectionHeader title="Social" />
+        <SectionHeader title="Groups" />
         <Card className="hover:bg-foreground/[0.02] dark:hover:bg-white/[0.02] transition-colors">
-          <Link href="/settings/friends">
+          <Link href="/settings/circles">
             <CardContent className="flex items-center justify-between cursor-pointer">
               <div>
-                <p className="text-[15px] font-semibold">Friends</p>
+                <p className="text-[15px] font-semibold">Member templates</p>
                 <p className="text-[13px] text-muted-foreground">
-                  People you&apos;ve shared subscriptions with.
+                  Save a fixed group of people to quick-fill new subscriptions.
                 </p>
               </div>
               <ArrowRight className="size-4 text-muted-foreground" />

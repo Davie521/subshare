@@ -1,15 +1,19 @@
 import { eq, and, inArray, or, desc } from 'drizzle-orm'
+<<<<<<< HEAD
 import { nanoid } from 'nanoid'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
+||||||| edd84f2
+import { nanoid } from 'nanoid'
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+=======
+import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+>>>>>>> origin/main
 import * as schema from '@/db/schema'
 import {
   createSubscription,
-  generateAndSaveBillingRecords,
   getPendingBills,
   markBillPaid,
   getMonthlySpendingData,
-  canLeaveGroup,
-  removeGroupMember,
   addMemberToSubscription,
   leaveSubscription,
   transferPayer,
@@ -20,6 +24,7 @@ import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
 import {
   getSettlementSummary,
+  getSettledHistory,
   markPairSettled,
   type SettlementRow,
 } from './settlement'
@@ -30,12 +35,21 @@ import {
   countUnreadNotifications,
   type NotificationRecord,
 } from './notifications'
+import {
+  createCircle,
+  listCirclesForOwner,
+  getCircle,
+  updateCircle,
+  deleteCircle,
+  type CircleSummary,
+} from './circles'
 
 type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
 type Result<T = unknown> =
   | { success: true; data?: T }
   | { success: false; error: string }
 
+<<<<<<< HEAD
 const MAX_GROUP_MEMBERS = 20
 
 export async function handleCreateGroup(
@@ -172,6 +186,146 @@ export async function handleDeleteGroup(
   return { success: true }
 }
 
+||||||| edd84f2
+export function handleCreateGroup(
+  db: DB,
+  userId: number,
+  input: { name: string }
+): Result<{ id: number; name: string; publicId: string }> {
+  const publicId = nanoid(10)
+
+  const group = db
+    .insert(schema.groups)
+    .values({
+      name: input.name,
+      publicId,
+      createdBy: userId,
+    })
+    .returning()
+    .get()
+
+  // Add creator as member
+  db.insert(schema.groupMembers)
+    .values({ groupId: group.id, userId })
+    .run()
+
+  return {
+    success: true,
+    data: { id: group.id, name: group.name, publicId: group.publicId },
+  }
+}
+
+export function handleJoinGroup(
+  db: DB,
+  userId: number,
+  publicId: string
+): Result {
+  const group = db
+    .select()
+    .from(schema.groups)
+    .where(eq(schema.groups.publicId, publicId))
+    .get()
+
+  if (!group) return { success: false, error: 'Group not found' }
+
+  // Check if already a member
+  const existing = db
+    .select()
+    .from(schema.groupMembers)
+    .where(
+      and(
+        eq(schema.groupMembers.groupId, group.id),
+        eq(schema.groupMembers.userId, userId)
+      )
+    )
+    .get()
+
+  if (existing) return { success: false, error: 'Already a member' }
+
+  const memberCount = db
+    .select({ userId: schema.groupMembers.userId })
+    .from(schema.groupMembers)
+    .where(eq(schema.groupMembers.groupId, group.id))
+    .all().length
+
+  if (memberCount >= MAX_GROUP_MEMBERS) {
+    return { success: false, error: 'Group is full' }
+  }
+
+  db.insert(schema.groupMembers)
+    .values({ groupId: group.id, userId })
+    .run()
+
+  return { success: true }
+}
+
+const MAX_GROUP_MEMBERS = 20
+
+export function handleLeaveGroup(
+  db: DB,
+  userId: number,
+  groupId: number
+): Result {
+  if (!canLeaveGroup(db, groupId, userId)) {
+    const group = db
+      .select()
+      .from(schema.groups)
+      .where(eq(schema.groups.id, groupId))
+      .get()
+
+    if (group && group.createdBy === userId) {
+      return { success: false, error: 'Creator cannot leave. Dissolve the group instead.' }
+    }
+    return { success: false, error: 'Cannot leave with unpaid bills' }
+  }
+
+  removeGroupMember(db, groupId, userId)
+  return { success: true }
+}
+
+export function handleDeleteGroup(
+  db: DB,
+  userId: number,
+  groupId: number
+): Result {
+  const group = db
+    .select()
+    .from(schema.groups)
+    .where(eq(schema.groups.id, groupId))
+    .get()
+
+  if (!group) return { success: false, error: 'Group not found' }
+  if (group.createdBy !== userId)
+    return { success: false, error: 'Only the creator can delete the group' }
+
+  // Check for unpaid bills
+  const unpaid = db
+    .select({ id: schema.billingRecords.id })
+    .from(schema.billingRecords)
+    .innerJoin(
+      schema.subscriptions,
+      eq(schema.billingRecords.subscriptionId, schema.subscriptions.id)
+    )
+    .where(
+      and(
+        eq(schema.subscriptions.groupId, groupId),
+        eq(schema.billingRecords.isPaid, 0)
+      )
+    )
+    .limit(1)
+    .all()
+
+  if (unpaid.length > 0)
+    return { success: false, error: 'Cannot delete group with unpaid bills' }
+
+  // Cascade delete: group → group_members, subscriptions → billing_records
+  db.delete(schema.groups).where(eq(schema.groups.id, groupId)).run()
+
+  return { success: true }
+}
+
+=======
+>>>>>>> origin/main
 export async function handleCreateSubscription(
   db: DB,
   userId: number,
@@ -180,7 +334,6 @@ export async function handleCreateSubscription(
     price: number
     currency: string
     nextPayment: string
-    groupId?: number
     members?: number[]
     payerId?: number
     logo?: string
@@ -188,6 +341,7 @@ export async function handleCreateSubscription(
     notes?: string
     categoryId?: number
   }
+<<<<<<< HEAD
 ): Promise<Result<{ id: number; name: string; groupId: number | null }>> {
   if (input.groupId) {
     const [membership] = await db
@@ -204,6 +358,27 @@ export async function handleCreateSubscription(
       return { success: false, error: 'You are not a member of this group' }
   }
 
+||||||| edd84f2
+): Promise<Result<{ id: number; name: string; groupId: number | null }>> {
+  if (input.groupId) {
+    const membership = db
+      .select()
+      .from(schema.groupMembers)
+      .where(
+        and(
+          eq(schema.groupMembers.groupId, input.groupId),
+          eq(schema.groupMembers.userId, userId)
+        )
+      )
+      .get()
+
+    if (!membership)
+      return { success: false, error: 'You are not a member of this group' }
+  }
+
+=======
+): Promise<Result<{ id: number; name: string }>> {
+>>>>>>> origin/main
   const invitees = (input.members ?? []).filter((id) => id !== userId)
   const payerId = input.payerId ?? userId
 
@@ -239,6 +414,7 @@ export async function handleCreateSubscription(
     }
   }
 
+<<<<<<< HEAD
   if (sub.groupId) {
     void fetchRatesForGroup(db, sub.groupId, input.currency)
       .then((rates) => generateAndSaveBillingRecords(db, sub.id, rates))
@@ -251,6 +427,17 @@ export async function handleCreateSubscription(
       )
   }
 
+||||||| edd84f2
+  if (sub.groupId) {
+    void fetchRatesForGroup(db, sub.groupId, input.currency)
+      .then((rates) => generateAndSaveBillingRecords(db, sub.id, rates))
+      .catch((err) =>
+        console.error('[billing] initial generation failed for sub', sub.id, err)
+      )
+  }
+
+=======
+>>>>>>> origin/main
   return { success: true, data: sub }
 }
 
@@ -277,6 +464,7 @@ async function fetchRatesForUsers(
   return rates
 }
 
+<<<<<<< HEAD
 async function fetchRatesForGroup(
   db: DB,
   groupId: number,
@@ -303,6 +491,36 @@ async function fetchRatesForGroup(
   return rates
 }
 
+||||||| edd84f2
+async function fetchRatesForGroup(
+  db: DB,
+  groupId: number,
+  subCurrency: string
+): Promise<Record<string, number>> {
+  const memberCurrencies = db
+    .select({ preferredCurrency: schema.users.preferredCurrency })
+    .from(schema.groupMembers)
+    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
+    .where(eq(schema.groupMembers.groupId, groupId))
+    .all()
+
+  const targets = new Set(
+    memberCurrencies
+      .map((m) => m.preferredCurrency)
+      .filter((c) => c !== subCurrency)
+  )
+  const rates: Record<string, number> = {}
+  await Promise.all(
+    Array.from(targets).map(async (to) => {
+      const rate = await getRate(subCurrency, to)
+      if (rate !== null) rates[`${subCurrency}_${to}`] = rate
+    })
+  )
+  return rates
+}
+
+=======
+>>>>>>> origin/main
 export async function handleAddMembers(
   db: DB,
   actorId: number,
@@ -456,9 +674,23 @@ const CURRENCY_WHITELIST = new Set([
 
 export async function handleGetSettlement(
   db: DB,
+<<<<<<< HEAD
   userId: number
 ): Promise<Result<EnrichedSettlementRow[]>> {
   const rows = await getSettlementSummary(db, userId)
+||||||| edd84f2
+  userId: number
+): Result<EnrichedSettlementRow[]> {
+  const rows = getSettlementSummary(db, userId)
+=======
+  userId: number,
+  opts: { view?: 'unpaid' | 'paid' } = {}
+): Result<EnrichedSettlementRow[]> {
+  const rows =
+    opts.view === 'paid'
+      ? getSettledHistory(db, userId)
+      : getSettlementSummary(db, userId)
+>>>>>>> origin/main
   if (rows.length === 0) return { success: true, data: [] }
 
   const counterpartyIds = Array.from(
@@ -797,4 +1029,80 @@ export async function handleGetDashboard(
     pendingBills,
     subscriptions: spendingData,
   }
+}
+
+// --- Circles (member preset templates; UI label: "Group") ---
+
+export function handleListCircles(
+  db: DB,
+  userId: number
+): Result<CircleSummary[]> {
+  return { success: true, data: listCirclesForOwner(db, userId) }
+}
+
+export function handleCreateCircle(
+  db: DB,
+  userId: number,
+  input: {
+    name: string
+    memberIds?: number[]
+    defaultPayerId?: number | null
+  }
+): Result<{ id: number }> {
+  try {
+    const result = createCircle(db, {
+      ownerUserId: userId,
+      name: input.name,
+      memberIds: input.memberIds,
+      defaultPayerId: input.defaultPayerId,
+    })
+    return { success: true, data: result }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to create circle',
+    }
+  }
+}
+
+export function handleGetCircle(
+  db: DB,
+  userId: number,
+  circleId: number
+): Result<CircleSummary> {
+  const circle = getCircle(db, circleId, userId)
+  if (!circle) return { success: false, error: 'Not found' }
+  return { success: true, data: circle }
+}
+
+export function handleUpdateCircle(
+  db: DB,
+  userId: number,
+  circleId: number,
+  patch: {
+    name?: string
+    memberIds?: number[]
+    defaultPayerId?: number | null
+  }
+): Result {
+  try {
+    const ok = updateCircle(db, circleId, userId, patch)
+    if (!ok) return { success: false, error: 'Not found' }
+    return { success: true }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to update circle',
+    }
+  }
+}
+
+export function handleDeleteCircle(
+  db: DB,
+  userId: number,
+  circleId: number
+): Result {
+  const ok = deleteCircle(db, circleId, userId)
+  if (!ok) return { success: false, error: 'Not found' }
+  return { success: true }
 }

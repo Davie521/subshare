@@ -2,17 +2,17 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { LayoutDashboard, CreditCard, Users, Settings, Wallet } from "lucide-react";
+import { LayoutDashboard, CreditCard, Settings, Wallet, Users, Activity } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { UserMenu } from "@/components/user-menu";
-import { NotificationsBell } from "@/components/notifications-bell";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/subscriptions", label: "Subscriptions", icon: CreditCard },
+  { href: "/activity", label: "Activity", icon: Activity },
   { href: "/settlement", label: "Settlement", icon: Wallet },
-  { href: "/groups", label: "Groups", icon: Users },
+  { href: "/friends", label: "Friends", icon: Users },
 ];
 
 export function SidebarNav() {
@@ -20,12 +20,11 @@ export function SidebarNav() {
 
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-60 lg:border-r lg:bg-sidebar lg:text-sidebar-foreground lg:fixed lg:inset-y-0">
-      {/* Logo + bell */}
-      <div className="flex items-center justify-between h-16 px-5">
+      {/* Logo */}
+      <div className="flex items-center h-16 px-5">
         <Link href="/dashboard" className="cursor-pointer transition-opacity hover:opacity-80">
           <Logo size={28} />
         </Link>
-        <NotificationsBell />
       </div>
 
       {/* Nav links */}

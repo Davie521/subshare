@@ -27,10 +27,17 @@ interface BillRow {
   isPaid: boolean
 }
 
+<<<<<<< HEAD
 async function fetchOutstandingBills(
   db: DB,
   viewerId: number
 ): Promise<BillRow[]> {
+||||||| edd84f2
+function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
+=======
+function fetchBills(db: DB, viewerId: number, paid: boolean): BillRow[] {
+  const isPaidValue = paid ? 1 : 0
+>>>>>>> origin/main
   // Outgoing: bills I owe (user_id = viewerId).
   const outgoing = await db
     .select({
@@ -50,7 +57,13 @@ async function fetchOutstandingBills(
     .where(
       and(
         eq(schema.billingRecords.userId, viewerId),
+<<<<<<< HEAD
         eq(schema.billingRecords.isPaid, false)
+||||||| edd84f2
+        eq(schema.billingRecords.isPaid, 0)
+=======
+        eq(schema.billingRecords.isPaid, isPaidValue)
+>>>>>>> origin/main
       )
     )
 
@@ -73,13 +86,20 @@ async function fetchOutstandingBills(
     .where(
       and(
         eq(schema.subscriptions.payerId, viewerId),
+<<<<<<< HEAD
         eq(schema.billingRecords.isPaid, false)
+||||||| edd84f2
+        eq(schema.billingRecords.isPaid, 0)
+=======
+        eq(schema.billingRecords.isPaid, isPaidValue)
+>>>>>>> origin/main
       )
     )
 
   return [...outgoing, ...incoming]
 }
 
+<<<<<<< HEAD
 /**
  * T16 — netting per (counterparty, currency) bucket.
  * Returns one row per counterparty per currency; may emit multiple rows
@@ -87,11 +107,32 @@ async function fetchOutstandingBills(
  */
 export async function getSettlementSummary(
   db: DB,
+||||||| edd84f2
+/**
+ * T16 — netting per (counterparty, currency) bucket.
+ * Returns one row per counterparty per currency; may emit multiple rows
+ * for the same counterparty if debts span multiple currencies.
+ */
+export function getSettlementSummary(
+  db: DB,
+=======
+function bucketByPairCurrency(
+  bills: BillRow[],
+>>>>>>> origin/main
   viewerId: number
+<<<<<<< HEAD
 ): Promise<SettlementRow[]> {
   const bills = await fetchOutstandingBills(db, viewerId)
 
   // bucket key = counterparty|currency
+||||||| edd84f2
+): SettlementRow[] {
+  const bills = fetchOutstandingBills(db, viewerId)
+
+  // bucket key = counterparty|currency
+=======
+): SettlementRow[] {
+>>>>>>> origin/main
   type Bucket = {
     counterpartyUserId: number
     currency: string
@@ -126,6 +167,30 @@ export async function getSettlementSummary(
     ...b,
     net: b.owedToMe - b.owedByMe,
   }))
+}
+
+/**
+ * T16 — netting per (counterparty, currency) bucket.
+ * Returns one row per counterparty per currency; may emit multiple rows
+ * for the same counterparty if debts span multiple currencies.
+ */
+export function getSettlementSummary(
+  db: DB,
+  viewerId: number
+): SettlementRow[] {
+  return bucketByPairCurrency(fetchBills(db, viewerId, false), viewerId)
+}
+
+/**
+ * T26 — historical paid view. Same bucketing as getSettlementSummary but
+ * over is_paid=1 bills. `owedByMe` / `owedToMe` represent flow (what you
+ * paid them vs. what they paid you) rather than current balance.
+ */
+export function getSettledHistory(
+  db: DB,
+  viewerId: number
+): SettlementRow[] {
+  return bucketByPairCurrency(fetchBills(db, viewerId, true), viewerId)
 }
 
 /**

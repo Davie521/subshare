@@ -6,7 +6,31 @@ import { insertNotification } from './notifications'
 
 type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
 
+<<<<<<< HEAD
 export async function createSubscription(
+||||||| edd84f2
+export function createSubscription(
+=======
+/**
+ * R2 minimum-cycle commitment: the earliest date a member may leave
+ * on demand after joining. Partial join-months (day > 1) don't count
+ * as a full cycle, so the member must complete the NEXT full month.
+ */
+export function computeMinimumCycleEnd(addedAt: string): string {
+  const [y, m, d] = addedAt.split('-').map(Number)
+  const targetMonth = d === 1 ? m : m + 1
+  const targetYear = targetMonth > 12 ? y + 1 : y
+  const normalizedMonth = targetMonth > 12 ? 1 : targetMonth
+  const daysInTarget = new Date(targetYear, normalizedMonth, 0).getDate()
+  return `${targetYear}-${String(normalizedMonth).padStart(2, '0')}-${String(daysInTarget).padStart(2, '0')}`
+}
+
+function maxDate(a: string, b: string): string {
+  return a >= b ? a : b
+}
+
+export function createSubscription(
+>>>>>>> origin/main
   db: DB,
   input: {
     name: string
@@ -15,14 +39,19 @@ export async function createSubscription(
     nextPayment: string
     ownerId: number
     payerId?: number
-    groupId?: number
     logo?: string
     url?: string
     notes?: string
     categoryId?: number
     startDate?: string // defaults to today; owner's addedAt matches this
   }
+<<<<<<< HEAD
 ): Promise<{ id: number; name: string; groupId: number | null }> {
+||||||| edd84f2
+): { id: number; name: string; groupId: number | null } {
+=======
+): { id: number; name: string } {
+>>>>>>> origin/main
   const today = new Date().toISOString().slice(0, 10)
   const startDate = input.startDate ?? today
 
@@ -36,7 +65,6 @@ export async function createSubscription(
       startDate,
       ownerId: input.ownerId,
       payerId: input.payerId ?? input.ownerId,
-      groupId: input.groupId ?? null,
       logo: input.logo ?? null,
       url: input.url ?? null,
       notes: input.notes ?? null,
@@ -55,7 +83,7 @@ export async function createSubscription(
     })
     .onConflictDoNothing()
 
-  return { id: result.id, name: result.name, groupId: result.groupId }
+  return { id: result.id, name: result.name }
 }
 
 export async function addMemberToSubscription(
@@ -254,8 +282,19 @@ export async function leaveSubscription(
     )
   }
 
+<<<<<<< HEAD
   const [row] = await db
     .select({ leftAt: schema.subscriptionMembers.leftAt })
+||||||| edd84f2
+  const row = db
+    .select({ leftAt: schema.subscriptionMembers.leftAt })
+=======
+  const row = db
+    .select({
+      leftAt: schema.subscriptionMembers.leftAt,
+      addedAt: schema.subscriptionMembers.addedAt,
+    })
+>>>>>>> origin/main
     .from(schema.subscriptionMembers)
     .where(
       and(
@@ -268,9 +307,24 @@ export async function leaveSubscription(
 
   if (row.leftAt !== null) return // idempotent
 
+<<<<<<< HEAD
   await db
     .update(schema.subscriptionMembers)
     .set({ leftAt: input.leftAt })
+||||||| edd84f2
+  db.update(schema.subscriptionMembers)
+    .set({ leftAt: input.leftAt })
+=======
+  // R2 minimum-cycle commitment: a self-initiated leave must stay through
+  // at least one full calendar-month cycle after the join. The partial
+  // join-month (day > 1) doesn't count. Payer-initiated kicks bypass this.
+  const effectiveLeftAt = isKick
+    ? input.leftAt
+    : maxDate(input.leftAt, computeMinimumCycleEnd(row.addedAt))
+
+  db.update(schema.subscriptionMembers)
+    .set({ leftAt: effectiveLeftAt })
+>>>>>>> origin/main
     .where(
       and(
         eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
@@ -362,6 +416,7 @@ export async function getMembersOfSubscription(
 export async function getSubscriptionsForUser(
   db: DB,
   userId: number
+<<<<<<< HEAD
 ): Promise<
   Array<{
     id: number
@@ -392,21 +447,19 @@ export async function getSubscriptionsForUser(
           eq(schema.subscriptions.ownerId, userId),
           isNull(schema.subscriptions.groupId)
         )
-      )
-  ).map((s) => ({ ...s, memberCount: 1 }))
-
-  // Shared subscriptions (user is a group member)
-  const userGroups = await db
-    .select({ groupId: schema.groupMembers.groupId })
-    .from(schema.groupMembers)
-    .where(eq(schema.groupMembers.userId, userId))
-
-  const groupIds = userGroups.map((g) => g.groupId)
-
-  if (groupIds.length === 0) return personal
-
-  // Single query with subquery for member count (avoids N+1)
-  const shared = await db
+||||||| edd84f2
+): Array<{
+  id: number
+  name: string
+  price: number
+  currency: string
+  nextPayment: string
+  groupId: number | null
+  memberCount: number
+  inactive: number
+}> {
+  // Personal subscriptions (no group)
+  const personal = db
     .select({
       id: schema.subscriptions.id,
       name: schema.subscriptions.name,
@@ -415,11 +468,101 @@ export async function getSubscriptionsForUser(
       nextPayment: schema.subscriptions.nextPayment,
       groupId: schema.subscriptions.groupId,
       inactive: schema.subscriptions.inactive,
+    })
+    .from(schema.subscriptions)
+    .where(
+      and(
+        eq(schema.subscriptions.ownerId, userId),
+        isNull(schema.subscriptions.groupId)
+=======
+): Array<{
+  id: number
+  name: string
+  price: number
+  currency: string
+  nextPayment: string
+  memberCount: number
+  inactive: number
+}> {
+  // All subs the user is an active member of (subscription_members is
+  // authoritative). Covers both owned personal subs (owner auto-added on
+  // create) and shared subs where the user was added later.
+  const subIds = db
+    .select({ subscriptionId: schema.subscriptionMembers.subscriptionId })
+    .from(schema.subscriptionMembers)
+    .where(
+      and(
+        eq(schema.subscriptionMembers.userId, userId),
+        isNull(schema.subscriptionMembers.leftAt)
+>>>>>>> origin/main
+      )
+<<<<<<< HEAD
+  ).map((s) => ({ ...s, memberCount: 1 }))
+||||||| edd84f2
+    )
+    .all()
+    .map((s) => ({ ...s, memberCount: 1 }))
+=======
+    )
+    .all()
+    .map((r) => r.subscriptionId)
+>>>>>>> origin/main
+
+<<<<<<< HEAD
+  // Shared subscriptions (user is a group member)
+  const userGroups = await db
+    .select({ groupId: schema.groupMembers.groupId })
+    .from(schema.groupMembers)
+    .where(eq(schema.groupMembers.userId, userId))
+||||||| edd84f2
+  // Shared subscriptions (user is a group member)
+  const userGroups = db
+    .select({ groupId: schema.groupMembers.groupId })
+    .from(schema.groupMembers)
+    .where(eq(schema.groupMembers.userId, userId))
+    .all()
+=======
+  if (subIds.length === 0) return []
+>>>>>>> origin/main
+
+<<<<<<< HEAD
+  const groupIds = userGroups.map((g) => g.groupId)
+
+  if (groupIds.length === 0) return personal
+
+  // Single query with subquery for member count (avoids N+1)
+  const shared = await db
+||||||| edd84f2
+  const groupIds = userGroups.map((g) => g.groupId)
+
+  if (groupIds.length === 0) return personal
+
+  // Single query with subquery for member count (avoids N+1)
+  const shared = db
+=======
+  return db
+>>>>>>> origin/main
+    .select({
+      id: schema.subscriptions.id,
+      name: schema.subscriptions.name,
+      price: schema.subscriptions.price,
+      currency: schema.subscriptions.currency,
+      nextPayment: schema.subscriptions.nextPayment,
+      inactive: schema.subscriptions.inactive,
       memberCount: sql<number>`(
+<<<<<<< HEAD
         SELECT count(*)::int FROM group_members WHERE group_id = ${schema.subscriptions.groupId}
+||||||| edd84f2
+        SELECT count(*) FROM group_members WHERE group_id = ${schema.subscriptions.groupId}
+=======
+        SELECT count(*) FROM subscription_members
+        WHERE subscription_id = ${schema.subscriptions.id}
+          AND left_at IS NULL
+>>>>>>> origin/main
       )`,
     })
     .from(schema.subscriptions)
+<<<<<<< HEAD
     .where(inArray(schema.subscriptions.groupId, groupIds))
 
   return [...personal, ...shared]
@@ -458,6 +601,52 @@ export async function getGroupWithMembers(
     createdBy: group.createdBy,
     members,
   }
+||||||| edd84f2
+    .where(inArray(schema.subscriptions.groupId, groupIds))
+    .all()
+
+  return [...personal, ...shared]
+}
+
+export function getGroupWithMembers(
+  db: DB,
+  groupId: number
+): {
+  id: number
+  name: string
+  publicId: string
+  createdBy: number
+  members: Array<{ userId: number; name: string }>
+} | null {
+  const group = db
+    .select()
+    .from(schema.groups)
+    .where(eq(schema.groups.id, groupId))
+    .get()
+
+  if (!group) return null
+
+  const members = db
+    .select({
+      userId: schema.groupMembers.userId,
+      name: schema.users.name,
+    })
+    .from(schema.groupMembers)
+    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
+    .where(eq(schema.groupMembers.groupId, groupId))
+    .all()
+
+  return {
+    id: group.id,
+    name: group.name,
+    publicId: group.publicId,
+    createdBy: group.createdBy,
+    members,
+  }
+=======
+    .where(inArray(schema.subscriptions.id, subIds))
+    .all()
+>>>>>>> origin/main
 }
 
 /**
@@ -546,12 +735,18 @@ export async function transferPayer(
 }
 
 /**
- * T12 — change the price of a subscription (R5 non-retroactive).
+ * T19 — change the price of a subscription (R5 NEW: rewrite current-month).
  *
- * Updates subscriptions.price only. Does NOT touch any existing
- * billing_records. Emits one price_changed notification to each active
- * non-payer member with old/new price, old/new share, delta, and the
- * first billing date the new price takes effect (YYYY-MM-01 of next month).
+ * Updates subscriptions.price, then rewrites every is_paid=0 billing_record
+ * for this sub whose billing_date falls in the current calendar month:
+ *   - R1 full-share bill (billing_date = YYYY-MM-01) → amount = newShare
+ *   - R2 pro-rata bill (billing_date = join day) → amount preserves ratio
+ *     days_covered/D_M against newShare
+ *   - localAmount recomputed using the bill's stored exchange_rate
+ *     (FX rate is NOT re-fetched; it stays locked from original generation)
+ *   - is_paid=1 bills and bills outside current month are untouched
+ * Emits one price_changed notification per active non-payer member with
+ * effective_from = current month's 1st.
  */
 export async function changeSubscriptionPrice(
   db: DB,
@@ -582,17 +777,48 @@ export async function changeSubscriptionPrice(
   const today = new Date().toISOString().slice(0, 10)
   const members = await getActiveMembersAt(db, input.subscriptionId, today)
   const nonPayers = members.filter((m) => m.userId !== sub.payerId)
-  if (nonPayers.length === 0) return
 
   const n = members.length
-  const oldShare = calculateShares(oldPrice, n)
-  const newShare = calculateShares(input.newPrice, n)
+  const oldShare = n > 0 ? calculateShares(oldPrice, n) : 0
+  const newShare = n > 0 ? calculateShares(input.newPrice, n) : 0
 
   const [yy, mm] = today.split('-').map(Number)
-  const effectiveFrom =
-    mm === 12
-      ? `${yy + 1}-01-01`
-      : `${yy}-${String(mm + 1).padStart(2, '0')}-01`
+  const monthStart = `${yy}-${String(mm).padStart(2, '0')}-01`
+  const daysInMonth = new Date(yy, mm, 0).getDate()
+  const monthEnd = `${yy}-${String(mm).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
+
+  const currentMonthBills = db
+    .select()
+    .from(schema.billingRecords)
+    .where(
+      and(
+        eq(schema.billingRecords.subscriptionId, input.subscriptionId),
+        eq(schema.billingRecords.isPaid, 0),
+        gte(schema.billingRecords.billingDate, monthStart),
+        lte(schema.billingRecords.billingDate, monthEnd)
+      )
+    )
+    .all()
+
+  for (const bill of currentMonthBills) {
+    let newAmount: number
+    if (bill.billingDate === monthStart) {
+      newAmount = newShare
+    } else {
+      const dayOfMonth = Number(bill.billingDate.slice(8, 10))
+      const daysCovered = daysInMonth - dayOfMonth + 1
+      newAmount = Math.floor((newShare * daysCovered) / daysInMonth)
+    }
+    const newLocalAmount = Math.floor(
+      (newAmount * bill.exchangeRate) / 1_000_000
+    )
+    db.update(schema.billingRecords)
+      .set({ amount: newAmount, localAmount: newLocalAmount })
+      .where(eq(schema.billingRecords.id, bill.id))
+      .run()
+  }
+
+  if (nonPayers.length === 0) return
 
   for (const m of nonPayers) {
     await insertNotification(db, {
@@ -607,7 +833,7 @@ export async function changeSubscriptionPrice(
         old_share: oldShare,
         new_share: newShare,
         delta: newShare - oldShare,
-        effective_from: effectiveFrom,
+        effective_from: monthStart,
       },
     })
   }
@@ -700,26 +926,64 @@ export async function generateAndSaveBillingRecords(
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subscriptionId))
 
-  if (!sub || !sub.groupId || sub.inactive) return 0
+  if (!sub || sub.inactive) return 0
 
+<<<<<<< HEAD
   const [group] = await db
     .select()
     .from(schema.groups)
     .where(eq(schema.groups.id, sub.groupId))
+||||||| edd84f2
+  const group = db
+    .select()
+    .from(schema.groups)
+    .where(eq(schema.groups.id, sub.groupId))
+    .get()
+=======
+  const memberRows = getActiveMembersAt(db, subscriptionId, sub.nextPayment)
+  if (memberRows.length < 2) return 0 // personal sub — no bills to generate
+>>>>>>> origin/main
 
+<<<<<<< HEAD
   if (!group) return 0
 
   const members = await db
+||||||| edd84f2
+  if (!group) return 0
+
+  const members = db
+=======
+  const memberIds = memberRows.map((m) => m.userId)
+  const users = db
+>>>>>>> origin/main
     .select({
-      userId: schema.groupMembers.userId,
+      id: schema.users.id,
       preferredCurrency: schema.users.preferredCurrency,
-      joinedAt: schema.groupMembers.joinedAt,
     })
+<<<<<<< HEAD
     .from(schema.groupMembers)
     .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
     .where(eq(schema.groupMembers.groupId, sub.groupId))
+||||||| edd84f2
+    .from(schema.groupMembers)
+    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
+    .where(eq(schema.groupMembers.groupId, sub.groupId))
+    .all()
+=======
+    .from(schema.users)
+    .where(inArray(schema.users.id, memberIds))
+    .all()
+  const prefByUser = new Map(
+    users.map((u) => [u.id, u.preferredCurrency])
+  )
+>>>>>>> origin/main
 
-  const nonPayerMembers = members.filter((m) => m.userId !== group.createdBy)
+  const members = memberRows.map((m) => ({
+    userId: m.userId,
+    preferredCurrency: prefByUser.get(m.userId) ?? 'CNY',
+  }))
+
+  const nonPayerMembers = members.filter((m) => m.userId !== sub.payerId)
   if (nonPayerMembers.length === 0) return 0
 
   const memberCount = members.length
@@ -844,6 +1108,7 @@ export async function getMonthlySpendingData(
     }))
 }
 
+<<<<<<< HEAD
 export async function canLeaveGroup(
   db: DB,
   groupId: number,
@@ -891,3 +1156,55 @@ export async function removeGroupMember(
       )
     )
 }
+||||||| edd84f2
+export function canLeaveGroup(
+  db: DB,
+  groupId: number,
+  userId: number
+): boolean {
+  // Creator cannot leave
+  const group = db
+    .select()
+    .from(schema.groups)
+    .where(eq(schema.groups.id, groupId))
+    .get()
+
+  if (!group || group.createdBy === userId) return false
+
+  // Check for unpaid bills in any subscription of this group
+  const unpaid = db
+    .select({ id: schema.billingRecords.id })
+    .from(schema.billingRecords)
+    .innerJoin(
+      schema.subscriptions,
+      eq(schema.billingRecords.subscriptionId, schema.subscriptions.id)
+    )
+    .where(
+      and(
+        eq(schema.subscriptions.groupId, groupId),
+        eq(schema.billingRecords.userId, userId),
+        eq(schema.billingRecords.isPaid, 0)
+      )
+    )
+    .limit(1)
+    .all()
+
+  return unpaid.length === 0
+}
+
+export function removeGroupMember(
+  db: DB,
+  groupId: number,
+  userId: number
+): void {
+  db.delete(schema.groupMembers)
+    .where(
+      and(
+        eq(schema.groupMembers.groupId, groupId),
+        eq(schema.groupMembers.userId, userId)
+      )
+    )
+    .run()
+}
+=======
+>>>>>>> origin/main

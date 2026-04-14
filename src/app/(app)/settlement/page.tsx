@@ -20,13 +20,17 @@ type SettlementRow = {
   billIds: number[];
 };
 
+type View = "unpaid" | "paid";
+
 export default function SettlementPage() {
+  const [view, setView] = useState<View>("unpaid");
   const [rows, setRows] = useState<SettlementRow[] | null>(null);
   const [settlingKey, setSettlingKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  async function load() {
-    const res = await api.settlement();
+  async function load(v: View) {
+    setRows(null);
+    const res = await api.settlement(v);
     if (res.data) {
       setRows(res.data);
       setLoadError(null);
@@ -39,10 +43,10 @@ export default function SettlementPage() {
 
   useEffect(() => {
     const t = setTimeout(() => {
-      void load();
+      void load(view);
     }, 0);
     return () => clearTimeout(t);
-  }, []);
+  }, [view]);
 
   async function onSettle(row: SettlementRow) {
     const key = `${row.counterpartyUserId}-${row.currency}`;
@@ -50,7 +54,7 @@ export default function SettlementPage() {
     const res = await api.markPairSettled(row.counterpartyUserId, row.currency);
     setSettlingKey(null);
     if (res.error) return;
-    await load();
+    await load(view);
   }
 
   if (loadError && !rows) {
@@ -68,15 +72,40 @@ export default function SettlementPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <header className="space-y-1.5">
-        <p className="text-[13px] font-medium text-muted-foreground">Money</p>
         <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
           Settlement
         </h1>
         <p className="text-[14px] text-muted-foreground max-w-md">
-          One net transfer per person per currency — instead of paying for each
-          subscription separately.
+          {view === "unpaid"
+            ? "One net transfer per person per currency — instead of paying for each subscription separately."
+            : "Already-settled history, grouped by person and currency."}
         </p>
       </header>
+
+      {/* Unpaid / Paid toggle */}
+      <div
+        role="tablist"
+        aria-label="Settlement view"
+        className="inline-flex items-center rounded-md border bg-muted/40 p-0.5"
+      >
+        {(["unpaid", "paid"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            role="tab"
+            aria-selected={view === v}
+            onClick={() => setView(v)}
+            className={cn(
+              "px-3 py-1.5 rounded-[5px] text-[13px] font-medium cursor-pointer transition-colors",
+              view === v
+                ? "bg-background text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {v === "unpaid" ? "Unpaid" : "Paid"}
+          </button>
+        ))}
+      </div>
 
       {rows === null ? (
         <div className="space-y-2">
@@ -90,10 +119,13 @@ export default function SettlementPage() {
             <div className="size-9 rounded-full bg-[var(--accent)] flex items-center justify-center">
               <Sparkles className="size-[16px] text-[var(--accent-foreground)]" />
             </div>
-            <p className="text-sm font-medium">All settled</p>
+            <p className="text-sm font-medium">
+              {view === "unpaid" ? "All settled" : "No history yet"}
+            </p>
             <p className="text-[13px] text-muted-foreground max-w-[26ch]">
-              No outstanding balances with anyone. When new bills arrive
-              they&apos;ll show up here.
+              {view === "unpaid"
+                ? "No outstanding balances with anyone. When new bills arrive they'll show up here."
+                : "Once you mark balances as settled they'll appear here."}
             </p>
           </CardContent>
         </Card>
@@ -170,8 +202,8 @@ export default function SettlementPage() {
                       </div>
                     )}
 
-                    {/* Action */}
-                    {!even && (
+                    {/* Action — only for Unpaid view */}
+                    {view === "unpaid" && !even && (
                       <div className="flex items-center justify-between">
                         <p className="text-[12px] text-muted-foreground">
                           After you&apos;ve transferred off-app →
@@ -202,7 +234,7 @@ export default function SettlementPage() {
         </ul>
       )}
 
-      {rows && rows.length > 0 && (
+      {view === "unpaid" && rows && rows.length > 0 && (
         <Card className="border-dashed bg-muted/30 shadow-none">
           <CardContent className="py-4 text-[12px] text-muted-foreground flex items-start gap-2">
             <ArrowRight className="size-3.5 mt-0.5 shrink-0" />

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { eq, and, sql, inArray } from 'drizzle-orm'
+import { eq, and, sql, inArray, isNull, or, gte } from 'drizzle-orm'
 import { getDb } from '@/db'
 import * as schema from '@/db/schema'
 import { generateAndSaveBillingRecords } from '@/lib/db-operations'
@@ -26,13 +26,22 @@ export async function POST(req: NextRequest) {
   const db = getDb()
   const today = new Date().toISOString().split('T')[0]
 
+<<<<<<< HEAD
   // Find shared subscriptions where next_payment <= today
   const dueSubs = await db
+||||||| edd84f2
+  // Find shared subscriptions where next_payment <= today
+  const dueSubs = db
+=======
+  // All active auto-renew subs whose next_payment has arrived.
+  // Personal subs (1 member) are no-ops in generateAndSaveBillingRecords
+  // but still get next_payment advanced for correct display.
+  const dueSubs = db
+>>>>>>> origin/main
     .select()
     .from(schema.subscriptions)
     .where(
       and(
-        sql`${schema.subscriptions.groupId} IS NOT NULL`,
         sql`${schema.subscriptions.nextPayment} <= ${today}`,
         eq(schema.subscriptions.inactive, false),
         eq(schema.subscriptions.autoRenew, true)
@@ -80,31 +89,62 @@ async function fetchRequiredRates(
   db: ReturnType<typeof getDb>,
   subs: Sub[]
 ): Promise<Record<string, number>> {
-  const groupIds = Array.from(
-    new Set(subs.map((s) => s.groupId).filter((g): g is number => g !== null))
-  )
-  if (groupIds.length === 0) return {}
+  if (subs.length === 0) return {}
 
+<<<<<<< HEAD
   const memberCurrencies = await db
+||||||| edd84f2
+  const memberCurrencies = db
+=======
+  const subIds = subs.map((s) => s.id)
+  const today = new Date().toISOString().slice(0, 10)
+
+  // For each due sub, collect its active members' preferred currencies via
+  // subscription_members (authoritative). Legacy group_members is no longer
+  // consulted — migrated data must also live in subscription_members.
+  const memberCurrencies = db
+>>>>>>> origin/main
     .select({
-      groupId: schema.groupMembers.groupId,
+      subscriptionId: schema.subscriptionMembers.subscriptionId,
       preferredCurrency: schema.users.preferredCurrency,
     })
+<<<<<<< HEAD
     .from(schema.groupMembers)
     .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
     .where(inArray(schema.groupMembers.groupId, groupIds))
+||||||| edd84f2
+    .from(schema.groupMembers)
+    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
+    .where(inArray(schema.groupMembers.groupId, groupIds))
+    .all()
+=======
+    .from(schema.subscriptionMembers)
+    .innerJoin(
+      schema.users,
+      eq(schema.subscriptionMembers.userId, schema.users.id)
+    )
+    .where(
+      and(
+        inArray(schema.subscriptionMembers.subscriptionId, subIds),
+        or(
+          isNull(schema.subscriptionMembers.leftAt),
+          gte(schema.subscriptionMembers.leftAt, today)
+        )
+      )
+    )
+    .all()
+>>>>>>> origin/main
 
-  const byGroup = new Map<number, Set<string>>()
+  const bySub = new Map<number, Set<string>>()
   for (const row of memberCurrencies) {
-    const s = byGroup.get(row.groupId) ?? new Set<string>()
+    const s = bySub.get(row.subscriptionId) ?? new Set<string>()
     s.add(row.preferredCurrency)
-    byGroup.set(row.groupId, s)
+    bySub.set(row.subscriptionId, s)
   }
 
   const pairs = new Set<string>()
   for (const sub of subs) {
-    if (sub.groupId === null) continue
-    const currencies = byGroup.get(sub.groupId)
+    const currencies = bySub.get(sub.id)
     if (!currencies) continue
     for (const to of currencies) {
       if (to !== sub.currency) pairs.add(`${sub.currency}_${to}`)
