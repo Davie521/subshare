@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, TrendingUp, Sparkles } from "lucide-react";
+import { ArrowRight, TrendingUp } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
 import { UserAvatar } from "@/components/user-avatar";
 import { NotificationsList } from "@/components/notifications-list";
@@ -160,71 +160,73 @@ export default function DashboardPage() {
 
       {/* Two-column layout on desktop */}
       <div className="grid gap-8 lg:grid-cols-5">
-        {/* You need to transfer — wider */}
-        <section className="space-y-4 lg:col-span-3">
+        {/* Activity — wider, merged (Action needed + Updates) */}
+        <section className="space-y-6 lg:col-span-3">
           <div className="flex items-center justify-between">
-            <SectionHeader title="You need to transfer" count={outgoingPairs.length} />
+            <SectionHeader title="Activity" count={outgoingPairs.length} />
             <Link
               href="/settlement"
               className="text-[13px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
             >
-              All <ArrowRight className="size-3" />
+              Settlement <ArrowRight className="size-3" />
             </Link>
           </div>
 
-          {outgoingPairs.length === 0 ? (
-            <Card className="border-dashed bg-muted/30 shadow-none">
-              <CardContent className="py-12 flex flex-col items-center gap-2.5 text-center">
-                <div className="size-9 rounded-full bg-[var(--accent)] flex items-center justify-center">
-                  <Sparkles className="size-[16px] text-[var(--accent-foreground)]" />
-                </div>
-                <p className="text-sm font-medium">Nothing to transfer</p>
-                <p className="text-[13px] text-muted-foreground">
-                  You don&apos;t owe anyone right now.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-2.5">
-              {outgoingPairs.slice(0, 4).map((row) => {
-                const key = `${row.counterpartyUserId}-${row.currency}`;
-                const netAbs = Math.abs(row.net);
-                return (
-                  <Link key={key} href="/settlement" className="block group">
-                    <Card
-                      size="sm"
-                      className="transition-all duration-150 group-hover:ring-[rgba(0,0,0,0.14)] dark:group-hover:ring-white/[0.12] dark:group-hover:bg-white/[0.03]"
-                    >
-                      <CardContent className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <UserAvatar name={row.counterpartyName} size="md" />
-                          <div className="min-w-0">
-                            <p className="font-semibold text-sm truncate">
-                              {row.counterpartyName}
-                            </p>
-                            <p className="text-[13px] text-muted-foreground">
-                              You owe · {row.currency}
-                            </p>
+          {/* Category 1: Action needed (transfers) */}
+          <div className="space-y-3">
+            <CategoryHeader label="Action needed" count={outgoingPairs.length} />
+            {outgoingPairs.length === 0 ? (
+              <p className="text-[13px] text-muted-foreground pl-0.5">
+                Nothing to transfer. You don&apos;t owe anyone right now.
+              </p>
+            ) : (
+              <div className="space-y-2.5">
+                {outgoingPairs.slice(0, 4).map((row) => {
+                  const key = `${row.counterpartyUserId}-${row.currency}`;
+                  const netAbs = Math.abs(row.net);
+                  return (
+                    <Link key={key} href="/settlement" className="block group">
+                      <Card
+                        size="sm"
+                        className="transition-all duration-150 group-hover:ring-[rgba(0,0,0,0.14)] dark:group-hover:ring-white/[0.12] dark:group-hover:bg-white/[0.03]"
+                      >
+                        <CardContent className="flex items-center justify-between gap-3">
+                          <div className="flex items-center gap-3 min-w-0">
+                            <UserAvatar name={row.counterpartyName} size="md" />
+                            <div className="min-w-0">
+                              <p className="font-semibold text-sm truncate">
+                                {row.counterpartyName}
+                              </p>
+                              <p className="text-[13px] text-muted-foreground">
+                                You owe · {row.currency}
+                              </p>
+                            </div>
                           </div>
-                        </div>
-                        <p
-                          className={cn(
-                            "text-[16px] font-semibold tabular-nums tracking-[-0.015em] shrink-0",
-                            "text-[var(--brand)]"
-                          )}
-                        >
-                          {formatMoney(netAbs, row.currency)}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+                          <p
+                            className={cn(
+                              "text-[16px] font-semibold tabular-nums tracking-[-0.015em] shrink-0",
+                              "text-[var(--brand)]"
+                            )}
+                          >
+                            {formatMoney(netAbs, row.currency)}
+                          </p>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Category 2: Updates (notifications) */}
+          <div className="space-y-3">
+            <CategoryHeader label="Updates" />
+            <NotificationsList limit={10} showMarkAll />
+          </div>
         </section>
 
-        {/* Subscriptions breakdown + Activity — narrower */}
+        {/* Subscriptions — narrower */}
         <section className="space-y-4 lg:col-span-2">
           <div className="flex items-center justify-between">
             <SectionHeader
@@ -269,14 +271,25 @@ export default function DashboardPage() {
           )}
         </section>
       </div>
+    </div>
+  );
+}
 
-      {/* Activity feed */}
-      <section className="space-y-4">
-        <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
-          Activity
-        </h2>
-        <NotificationsList limit={10} showMarkAll />
-      </section>
+function CategoryHeader({
+  label,
+  count,
+}: {
+  label: string;
+  count?: number;
+}) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <h3 className="text-[12px] font-semibold text-foreground/80">{label}</h3>
+      {typeof count === "number" && count > 0 && (
+        <span className="text-[11px] font-medium text-muted-foreground tabular-nums">
+          {count}
+        </span>
+      )}
     </div>
   );
 }

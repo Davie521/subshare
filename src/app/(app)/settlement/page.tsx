@@ -72,7 +72,6 @@ export default function SettlementPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <header className="space-y-1.5">
-        <p className="text-[13px] font-medium text-muted-foreground">Money</p>
         <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
           Settlement
         </h1>
