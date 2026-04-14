@@ -1,8 +1,8 @@
 import { and, eq, inArray, or } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 
-type DB = BetterSQLite3Database<typeof schema>
+type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
 
 export interface SettlementRow {
   counterpartyUserId: number
@@ -24,12 +24,15 @@ interface BillRow {
   amount: number
   currency: string
   payerId: number
-  isPaid: number
+  isPaid: boolean
 }
 
-function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
+async function fetchOutstandingBills(
+  db: DB,
+  viewerId: number
+): Promise<BillRow[]> {
   // Outgoing: bills I owe (user_id = viewerId).
-  const outgoing = db
+  const outgoing = await db
     .select({
       id: schema.billingRecords.id,
       subscriptionId: schema.billingRecords.subscriptionId,
@@ -47,13 +50,12 @@ function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
     .where(
       and(
         eq(schema.billingRecords.userId, viewerId),
-        eq(schema.billingRecords.isPaid, 0)
+        eq(schema.billingRecords.isPaid, false)
       )
     )
-    .all()
 
   // Incoming: bills owed TO me (I'm the payer of the sub).
-  const incoming = db
+  const incoming = await db
     .select({
       id: schema.billingRecords.id,
       subscriptionId: schema.billingRecords.subscriptionId,
@@ -71,10 +73,9 @@ function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
     .where(
       and(
         eq(schema.subscriptions.payerId, viewerId),
-        eq(schema.billingRecords.isPaid, 0)
+        eq(schema.billingRecords.isPaid, false)
       )
     )
-    .all()
 
   return [...outgoing, ...incoming]
 }
@@ -84,11 +85,11 @@ function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
  * Returns one row per counterparty per currency; may emit multiple rows
  * for the same counterparty if debts span multiple currencies.
  */
-export function getSettlementSummary(
+export async function getSettlementSummary(
   db: DB,
   viewerId: number
-): SettlementRow[] {
-  const bills = fetchOutstandingBills(db, viewerId)
+): Promise<SettlementRow[]> {
+  const bills = await fetchOutstandingBills(db, viewerId)
 
   // bucket key = counterparty|currency
   type Bucket = {
@@ -132,15 +133,15 @@ export function getSettlementSummary(
  * Direction-agnostic. Idempotent. Returns number of rows updated.
  * Other currencies and third parties are untouched.
  */
-export function markPairSettled(
+export async function markPairSettled(
   db: DB,
   input: { userA: number; userB: number; currency: string }
-): number {
+): Promise<number> {
   const { userA, userB, currency } = input
   if (userA === userB) return 0
 
   // Unpaid bills where user_id ∈ {A,B} AND sub.payer_id ∈ {A,B} AND currency = given.
-  const rows = db
+  const rows = await db
     .select({
       id: schema.billingRecords.id,
       userId: schema.billingRecords.userId,
@@ -153,7 +154,7 @@ export function markPairSettled(
     )
     .where(
       and(
-        eq(schema.billingRecords.isPaid, 0),
+        eq(schema.billingRecords.isPaid, false),
         eq(schema.billingRecords.currency, currency),
         or(
           eq(schema.billingRecords.userId, userA),
@@ -161,7 +162,6 @@ export function markPairSettled(
         )
       )
     )
-    .all()
 
   const targetIds = rows
     .filter(
@@ -174,10 +174,10 @@ export function markPairSettled(
   if (targetIds.length === 0) return 0
 
   const paidAt = new Date().toISOString()
-  db.update(schema.billingRecords)
-    .set({ isPaid: 1, paidAt })
+  await db
+    .update(schema.billingRecords)
+    .set({ isPaid: true, paidAt })
     .where(inArray(schema.billingRecords.id, targetIds))
-    .run()
 
   return targetIds.length
 }

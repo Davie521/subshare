@@ -1,8 +1,8 @@
 import { eq, and, isNull, desc } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 
-type DB = BetterSQLite3Database<typeof schema>
+type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
 
 export type NotificationType =
   | 'added_to_sub'
@@ -21,7 +21,7 @@ export interface NotificationRecord<P = unknown> {
   readAt: string | null
 }
 
-export function insertNotification(
+export async function insertNotification(
   db: DB,
   input: {
     userId: number
@@ -29,8 +29,8 @@ export function insertNotification(
     subscriptionId?: number | null
     payload: unknown
   }
-): number {
-  const row = db
+): Promise<number> {
+  const [row] = await db
     .insert(schema.notifications)
     .values({
       userId: input.userId,
@@ -40,22 +40,23 @@ export function insertNotification(
       createdAt: new Date().toISOString(),
     })
     .returning({ id: schema.notifications.id })
-    .get()
   return row.id
 }
 
-export function listNotifications<P = unknown>(
+export async function listNotifications<P = unknown>(
   db: DB,
   userId: number,
   limit = 50
-): NotificationRecord<P>[] {
-  const rows = db
+): Promise<NotificationRecord<P>[]> {
+  const rows = await db
     .select()
     .from(schema.notifications)
     .where(eq(schema.notifications.userId, userId))
-    .orderBy(desc(schema.notifications.createdAt), desc(schema.notifications.id))
+    .orderBy(
+      desc(schema.notifications.createdAt),
+      desc(schema.notifications.id)
+    )
     .limit(limit)
-    .all()
 
   return rows.map((r) => ({
     id: r.id,
@@ -68,8 +69,12 @@ export function listNotifications<P = unknown>(
   }))
 }
 
-export function markNotificationRead(db: DB, id: number): void {
-  db.update(schema.notifications)
+export async function markNotificationRead(
+  db: DB,
+  id: number
+): Promise<void> {
+  await db
+    .update(schema.notifications)
     .set({ readAt: new Date().toISOString() })
     .where(
       and(
@@ -77,11 +82,14 @@ export function markNotificationRead(db: DB, id: number): void {
         isNull(schema.notifications.readAt)
       )
     )
-    .run()
 }
 
-export function markAllNotificationsRead(db: DB, userId: number): void {
-  db.update(schema.notifications)
+export async function markAllNotificationsRead(
+  db: DB,
+  userId: number
+): Promise<void> {
+  await db
+    .update(schema.notifications)
     .set({ readAt: new Date().toISOString() })
     .where(
       and(
@@ -89,11 +97,13 @@ export function markAllNotificationsRead(db: DB, userId: number): void {
         isNull(schema.notifications.readAt)
       )
     )
-    .run()
 }
 
-export function countUnreadNotifications(db: DB, userId: number): number {
-  const rows = db
+export async function countUnreadNotifications(
+  db: DB,
+  userId: number
+): Promise<number> {
+  const rows = await db
     .select({ id: schema.notifications.id })
     .from(schema.notifications)
     .where(
@@ -102,7 +112,6 @@ export function countUnreadNotifications(db: DB, userId: number): number {
         isNull(schema.notifications.readAt)
       )
     )
-    .all()
   return rows.length
 }
 

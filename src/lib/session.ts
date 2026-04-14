@@ -73,11 +73,10 @@ export async function getSession(): Promise<{ userId: number } | null> {
 
   try {
     const db = getDb()
-    const user = db
+    const [user] = await db
       .select({ id: schema.users.id })
-    .from(schema.users)
-    .where(eq(schema.users.id, data.userId))
-    .get()
+      .from(schema.users)
+      .where(eq(schema.users.id, data.userId))
 
     if (!user) return null
     return { userId: user.id }
