@@ -43,14 +43,6 @@ export const api = {
       subscriptions: Array<{ name: string; price: number; currency: string; memberCount: number }>;
     }>("/api/dashboard"),
 
-  // Groups
-  getGroups: () => request<Array<{ id: number; name: string; publicId: string; createdBy: number }>>("/api/groups"),
-  createGroup: (name: string) => request("/api/groups", { method: "POST", body: JSON.stringify({ name }) }),
-  getGroup: (id: number) => request<{ id: number; name: string; publicId: string; createdBy: number; members: Array<{ userId: number; name: string }>; subscriptions: Array<{ id: number; name: string; price: number; currency: string }> }>(`/api/groups/${id}`),
-  joinGroup: (publicId: string) => request(`/api/groups/${publicId}/join`, { method: "POST" }),
-  leaveGroup: (id: number) => request(`/api/groups/${id}/leave`, { method: "POST" }),
-  deleteGroup: (id: number) => request(`/api/groups/${id}`, { method: "DELETE" }),
-
   // Subscriptions
   getSubscriptions: () =>
     request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; groupId: number | null; memberCount: number; inactive: number }>>("/api/subscriptions"),
