@@ -11,6 +11,7 @@ import {
   canLeaveGroup,
   removeGroupMember,
   addMemberToSubscription,
+  leaveSubscription,
 } from './db-operations'
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
@@ -334,6 +335,43 @@ export async function handleAddMembers(
   }
 
   return { success: true, data: { added } }
+}
+
+export function handleRemoveMember(
+  db: DB,
+  actorId: number,
+  subId: number,
+  targetUserId: number
+): Result {
+  const sub = db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subId))
+    .get()
+  if (!sub) return { success: false, error: 'Subscription not found' }
+
+  const isSelf = actorId === targetUserId
+  if (!isSelf && sub.ownerId !== actorId && sub.payerId !== actorId) {
+    return {
+      success: false,
+      error: 'Only the owner or payer can remove another member',
+    }
+  }
+
+  try {
+    leaveSubscription(db, {
+      subscriptionId: subId,
+      userId: targetUserId,
+      leftAt: new Date().toISOString().slice(0, 10),
+      actorId,
+    })
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to remove member',
+    }
+  }
+  return { success: true }
 }
 
 export function handleUpdateSubscription(
