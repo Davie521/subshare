@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Users, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { UserAvatar } from "@/components/user-avatar";
