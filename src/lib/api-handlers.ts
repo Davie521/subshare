@@ -17,6 +17,13 @@ import {
 } from './db-operations'
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
+import {
+  listNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+  countUnreadNotifications,
+  type NotificationRecord,
+} from './notifications'
 
 type DB = BetterSQLite3Database<typeof schema>
 type Result<T = unknown> =
@@ -373,6 +380,42 @@ export function handleRemoveMember(
       error: err instanceof Error ? err.message : 'Failed to remove member',
     }
   }
+  return { success: true }
+}
+
+export function handleListNotifications(
+  db: DB,
+  userId: number,
+  limit = 50
+): Result<{ items: NotificationRecord[]; unreadCount: number }> {
+  const items = listNotifications(db, userId, limit)
+  const unreadCount = countUnreadNotifications(db, userId)
+  return { success: true, data: { items, unreadCount } }
+}
+
+export function handleMarkNotificationRead(
+  db: DB,
+  userId: number,
+  notificationId: number
+): Result {
+  const row = db
+    .select({ userId: schema.notifications.userId })
+    .from(schema.notifications)
+    .where(eq(schema.notifications.id, notificationId))
+    .get()
+  if (!row) return { success: false, error: 'Notification not found' }
+  if (row.userId !== userId) {
+    return { success: false, error: 'Not your notification' }
+  }
+  markNotificationRead(db, notificationId)
+  return { success: true }
+}
+
+export function handleMarkAllNotificationsRead(
+  db: DB,
+  userId: number
+): Result {
+  markAllNotificationsRead(db, userId)
   return { success: true }
 }
 
