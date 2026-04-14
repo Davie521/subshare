@@ -22,25 +22,12 @@ services:
       - SESSION_SECRET=${SESSION_SECRET:-change-me-to-a-random-32-char-string}
       - DATABASE_URL=postgres://subshare:subshare@postgres:5432/subshare
       - NODE_ENV=production
+    ports:
+      - "3000:3000"
     depends_on:
       postgres:
         condition: service_healthy
     restart: unless-stopped
 
-  caddy:
-    image: caddy:2-alpine
-    ports:
-      - "443:443"
-      - "80:80"
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - caddy-data:/data
-      - caddy-config:/config
-    depends_on:
-      - subshare
-    restart: unless-stopped
-
 volumes:
   postgres-data:
-  caddy-data:
-  caddy-config:

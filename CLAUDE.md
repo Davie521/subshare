@@ -2,12 +2,21 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-@AGENTS.md
+## This is NOT the Next.js you know
 
-## Project-wide rules (from AGENTS.md)
+Next.js 16 has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any framework-level code. Heed deprecation notices.
 
-- **Next.js 16**: APIs, conventions, and file structure may differ from training data. Check `node_modules/next/dist/docs/` before writing framework-level code. Heed deprecation notices.
-- **Design system**: every UI change must obey `DESIGN.md` (Linear × Notion fusion). Tokens, radii (card `12px` / button `6px`), Inter Variable with `"cv01", "ss03"`, and the single indigo-violet accent (`#5e6ad2` / `#7170ff`) are non-negotiable. Run §10 iteration checklist before marking UI work done.
+## Design system
+
+All UI work **must** follow `docs/DESIGN.md`. It is a Linear × Notion fusion system with:
+
+- Dual-mode: light = warm-paper (Notion), dark = near-black precision (Linear)
+- Single brand accent: indigo-violet `#5e6ad2` / `#7170ff`
+- Inter Variable with `font-feature-settings: "cv01", "ss03"` (non-negotiable, set at root)
+- Card radius `12px`, button radius `6px` (this 2-step ratio is the signature)
+- Warm-neutral grays in light mode, white-opacity surfaces + luminance stacking in dark mode
+
+Before writing any component, colour, typography, spacing, or shadow — consult `docs/DESIGN.md` and match its tokens/rules. Run through the iteration checklist in §10 before declaring a UI task done.
 
 ## Commands
 
@@ -23,7 +32,7 @@ npx vitest run -t "calculates pro-rated shares"           # single test by name
 npm run fetch-icons    # regenerate public/icons/* + manifest.json
 ```
 
-Docker: `docker compose up --build -d` → `https://localhost` (Caddy fronts Next with a self-signed cert).
+Docker: `docker compose up --build -d` → `http://localhost:3000`.
 
 ## Deployment constraints
 
@@ -33,7 +42,7 @@ Docker: `docker compose up --build -d` → `https://localhost` (Caddy fronts Nex
 ## Environment
 
 - `SESSION_SECRET` — required in production; HMAC key for signed session cookies (min 32 chars). Dev fallback exists.
-- `DATABASE_URL` — SQLite path; defaults to `data/subshare.db`.
+- `DATABASE_URL` — Postgres connection string (required).
 - `CRON_SECRET` — Bearer token for `POST /api/cron/billing`.
 
 ## Architecture — **subscription-centric**
@@ -70,7 +79,7 @@ Each **subscription** is the primitive. It has its own `payer_id` (the person wh
 - `rate-limit.ts` — login throttling.
 - `icon-sources.ts` / `icons.ts` / `popular-services.ts` — build-time icon pipeline (Simple Icons → DDG favicon → Google favicon → generated letter SVG). `predev` / `prebuild` always run this.
 
-## Billing math (authoritative — `findings.md` §9 has the full spec)
+## Billing math
 
 PRE-PAID calendar-month model. Key rules:
 
@@ -89,11 +98,3 @@ PRE-PAID calendar-month model. Key rules:
 
 Convention: each feature task is a RED/GREEN pair — `test(Tn): RED for X` commits failing tests first, `fix(Tn): X` implements to green. See commit history for the pattern.
 
-## Planning & decision trail
-
-Keep these three files current when doing planning work; they are authoritative:
-- `task_plan.md` — phases, task checklist, locked decisions, open questions
-- `findings.md` — research, rule specs (§9 billing math is authoritative), architecture rationale
-- `progress.md` — session log, superseded decisions kept for trail
-
-Don't rewrite history; append to the top when logging a new session.

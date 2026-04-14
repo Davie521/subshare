@@ -18,9 +18,9 @@ Split subscription costs with friends. Self-hosted, minimal, mobile-friendly.
 
 - **Framework**: Next.js 16 + TypeScript
 - **UI**: shadcn/ui + Tailwind CSS
-- **Database**: SQLite + Drizzle ORM
+- **Database**: PostgreSQL + Drizzle ORM
 - **Auth**: HMAC-signed session cookies
-- **Deployment**: Docker + Caddy (HTTPS)
+- **Deployment**: Docker (Railway-ready)
 
 ## Quick Start (Docker)
 
@@ -30,16 +30,14 @@ cd subshare
 docker compose up --build -d
 ```
 
-Open **https://localhost** and register an account.
-
-> Browser will warn about the self-signed certificate — click "Continue" to proceed.
+Open **http://localhost:3000** and register an account.
 
 ## Environment Variables
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `SESSION_SECRET` | Yes (production) | dev fallback | HMAC signing key for session cookies (min 32 chars) |
-| `DATABASE_URL` | No | `data/subshare.db` | Path to SQLite database file |
+| `DATABASE_URL` | Yes | — | Postgres connection string (e.g. `postgres://user:pass@host:5432/subshare`) |
 | `CRON_SECRET` | No | — | Bearer token for `/api/cron/billing` endpoint |
 
 ## Development

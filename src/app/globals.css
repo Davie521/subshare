@@ -6,7 +6,7 @@
 
 /* =========================================================================
    SubShare Design System — Linear × Notion Fusion
-   See DESIGN.md for the complete spec.
+   See docs/DESIGN.md for the complete spec.
    ========================================================================= */
 
 @theme inline {
@@ -56,7 +56,7 @@
   --color-brand-accent: var(--brand-accent);
   --color-brand-hover: var(--brand-hover);
 
-  /* Explicit radius scale — DESIGN.md §5 */
+  /* Explicit radius scale — docs/DESIGN.md §5 */
   --radius-sm: 4px;
   --radius-md: 6px;    /* buttons, inputs — Linear precision */
   --radius-lg: 8px;

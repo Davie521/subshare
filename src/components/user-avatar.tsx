@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 
 /**
  * Minimal default avatar — a soft neutral circle with the first letter of
- * the user's display name. Honours DESIGN.md's rule that brand indigo is
+ * the user's display name. Honours docs/DESIGN.md's rule that brand indigo is
  * the only chromatic accent; avatars stay in the warm-neutral / white-
  * opacity scale so they never compete with real colour signals (money).
  *
