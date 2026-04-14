@@ -87,7 +87,7 @@ export async function addMemberToSubscription(
   rates: Record<string, number> = {}
 ): Promise<void> {
   // Detect whether this is a genuine new insert vs. a no-op re-add.
-  const existingMember = await db
+  const [existingMember] = await db
     .select({ userId: schema.subscriptionMembers.userId })
     .from(schema.subscriptionMembers)
     .where(
@@ -96,7 +96,6 @@ export async function addMemberToSubscription(
         eq(schema.subscriptionMembers.userId, input.userId)
       )
     )
-    
   const isNewMember = !existingMember
 
   await db.insert(schema.subscriptionMembers)
@@ -178,7 +177,7 @@ export async function addMemberToSubscription(
   const localAmount = Math.floor(amount * rate)
 
   // Idempotent: skip if a bill already exists for this sub/user/canonicalDate.
-  const existing = await db
+  const [existing] = await db
     .select({ id: schema.billingRecords.id })
     .from(schema.billingRecords)
     .where(
@@ -188,7 +187,6 @@ export async function addMemberToSubscription(
         eq(schema.billingRecords.billingDate, canonicalAddedAt)
       )
     )
-    
   if (existing) return
 
   await db.insert(schema.billingRecords)
@@ -421,8 +419,7 @@ export async function getSubscriptionsForUser(
         isNull(schema.subscriptionMembers.leftAt)
       )
     )
-    
-    )  .map((r) => r.subscriptionId)
+  ).map((r) => r.subscriptionId)
 
   if (subIds.length === 0) return []
 
@@ -435,7 +432,7 @@ export async function getSubscriptionsForUser(
       nextPayment: schema.subscriptions.nextPayment,
       inactive: schema.subscriptions.inactive,
       memberCount: sql<number>`(
-        SELECT count(*) FROM subscription_members
+        SELECT count(*)::int FROM subscription_members
         WHERE subscription_id = ${schema.subscriptions.id}
           AND left_at IS NULL
       )`,
@@ -684,7 +681,7 @@ export async function generateMonthlyBills(
 
         const localAmount = Math.floor(share * rate)
 
-        const existing = await tx
+        const [existing] = await tx
           .select({ id: schema.billingRecords.id })
           .from(schema.billingRecords)
           .where(
@@ -694,7 +691,6 @@ export async function generateMonthlyBills(
               eq(schema.billingRecords.billingDate, billingDate)
             )
           )
-          
         if (existing) continue
 
         await tx.insert(schema.billingRecords)
@@ -762,7 +758,7 @@ export async function generateAndSaveBillingRecords(
     let inserted = 0
 
     for (const member of nonPayerMembers) {
-      const existing = await tx
+      const [existing] = await tx
         .select({ id: schema.billingRecords.id })
         .from(schema.billingRecords)
         .where(
@@ -772,7 +768,6 @@ export async function generateAndSaveBillingRecords(
             eq(schema.billingRecords.billingDate, sub.nextPayment)
           )
         )
-        
 
       if (existing) continue
 

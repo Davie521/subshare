@@ -147,7 +147,7 @@ export async function handleAddMembers(
   const today = new Date().toISOString().slice(0, 10)
   let added = 0
   for (const uid of invitees) {
-    const before = await db
+    const [before] = await db
       .select({ userId: schema.subscriptionMembers.userId })
       .from(schema.subscriptionMembers)
       .where(
@@ -156,7 +156,6 @@ export async function handleAddMembers(
           eq(schema.subscriptionMembers.userId, uid)
         )
       )
-      
     if (before) continue
     await addMemberToSubscription(
       db,
