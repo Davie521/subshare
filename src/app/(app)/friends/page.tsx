@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Users } from "lucide-react";
+import { Users } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { UserAvatar } from "@/components/user-avatar";
 
@@ -62,15 +61,6 @@ export default function FriendsPage() {
 
   return (
     <div className="space-y-6 max-w-xl">
-      <div>
-        <Link
-          href="/settings"
-          className="inline-flex items-center gap-1 text-[13px] font-medium text-muted-foreground hover:text-foreground transition-colors cursor-pointer"
-        >
-          <ArrowLeft className="size-3.5" />
-          Settings
-        </Link>
-      </div>
       <header className="space-y-1.5">
         <p className="text-[13px] font-medium text-muted-foreground">Social</p>
         <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
