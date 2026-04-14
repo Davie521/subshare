@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge";
 import { ArrowRight, TrendingUp } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
 import { UserAvatar } from "@/components/user-avatar";
-import { NotificationsList } from "@/components/notifications-list";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
@@ -160,70 +159,65 @@ export default function DashboardPage() {
 
       {/* Two-column layout on desktop */}
       <div className="grid gap-8 lg:grid-cols-5">
-        {/* Activity — wider, merged (Action needed + Updates) */}
-        <section className="space-y-6 lg:col-span-3">
+        {/* Activity preview — wider, links to /activity for full view */}
+        <section className="space-y-4 lg:col-span-3">
           <div className="flex items-center justify-between">
             <SectionHeader title="Activity" count={outgoingPairs.length} />
             <Link
-              href="/settlement"
+              href="/activity"
               className="text-[13px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
             >
-              Settlement <ArrowRight className="size-3" />
+              View all <ArrowRight className="size-3" />
             </Link>
           </div>
 
-          {/* Category 1: Action needed (transfers) */}
-          <div className="space-y-3">
-            <CategoryHeader label="Action needed" count={outgoingPairs.length} />
-            {outgoingPairs.length === 0 ? (
-              <p className="text-[13px] text-muted-foreground pl-0.5">
-                Nothing to transfer. You don&apos;t owe anyone right now.
-              </p>
-            ) : (
-              <div className="space-y-2.5">
-                {outgoingPairs.slice(0, 4).map((row) => {
-                  const key = `${row.counterpartyUserId}-${row.currency}`;
-                  const netAbs = Math.abs(row.net);
-                  return (
-                    <Link key={key} href="/settlement" className="block group">
-                      <Card
-                        size="sm"
-                        className="transition-all duration-150 group-hover:ring-[rgba(0,0,0,0.14)] dark:group-hover:ring-white/[0.12] dark:group-hover:bg-white/[0.03]"
-                      >
-                        <CardContent className="flex items-center justify-between gap-3">
-                          <div className="flex items-center gap-3 min-w-0">
-                            <UserAvatar name={row.counterpartyName} size="md" />
-                            <div className="min-w-0">
-                              <p className="font-semibold text-sm truncate">
-                                {row.counterpartyName}
-                              </p>
-                              <p className="text-[13px] text-muted-foreground">
-                                You owe · {row.currency}
-                              </p>
-                            </div>
+          {outgoingPairs.length === 0 ? (
+            <Card className="border-dashed bg-muted/30 shadow-none">
+              <CardContent className="py-10 flex flex-col items-center gap-2 text-center">
+                <p className="text-sm font-medium">Nothing to transfer</p>
+                <p className="text-[13px] text-muted-foreground">
+                  You don&apos;t owe anyone right now.
+                </p>
+              </CardContent>
+            </Card>
+          ) : (
+            <div className="space-y-2.5">
+              {outgoingPairs.slice(0, 3).map((row) => {
+                const key = `${row.counterpartyUserId}-${row.currency}`;
+                const netAbs = Math.abs(row.net);
+                return (
+                  <Link key={key} href="/activity" className="block group">
+                    <Card
+                      size="sm"
+                      className="transition-all duration-150 group-hover:ring-[rgba(0,0,0,0.14)] dark:group-hover:ring-white/[0.12] dark:group-hover:bg-white/[0.03]"
+                    >
+                      <CardContent className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <UserAvatar name={row.counterpartyName} size="md" />
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm truncate">
+                              {row.counterpartyName}
+                            </p>
+                            <p className="text-[13px] text-muted-foreground">
+                              You owe · {row.currency}
+                            </p>
                           </div>
-                          <p
-                            className={cn(
-                              "text-[16px] font-semibold tabular-nums tracking-[-0.015em] shrink-0",
-                              "text-[var(--brand)]"
-                            )}
-                          >
-                            {formatMoney(netAbs, row.currency)}
-                          </p>
-                        </CardContent>
-                      </Card>
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* Category 2: Updates (notifications) */}
-          <div className="space-y-3">
-            <CategoryHeader label="Updates" />
-            <NotificationsList limit={10} showMarkAll />
-          </div>
+                        </div>
+                        <p
+                          className={cn(
+                            "text-[16px] font-semibold tabular-nums tracking-[-0.015em] shrink-0",
+                            "text-[var(--brand)]"
+                          )}
+                        >
+                          {formatMoney(netAbs, row.currency)}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         {/* Subscriptions — narrower */}
@@ -275,24 +269,6 @@ export default function DashboardPage() {
   );
 }
 
-function CategoryHeader({
-  label,
-  count,
-}: {
-  label: string;
-  count?: number;
-}) {
-  return (
-    <div className="flex items-baseline gap-1.5">
-      <h3 className="text-[12px] font-semibold text-foreground/80">{label}</h3>
-      {typeof count === "number" && count > 0 && (
-        <span className="text-[11px] font-medium text-muted-foreground tabular-nums">
-          {count}
-        </span>
-      )}
-    </div>
-  );
-}
 
 /* -------------------- local components -------------------- */
 
