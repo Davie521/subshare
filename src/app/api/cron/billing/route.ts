@@ -4,6 +4,7 @@ import { getDb } from '@/db'
 import * as schema from '@/db/schema'
 import { generateAndSaveBillingRecords } from '@/lib/db-operations'
 import { getRate } from '@/lib/fx-cache'
+import { runBillingCron } from '@/lib/api-handlers'
 
 const CRON_SECRET = process.env.CRON_SECRET
 
@@ -61,9 +62,16 @@ export async function POST(req: NextRequest) {
       .run()
   }
 
+  // A10 — monthly R1 pass. Runs the new subscription-centric cron on
+  // top of the legacy per-sub due advancement. No-op on non-1st days.
+  const monthly = await runBillingCron(db)
+
   return NextResponse.json({
     processed: dueSubs.length,
     billsGenerated: totalGenerated,
+    monthlyBillsGenerated: monthly.success
+      ? monthly.data!.monthlyBillsGenerated
+      : 0,
   })
 }
 

@@ -14,6 +14,7 @@ import {
   leaveSubscription,
   transferPayer,
   changeSubscriptionPrice,
+  generateMonthlyBills,
 } from './db-operations'
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
@@ -386,6 +387,61 @@ export function handleRemoveMember(
     }
   }
   return { success: true }
+}
+
+/**
+ * A10 — billing cron dispatcher. Runs on every invocation; only kicks
+ * off the R1 monthly pass when today is the 1st of the month. Rates are
+ * fetched once per (from, to) pair touched by any shared subscription.
+ */
+export async function runBillingCron(
+  db: DB,
+  opts: { today?: string } = {}
+): Promise<Result<{ monthlyBillsGenerated: number }>> {
+  const today = opts.today ?? new Date().toISOString().slice(0, 10)
+  const [year, month, day] = today.split('-').map(Number)
+  if (day !== 1) {
+    return { success: true, data: { monthlyBillsGenerated: 0 } }
+  }
+
+  const yearMonth = `${year}-${String(month).padStart(2, '0')}`
+
+  // Pre-load rates for every (sub.currency, member.preferredCurrency) pair.
+  const pairs = db
+    .select({
+      subCurrency: schema.subscriptions.currency,
+      memberCurrency: schema.users.preferredCurrency,
+    })
+    .from(schema.subscriptionMembers)
+    .innerJoin(
+      schema.subscriptions,
+      eq(schema.subscriptionMembers.subscriptionId, schema.subscriptions.id)
+    )
+    .innerJoin(
+      schema.users,
+      eq(schema.subscriptionMembers.userId, schema.users.id)
+    )
+    .where(eq(schema.subscriptions.inactive, 0))
+    .all()
+
+  const need = new Set<string>()
+  for (const p of pairs) {
+    if (p.subCurrency !== p.memberCurrency) {
+      need.add(`${p.subCurrency}_${p.memberCurrency}`)
+    }
+  }
+
+  const rates: Record<string, number> = {}
+  await Promise.all(
+    Array.from(need).map(async (key) => {
+      const [from, to] = key.split('_')
+      const rate = await getRate(from, to)
+      if (rate !== null) rates[key] = rate
+    })
+  )
+
+  const generated = generateMonthlyBills(db, yearMonth, rates)
+  return { success: true, data: { monthlyBillsGenerated: generated } }
 }
 
 export type EnrichedSettlementRow = SettlementRow & {
