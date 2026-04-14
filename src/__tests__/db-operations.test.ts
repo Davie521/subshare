@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type Database from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { setupTestDb, createUser, createGroup, addMember } from './helpers'
+import { setupTestDb, createUser, createGroup, addMember, addSubMember } from './helpers'
 import * as schema from '@/db/schema'
 import {
   createSubscription,
@@ -78,17 +78,15 @@ describe('getSubscriptionsForUser', () => {
   it('returns shared subscriptions the user is a member of', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
 
-    createSubscription(db, {
+    const netflix = createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
+    addSubMember(sqlite, netflix.id, userB)
 
     const subsA = getSubscriptionsForUser(db, userA)
     const subsB = getSubscriptionsForUser(db, userB)
@@ -143,9 +141,6 @@ describe('generateAndSaveBillingRecords', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
     const userC = createUser(sqlite, { email: 'c@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-    addMember(sqlite, group.id, userC)
 
     const sub = createSubscription(db, {
       name: 'Netflix',
@@ -153,8 +148,9 @@ describe('generateAndSaveBillingRecords', () => {
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
+    addSubMember(sqlite, sub.id, userB)
+    addSubMember(sqlite, sub.id, userC)
 
     const count = generateAndSaveBillingRecords(db, sub.id)
     expect(count).toBe(2) // B and C
@@ -173,8 +169,6 @@ describe('generateAndSaveBillingRecords', () => {
   it('does not generate duplicate records for same billing date', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
 
     const sub = createSubscription(db, {
       name: 'Netflix',
@@ -182,8 +176,8 @@ describe('generateAndSaveBillingRecords', () => {
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
+    addSubMember(sqlite, sub.id, userB)
 
     generateAndSaveBillingRecords(db, sub.id)
     generateAndSaveBillingRecords(db, sub.id) // second call
@@ -200,8 +194,6 @@ describe('generateAndSaveBillingRecords', () => {
   it('skips inactive subscriptions', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
 
     const sub = createSubscription(db, {
       name: 'Netflix',
@@ -209,8 +201,8 @@ describe('generateAndSaveBillingRecords', () => {
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
+    addSubMember(sqlite, sub.id, userB)
 
     // Mark as inactive
     db.update(schema.subscriptions)
@@ -227,8 +219,6 @@ describe('getPendingBills', () => {
   it('returns unpaid bills for a user', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
 
     const sub = createSubscription(db, {
       name: 'Netflix',
@@ -236,8 +226,8 @@ describe('getPendingBills', () => {
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
+    addSubMember(sqlite, sub.id, userB)
 
     generateAndSaveBillingRecords(db, sub.id)
 
@@ -251,8 +241,6 @@ describe('getPendingBills', () => {
   it('does not return paid bills', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
 
     const sub = createSubscription(db, {
       name: 'Netflix',
@@ -260,8 +248,8 @@ describe('getPendingBills', () => {
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
+    addSubMember(sqlite, sub.id, userB)
 
     generateAndSaveBillingRecords(db, sub.id)
 
@@ -281,8 +269,6 @@ describe('markBillPaid', () => {
   it('marks a bill as paid with timestamp', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
 
     const sub = createSubscription(db, {
       name: 'Netflix',
@@ -290,8 +276,8 @@ describe('markBillPaid', () => {
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
+    addSubMember(sqlite, sub.id, userB)
 
     generateAndSaveBillingRecords(db, sub.id)
 
@@ -333,6 +319,7 @@ describe('canLeaveGroup and removeGroupMember', () => {
       ownerId: userA,
       groupId: group.id,
     })
+    addSubMember(sqlite, sub.id, userB) // bootstrap subscription_members too
 
     generateAndSaveBillingRecords(db, sub.id)
 
@@ -379,16 +366,14 @@ describe('getMonthlySpendingData', () => {
     })
 
     // Shared sub
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-    createSubscription(db, {
+    const netflixSub = createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
+    addSubMember(sqlite, netflixSub.id, userB)
 
     const data = getMonthlySpendingData(db, userA)
     expect(data).toHaveLength(2)

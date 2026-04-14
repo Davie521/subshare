@@ -67,3 +67,24 @@ export function addMember(
     .prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)')
     .run(groupId, userId)
 }
+
+/**
+ * Direct-insert a subscription member via SQL — bypasses
+ * addMemberToSubscription's auto-pro-rata side effect. Use this when
+ * a test needs a member present before generateAndSaveBillingRecords
+ * without any R2 pro-rata bill getting in the way.
+ */
+export function addSubMember(
+  sqlite: Database.Database,
+  subscriptionId: number,
+  userId: number,
+  opts: { addedBy?: number; addedAt?: string } = {}
+) {
+  const addedBy = opts.addedBy ?? userId
+  const addedAt = opts.addedAt ?? '2026-01-01'
+  sqlite
+    .prepare(
+      'INSERT OR IGNORE INTO subscription_members (subscription_id, user_id, added_by, added_at) VALUES (?, ?, ?, ?)'
+    )
+    .run(subscriptionId, userId, addedBy, addedAt)
+}

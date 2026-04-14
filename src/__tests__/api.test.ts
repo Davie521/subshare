@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type Database from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { setupTestDb, createUser, createGroup, addMember } from './helpers'
+import { setupTestDb, createUser, createGroup, addMember, addSubMember } from './helpers'
 import * as schema from '@/db/schema'
 import { registerUser, loginUser } from '@/lib/auth'
 import { createSubscription, generateAndSaveBillingRecords } from '@/lib/db-operations'
@@ -178,8 +178,6 @@ describe('handleDeleteSubscription', () => {
   it('soft deletes (marks inactive) when unpaid bills exist', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
 
     const sub = createSubscription(db, {
       name: 'Netflix',
@@ -187,8 +185,8 @@ describe('handleDeleteSubscription', () => {
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
+    addSubMember(sqlite, sub.id, userB)
     generateAndSaveBillingRecords(db, sub.id)
 
     const result = handleDeleteSubscription(db, userA, sub.id)
@@ -210,18 +208,16 @@ describe('handleMarkPaid', () => {
   it('marks a bill as paid', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
 
-    createSubscription(db, {
+    const sub = createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
-    generateAndSaveBillingRecords(db, 1)
+    addSubMember(sqlite, sub.id, userB)
+    generateAndSaveBillingRecords(db, sub.id)
 
     const bills = db.select().from(schema.billingRecords).all()
     const result = handleMarkPaid(db, userB, bills[0].id)
@@ -239,18 +235,16 @@ describe('handleMarkPaid', () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
     const userC = createUser(sqlite, { email: 'c@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
 
-    createSubscription(db, {
+    const sub = createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
-    generateAndSaveBillingRecords(db, 1)
+    addSubMember(sqlite, sub.id, userB)
+    generateAndSaveBillingRecords(db, sub.id)
 
     const bills = db.select().from(schema.billingRecords).all()
     const result = handleMarkPaid(db, userC, bills[0].id)
@@ -275,17 +269,15 @@ describe('handleGetDashboard', () => {
     })
 
     // Shared sub
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-    createSubscription(db, {
+    const netflix = createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
-      groupId: group.id,
     })
-    generateAndSaveBillingRecords(db, 2)
+    addSubMember(sqlite, netflix.id, userB)
+    generateAndSaveBillingRecords(db, netflix.id)
 
     const result = await handleGetDashboard(db, userB)
     expect(result.monthlyTotal).toBe(10500) // 1500 + 18000/2

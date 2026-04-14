@@ -383,40 +383,24 @@ export function getSubscriptionsForUser(
   memberCount: number
   inactive: number
 }> {
-  // Personal subscriptions (no group)
-  const personal = db
-    .select({
-      id: schema.subscriptions.id,
-      name: schema.subscriptions.name,
-      price: schema.subscriptions.price,
-      currency: schema.subscriptions.currency,
-      nextPayment: schema.subscriptions.nextPayment,
-      groupId: schema.subscriptions.groupId,
-      inactive: schema.subscriptions.inactive,
-    })
-    .from(schema.subscriptions)
+  // All subs the user is an active member of (subscription_members is
+  // authoritative). Covers both owned personal subs (owner auto-added on
+  // create) and shared subs where the user was added later.
+  const subIds = db
+    .select({ subscriptionId: schema.subscriptionMembers.subscriptionId })
+    .from(schema.subscriptionMembers)
     .where(
       and(
-        eq(schema.subscriptions.ownerId, userId),
-        isNull(schema.subscriptions.groupId)
+        eq(schema.subscriptionMembers.userId, userId),
+        isNull(schema.subscriptionMembers.leftAt)
       )
     )
     .all()
-    .map((s) => ({ ...s, memberCount: 1 }))
+    .map((r) => r.subscriptionId)
 
-  // Shared subscriptions (user is a group member)
-  const userGroups = db
-    .select({ groupId: schema.groupMembers.groupId })
-    .from(schema.groupMembers)
-    .where(eq(schema.groupMembers.userId, userId))
-    .all()
+  if (subIds.length === 0) return []
 
-  const groupIds = userGroups.map((g) => g.groupId)
-
-  if (groupIds.length === 0) return personal
-
-  // Single query with subquery for member count (avoids N+1)
-  const shared = db
+  return db
     .select({
       id: schema.subscriptions.id,
       name: schema.subscriptions.name,
@@ -426,14 +410,14 @@ export function getSubscriptionsForUser(
       groupId: schema.subscriptions.groupId,
       inactive: schema.subscriptions.inactive,
       memberCount: sql<number>`(
-        SELECT count(*) FROM group_members WHERE group_id = ${schema.subscriptions.groupId}
+        SELECT count(*) FROM subscription_members
+        WHERE subscription_id = ${schema.subscriptions.id}
+          AND left_at IS NULL
       )`,
     })
     .from(schema.subscriptions)
-    .where(inArray(schema.subscriptions.groupId, groupIds))
+    .where(inArray(schema.subscriptions.id, subIds))
     .all()
-
-  return [...personal, ...shared]
 }
 
 export function getGroupWithMembers(
@@ -758,28 +742,30 @@ export function generateAndSaveBillingRecords(
     .where(eq(schema.subscriptions.id, subscriptionId))
     .get()
 
-  if (!sub || !sub.groupId || sub.inactive) return 0
+  if (!sub || sub.inactive) return 0
 
-  const group = db
-    .select()
-    .from(schema.groups)
-    .where(eq(schema.groups.id, sub.groupId))
-    .get()
+  const memberRows = getActiveMembersAt(db, subscriptionId, sub.nextPayment)
+  if (memberRows.length < 2) return 0 // personal sub — no bills to generate
 
-  if (!group) return 0
-
-  const members = db
+  const memberIds = memberRows.map((m) => m.userId)
+  const users = db
     .select({
-      userId: schema.groupMembers.userId,
+      id: schema.users.id,
       preferredCurrency: schema.users.preferredCurrency,
-      joinedAt: schema.groupMembers.joinedAt,
     })
-    .from(schema.groupMembers)
-    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
-    .where(eq(schema.groupMembers.groupId, sub.groupId))
+    .from(schema.users)
+    .where(inArray(schema.users.id, memberIds))
     .all()
+  const prefByUser = new Map(
+    users.map((u) => [u.id, u.preferredCurrency])
+  )
 
-  const nonPayerMembers = members.filter((m) => m.userId !== group.createdBy)
+  const members = memberRows.map((m) => ({
+    userId: m.userId,
+    preferredCurrency: prefByUser.get(m.userId) ?? 'CNY',
+  }))
+
+  const nonPayerMembers = members.filter((m) => m.userId !== sub.payerId)
   if (nonPayerMembers.length === 0) return 0
 
   const memberCount = members.length
