@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:20.18-alpine3.20 AS base
 
 # --- Dependencies ---
 FROM base AS deps
@@ -11,31 +11,30 @@ FROM base AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-
-# Build Next.js standalone
 RUN npm run build
 
 # --- Runtime ---
 FROM base AS runner
 WORKDIR /app
 
+RUN apk add --no-cache dumb-init wget
+
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
-ENV PORT=3000
 
 RUN addgroup --system --gid 1001 nodejs && \
     adduser --system --uid 1001 nextjs
 
-# Copy standalone output
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
-
-# Create data directory for SQLite
-RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
 
 USER nextjs
 
 EXPOSE 3000
 
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD wget -qO- "http://127.0.0.1:${PORT:-3000}/api/health" || exit 1
+
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "server.js"]
