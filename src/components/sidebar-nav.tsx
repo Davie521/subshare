@@ -6,6 +6,7 @@ import { LayoutDashboard, CreditCard, Users, Settings } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Logo } from "@/components/logo";
 import { UserMenu } from "@/components/user-menu";
+import { NotificationsBell } from "@/components/notifications-bell";
 
 const navItems = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
@@ -18,11 +19,12 @@ export function SidebarNav() {
 
   return (
     <aside className="hidden lg:flex lg:flex-col lg:w-60 lg:border-r lg:bg-sidebar lg:text-sidebar-foreground lg:fixed lg:inset-y-0">
-      {/* Logo */}
-      <div className="flex items-center h-16 px-5">
+      {/* Logo + bell */}
+      <div className="flex items-center justify-between h-16 px-5">
         <Link href="/dashboard" className="cursor-pointer transition-opacity hover:opacity-80">
           <Logo size={28} />
         </Link>
+        <NotificationsBell />
       </div>
 
       {/* Nav links */}
