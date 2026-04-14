@@ -13,7 +13,7 @@ export async function PUT(
   const numId = parseId(id)
   if (!numId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
-  const result = handleMarkPaid(db, userId, numId)
+  const result = await handleMarkPaid(db, userId, numId)
   if (!result.success) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return NextResponse.json({ ok: true })

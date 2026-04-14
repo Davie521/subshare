@@ -9,7 +9,7 @@ export async function GET() {
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const subs = getSubscriptionsForUser(db, userId)
+  const subs = await getSubscriptionsForUser(db, userId)
   return NextResponse.json(subs)
 }
 

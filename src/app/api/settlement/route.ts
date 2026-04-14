@@ -11,7 +11,7 @@ export async function GET() {
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const result = handleGetSettlement(db, userId)
+  const result = await handleGetSettlement(db, userId)
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const result = handleMarkPairSettled(
+  const result = await handleMarkPairSettled(
     db,
     userId,
     parsed.data.counterpartyUserId,

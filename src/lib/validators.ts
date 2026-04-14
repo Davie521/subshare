@@ -41,7 +41,10 @@ export const updateSubscriptionSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   price: z.number().int().positive().max(100_000_000).optional(),
   nextPayment: z.string().regex(DATE_REGEX).optional(),
-  inactive: z.number().int().min(0).max(1).optional(),
+  inactive: z
+    .union([z.boolean(), z.number().int().min(0).max(1)])
+    .transform((v) => (typeof v === 'number' ? v === 1 : v))
+    .optional(),
 })
 
 export const exchangeRateSchema = z.object({

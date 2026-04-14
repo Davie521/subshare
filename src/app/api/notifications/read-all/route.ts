@@ -7,7 +7,7 @@ export async function PUT() {
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const result = handleMarkAllNotificationsRead(db, userId)
+  const result = await handleMarkAllNotificationsRead(db, userId)
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }

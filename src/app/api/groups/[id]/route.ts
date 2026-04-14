@@ -17,21 +17,19 @@ export async function GET(
   if (!numId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
   // Membership check — prevent IDOR
-  const membership = db
+  const [membership] = await db
     .select()
     .from(schema.groupMembers)
     .where(and(eq(schema.groupMembers.groupId, numId), eq(schema.groupMembers.userId, userId)))
-    .get()
   if (!membership) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const group = getGroupWithMembers(db, numId)
+  const group = await getGroupWithMembers(db, numId)
   if (!group) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const subs = db
+  const subs = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.groupId, numId))
-    .all()
 
   return NextResponse.json({ ...group, subscriptions: subs })
 }
@@ -47,7 +45,7 @@ export async function DELETE(
   const numId = parseId(id)
   if (!numId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
-  const result = handleDeleteGroup(db, userId, numId)
+  const result = await handleDeleteGroup(db, userId, numId)
   if (!result.success) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return NextResponse.json({ ok: true })

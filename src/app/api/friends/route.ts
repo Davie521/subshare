@@ -7,7 +7,7 @@ export async function GET() {
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const result = handleListFriends(db, userId)
+  const result = await handleListFriends(db, userId)
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }

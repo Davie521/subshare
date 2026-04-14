@@ -17,7 +17,7 @@ export async function DELETE(
     return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
   }
 
-  const result = handleRemoveMember(db, actorId, subId, targetUserId)
+  const result = await handleRemoveMember(db, actorId, subId, targetUserId)
   if (!result.success) {
     const isPermission = /owner|payer|permission/i.test(result.error)
     return NextResponse.json(

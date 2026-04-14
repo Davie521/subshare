@@ -13,7 +13,7 @@ export async function POST(
   const numId = parseId(id)
   if (!numId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
-  const result = handleLeaveGroup(db, userId, numId)
+  const result = await handleLeaveGroup(db, userId, numId)
   if (!result.success) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return NextResponse.json({ ok: true })

@@ -12,7 +12,7 @@ export async function POST(
   const { id } = await params
 
   // id here is the publicId from the invite link
-  const result = handleJoinGroup(db, userId, id)
+  const result = await handleJoinGroup(db, userId, id)
   if (!result.success) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return NextResponse.json({ ok: true })

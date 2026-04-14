@@ -15,7 +15,7 @@ export async function PUT(
     return NextResponse.json({ error: 'Invalid id' }, { status: 400 })
   }
 
-  const result = handleMarkNotificationRead(db, userId, id)
+  const result = await handleMarkNotificationRead(db, userId, id)
   if (!result.success) {
     const isAuth = /not your/i.test(result.error)
     return NextResponse.json(

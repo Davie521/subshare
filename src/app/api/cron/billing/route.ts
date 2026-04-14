@@ -27,25 +27,24 @@ export async function POST(req: NextRequest) {
   const today = new Date().toISOString().split('T')[0]
 
   // Find shared subscriptions where next_payment <= today
-  const dueSubs = db
+  const dueSubs = await db
     .select()
     .from(schema.subscriptions)
     .where(
       and(
         sql`${schema.subscriptions.groupId} IS NOT NULL`,
         sql`${schema.subscriptions.nextPayment} <= ${today}`,
-        eq(schema.subscriptions.inactive, 0),
-        eq(schema.subscriptions.autoRenew, 1)
+        eq(schema.subscriptions.inactive, false),
+        eq(schema.subscriptions.autoRenew, true)
       )
     )
-    .all()
 
   const rates = await fetchRequiredRates(db, dueSubs)
 
   let totalGenerated = 0
 
   for (const sub of dueSubs) {
-    const count = generateAndSaveBillingRecords(db, sub.id, rates)
+    const count = await generateAndSaveBillingRecords(db, sub.id, rates)
     totalGenerated += count
 
     // Advance next_payment by one month
@@ -56,10 +55,10 @@ export async function POST(req: NextRequest) {
     const clampedDay = Math.min(d, maxDay)
     const newNextPayment = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`
 
-    db.update(schema.subscriptions)
+    await db
+      .update(schema.subscriptions)
       .set({ nextPayment: newNextPayment })
       .where(eq(schema.subscriptions.id, sub.id))
-      .run()
   }
 
   // A10 — monthly R1 pass. Runs the new subscription-centric cron on
@@ -86,7 +85,7 @@ async function fetchRequiredRates(
   )
   if (groupIds.length === 0) return {}
 
-  const memberCurrencies = db
+  const memberCurrencies = await db
     .select({
       groupId: schema.groupMembers.groupId,
       preferredCurrency: schema.users.preferredCurrency,
@@ -94,7 +93,6 @@ async function fetchRequiredRates(
     .from(schema.groupMembers)
     .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
     .where(inArray(schema.groupMembers.groupId, groupIds))
-    .all()
 
   const byGroup = new Map<number, Set<string>>()
   for (const row of memberCurrencies) {
