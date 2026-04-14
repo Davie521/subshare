@@ -33,8 +33,11 @@ beforeEach(async () => {
   sqlite = setup.sqlite
 })
 
-function getLeftAt(subId: number, userId: number): string | null {
-  const row = db
+async function getLeftAt(
+  subId: number,
+  userId: number
+): Promise<string | null> {
+  const [row] = await db
     .select({ leftAt: schema.subscriptionMembers.leftAt })
     .from(schema.subscriptionMembers)
     .where(
@@ -43,7 +46,6 @@ function getLeftAt(subId: number, userId: number): string | null {
         eq(schema.subscriptionMembers.userId, userId)
       )
     )
-    
   return row?.leftAt ?? null
 }
 
@@ -59,7 +61,7 @@ describe('T31 minimum-cycle commitment on leave', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addSubMember(sqlite, sub.id, b, { addedAt: '2026-03-01' })
+    await addSubMember(sqlite, sub.id, b, { addedAt: '2026-03-01' })
 
     // B tries to leave on 3/15 — but their first full cycle ends 3/31.
     await leaveSubscription(db, {
@@ -68,7 +70,7 @@ describe('T31 minimum-cycle commitment on leave', () => {
       leftAt: '2026-03-15',
     })
 
-    expect(getLeftAt(sub.id, b)).toBe('2026-03-31')
+    expect(await getLeftAt(sub.id, b)).toBe('2026-03-31')
   })
 
   it('member joined mid-month — left_at clamped to end of NEXT month', async () => {
@@ -82,7 +84,7 @@ describe('T31 minimum-cycle commitment on leave', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addSubMember(sqlite, sub.id, b, { addedAt: '2026-03-15' })
+    await addSubMember(sqlite, sub.id, b, { addedAt: '2026-03-15' })
 
     // B tries to leave 3/20 — partial Mar doesn't count, first full cycle
     // ends 4/30.
@@ -92,7 +94,7 @@ describe('T31 minimum-cycle commitment on leave', () => {
       leftAt: '2026-03-20',
     })
 
-    expect(getLeftAt(sub.id, b)).toBe('2026-04-30')
+    expect(await getLeftAt(sub.id, b)).toBe('2026-04-30')
   })
 
   it('member past minimum → left_at passes through unchanged', async () => {
@@ -106,7 +108,7 @@ describe('T31 minimum-cycle commitment on leave', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addSubMember(sqlite, sub.id, b, { addedAt: '2026-03-15' })
+    await addSubMember(sqlite, sub.id, b, { addedAt: '2026-03-15' })
 
     // Minimum = 4/30. Leaving 5/10 is past that → passes through.
     await leaveSubscription(db, {
@@ -115,7 +117,7 @@ describe('T31 minimum-cycle commitment on leave', () => {
       leftAt: '2026-05-10',
     })
 
-    expect(getLeftAt(sub.id, b)).toBe('2026-05-10')
+    expect(await getLeftAt(sub.id, b)).toBe('2026-05-10')
   })
 
   it('payer-initiated kick bypasses minimum-cycle guard', async () => {
@@ -129,7 +131,7 @@ describe('T31 minimum-cycle commitment on leave', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addSubMember(sqlite, sub.id, b, { addedAt: '2026-03-15' })
+    await addSubMember(sqlite, sub.id, b, { addedAt: '2026-03-15' })
 
     // Payer kicks B on 3/20 — kick is not bound by the member's own
     // minimum commitment.
@@ -140,7 +142,7 @@ describe('T31 minimum-cycle commitment on leave', () => {
       actorId: a,
     })
 
-    expect(getLeftAt(sub.id, b)).toBe('2026-03-20')
+    expect(await getLeftAt(sub.id, b)).toBe('2026-03-20')
   })
 
   it('handles year-end rollover (joined Dec 15 → minimum_cycle_end = Jan 31)', async () => {
@@ -154,7 +156,7 @@ describe('T31 minimum-cycle commitment on leave', () => {
       startDate: '2026-12-01',
       ownerId: a,
     })
-    addSubMember(sqlite, sub.id, b, { addedAt: '2026-12-15' })
+    await addSubMember(sqlite, sub.id, b, { addedAt: '2026-12-15' })
 
     await leaveSubscription(db, {
       subscriptionId: sub.id,
@@ -162,6 +164,6 @@ describe('T31 minimum-cycle commitment on leave', () => {
       leftAt: '2026-12-20',
     })
 
-    expect(getLeftAt(sub.id, b)).toBe('2027-01-31')
+    expect(await getLeftAt(sub.id, b)).toBe('2027-01-31')
   })
 })
