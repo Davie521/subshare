@@ -59,3 +59,4 @@ progress.md
 # external Claude Code worktrees / session artefacts
 /.claude/worktrees
 /.claude/*.log
+ui-review-*.png
