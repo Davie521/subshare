@@ -592,18 +592,25 @@ export async function changeSubscriptionPrice(
   const daysInMonth = new Date(yy, mm, 0).getDate()
   const monthEnd = `${yy}-${String(mm).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
 
-  const currentMonthBills = await db
-    .select()
-    .from(schema.billingRecords)
-    .where(
-      and(
-        eq(schema.billingRecords.subscriptionId, input.subscriptionId),
-        eq(schema.billingRecords.isPaid, false),
-        gte(schema.billingRecords.billingDate, monthStart),
-        lte(schema.billingRecords.billingDate, monthEnd)
-      )
-    )
-    
+  // Only rewrite bills belonging to members still active today — a member
+  // who already left keeps their existing (possibly R4-stale) amount so
+  // the price change never retroactively enlarges a departed member's debt.
+  const activeUserIds = members.map((m) => m.userId)
+  const currentMonthBills =
+    activeUserIds.length === 0
+      ? []
+      : await db
+          .select()
+          .from(schema.billingRecords)
+          .where(
+            and(
+              eq(schema.billingRecords.subscriptionId, input.subscriptionId),
+              eq(schema.billingRecords.isPaid, false),
+              gte(schema.billingRecords.billingDate, monthStart),
+              lte(schema.billingRecords.billingDate, monthEnd),
+              inArray(schema.billingRecords.userId, activeUserIds)
+            )
+          )
 
   for (const bill of currentMonthBills) {
     let newAmount: number

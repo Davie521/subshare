@@ -96,12 +96,12 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
 
     // Pay one of the bills.
     await sqlite.prepare(
-        "UPDATE billing_records SET is_paid = 1, paid_at = '2026-05-05' WHERE billing_date = '2026-05-01' ORDER BY id LIMIT 1"
+        "UPDATE billing_records SET is_paid = true, paid_at = '2026-05-05' WHERE id = (SELECT id FROM billing_records WHERE billing_date = '2026-05-01' ORDER BY id LIMIT 1)"
       )
       .run()
 
     const paidBefore = await sqlite.prepare(
-        "SELECT amount FROM billing_records WHERE billing_date = '2026-05-01' AND is_paid = 1"
+        "SELECT amount FROM billing_records WHERE billing_date = '2026-05-01' AND is_paid = true"
       )
       .get() as { amount: number }
     expect(paidBefore.amount).toBe(5000)
@@ -109,11 +109,11 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
     await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
     const paidAfter = await sqlite.prepare(
-        "SELECT amount FROM billing_records WHERE billing_date = '2026-05-01' AND is_paid = 1"
+        "SELECT amount FROM billing_records WHERE billing_date = '2026-05-01' AND is_paid = true"
       )
       .get() as { amount: number }
     const unpaidAfter = await sqlite.prepare(
-        "SELECT amount FROM billing_records WHERE billing_date = '2026-05-01' AND is_paid = 0"
+        "SELECT amount FROM billing_records WHERE billing_date = '2026-05-01' AND is_paid = false"
       )
       .get() as { amount: number }
 
@@ -297,10 +297,10 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
   it('rejects negative or non-numeric price', async () => {
     const { sub } = await setup3()
     await expect(
-      await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: -100 })
+      changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: -100 })
     ).rejects.toThrow()
     await expect(
-      await changeSubscriptionPrice(db, {
+      changeSubscriptionPrice(db, {
         subscriptionId: sub.id,
         // @ts-expect-error intentionally bad input
         newPrice: 'abc',
