@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { api } from "@/lib/api-client";
+import { UserAvatar } from "@/components/user-avatar";
 
 /**
  * User card at the bottom of the sidebar.
@@ -51,19 +52,12 @@ export function UserMenu() {
     );
   }
 
-  const initial = (user.name || "?").trim().charAt(0).toUpperCase() || "?";
   const displayName = user.name?.trim() || "Account";
 
   return (
     <div className="px-3 pb-3">
       <div className="group flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-foreground/[0.04]">
-        <div
-          className="size-7 shrink-0 rounded-full flex items-center justify-center text-[11px] font-semibold text-white"
-          style={{ backgroundColor: "var(--brand)" }}
-          aria-hidden
-        >
-          {initial}
-        </div>
+        <UserAvatar name={displayName} size="sm" />
         <div className="flex-1 min-w-0">
           <p className="text-[13px] font-medium truncate leading-tight">
             {displayName}

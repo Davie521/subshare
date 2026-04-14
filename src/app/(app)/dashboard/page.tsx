@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, TrendingUp, Sparkles } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
+import { UserAvatar } from "@/components/user-avatar";
+import { cn } from "@/lib/utils";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 
@@ -195,17 +197,7 @@ export default function DashboardPage() {
                     >
                       <CardContent className="flex items-center justify-between gap-3">
                         <div className="flex items-center gap-3 min-w-0">
-                          <div
-                            className="size-9 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 text-white"
-                            style={{
-                              backgroundColor: iOwe
-                                ? "var(--brand)"
-                                : "#1aae39",
-                            }}
-                            aria-hidden
-                          >
-                            {row.counterpartyName.trim().charAt(0).toUpperCase() || "?"}
-                          </div>
+                          <UserAvatar name={row.counterpartyName} size="md" />
                           <div className="min-w-0">
                             <p className="font-semibold text-sm truncate">
                               {row.counterpartyName}
@@ -215,7 +207,14 @@ export default function DashboardPage() {
                             </p>
                           </div>
                         </div>
-                        <p className="text-[16px] font-semibold tabular-nums tracking-[-0.015em] shrink-0">
+                        <p
+                          className={cn(
+                            "text-[16px] font-semibold tabular-nums tracking-[-0.015em] shrink-0",
+                            iOwe
+                              ? "text-[var(--brand)]"
+                              : "text-[#0d8a2d] dark:text-[#22c55e]"
+                          )}
+                        >
                           {formatMoney(netAbs, row.currency)}
                         </p>
                       </CardContent>

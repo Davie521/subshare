@@ -119,8 +119,10 @@ export default function NotificationsPage() {
   }
 
   useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const t = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
 
   const unreadCount = useMemo(

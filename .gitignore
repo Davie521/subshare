@@ -55,3 +55,7 @@ progress.md
 
 # playwright-mcp artifacts (local dev only)
 .playwright-mcp/
+
+# external Claude Code worktrees / session artefacts
+/.claude/worktrees
+/.claude/*.log

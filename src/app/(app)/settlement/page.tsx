@@ -8,6 +8,7 @@ import { ArrowRight, Check, Sparkles } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { UserAvatar } from "@/components/user-avatar";
 
 type SettlementRow = {
   counterpartyUserId: number;
@@ -37,8 +38,10 @@ export default function SettlementPage() {
   }
 
   useEffect(() => {
-    void load();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const t = setTimeout(() => {
+      void load();
+    }, 0);
+    return () => clearTimeout(t);
   }, []);
 
   async function onSettle(row: SettlementRow) {
@@ -114,21 +117,7 @@ export default function SettlementPage() {
                   <CardContent className="space-y-4">
                     {/* Headline */}
                     <div className="flex items-start gap-3">
-                      <div
-                        className={cn(
-                          "size-10 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 text-white"
-                        )}
-                        style={{
-                          backgroundColor: iOwe
-                            ? "var(--brand)"
-                            : even
-                            ? "var(--muted-foreground)"
-                            : "#1aae39",
-                        }}
-                        aria-hidden
-                      >
-                        {row.counterpartyName.trim().charAt(0).toUpperCase() || "?"}
-                      </div>
+                      <UserAvatar name={row.counterpartyName} size="lg" />
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold truncate">
                           {row.counterpartyName}
@@ -152,7 +141,9 @@ export default function SettlementPage() {
                       <p
                         className={cn(
                           "text-[22px] font-bold tabular-nums shrink-0 tracking-[-0.018em]",
-                          even && "text-muted-foreground"
+                          even && "text-muted-foreground",
+                          !even && iOwe && "text-[var(--brand)]",
+                          !even && !iOwe && "text-[#0d8a2d] dark:text-[#22c55e]"
                         )}
                       >
                         {even ? "—" : formatMoney(netAbs, row.currency)}

@@ -6,6 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft, Users } from "lucide-react";
 import { api } from "@/lib/api-client";
+import { UserAvatar } from "@/components/user-avatar";
 
 type Friend = {
   userId: number;
@@ -101,19 +102,11 @@ export default function FriendsPage() {
       ) : (
         <ul className="space-y-2">
           {friends.map((f) => {
-            const initial =
-              f.displayName.trim().charAt(0).toUpperCase() || "?";
             return (
               <li key={f.userId}>
                 <Card size="sm">
                   <CardContent className="flex items-center gap-3">
-                    <div
-                      className="size-9 shrink-0 rounded-full flex items-center justify-center text-sm font-semibold text-white"
-                      style={{ backgroundColor: "var(--brand)" }}
-                      aria-hidden
-                    >
-                      {initial}
-                    </div>
+                    <UserAvatar name={f.displayName} size="md" />
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold truncate">
                         {f.displayName}

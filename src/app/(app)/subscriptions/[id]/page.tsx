@@ -16,7 +16,7 @@ import {
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 import { BrandIcon } from "@/components/brand-icon";
-import { cn } from "@/lib/utils";
+import { UserAvatar } from "@/components/user-avatar";
 
 type Member = {
   userId: number;
@@ -71,11 +71,19 @@ export default function SubscriptionDetailPage() {
   }, [subId, router]);
 
   useEffect(() => {
-    void load();
-    void api.friends().then((r) => {
-      if (r.data) setFriends(r.data.map((f) => ({ userId: f.userId, displayName: f.displayName })));
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const t = setTimeout(() => {
+      void load();
+      void api.friends().then((r) => {
+        if (r.data)
+          setFriends(
+            r.data.map((f) => ({
+              userId: f.userId,
+              displayName: f.displayName,
+            }))
+          );
+      });
+    }, 0);
+    return () => clearTimeout(t);
   }, [load]);
 
   if (loadError && !sub) {
@@ -284,19 +292,11 @@ export default function SubscriptionDetailPage() {
               <li key={m.userId}>
                 <Card size="sm">
                   <CardContent className="flex items-center gap-3">
-                    <div
-                      className={cn(
-                        "size-9 shrink-0 rounded-full flex items-center justify-center text-sm font-semibold text-white"
-                      )}
-                      style={{
-                        backgroundColor: m.isPayer
-                          ? "var(--brand)"
-                          : "var(--muted-foreground)",
-                      }}
-                      aria-hidden
-                    >
-                      {m.displayName.trim().charAt(0).toUpperCase() || "?"}
-                    </div>
+                    <UserAvatar
+                      name={m.displayName}
+                      size="md"
+                      tone={m.isPayer ? "brand" : "neutral"}
+                    />
                     <div className="min-w-0 flex-1">
                       <div className="flex items-baseline gap-2 flex-wrap">
                         <p className="text-sm font-semibold truncate">
