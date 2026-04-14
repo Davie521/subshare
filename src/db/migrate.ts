@@ -92,6 +92,23 @@ export function migrate(sqlite: Database.Database) {
     CREATE INDEX IF NOT EXISTS notif_user_unread
       ON notifications(user_id, read_at);
 
+    CREATE TABLE IF NOT EXISTS circles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      owner_user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      default_payer_id INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS circles_by_owner ON circles(owner_user_id);
+
+    CREATE TABLE IF NOT EXISTS circle_members (
+      circle_id INTEGER NOT NULL REFERENCES circles(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (circle_id, user_id)
+    );
+
     -- Seed default categories
     INSERT OR IGNORE INTO categories (id, name, icon) VALUES
       (1, 'Entertainment', '🎬'),

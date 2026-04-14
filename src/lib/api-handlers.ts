@@ -27,6 +27,14 @@ import {
   countUnreadNotifications,
   type NotificationRecord,
 } from './notifications'
+import {
+  createCircle,
+  listCirclesForOwner,
+  getCircle,
+  updateCircle,
+  deleteCircle,
+  type CircleSummary,
+} from './circles'
 
 type DB = BetterSQLite3Database<typeof schema>
 type Result<T = unknown> =
@@ -614,4 +622,80 @@ export async function handleGetDashboard(
     pendingBills,
     subscriptions: spendingData,
   }
+}
+
+// --- Circles (member preset templates; UI label: "Group") ---
+
+export function handleListCircles(
+  db: DB,
+  userId: number
+): Result<CircleSummary[]> {
+  return { success: true, data: listCirclesForOwner(db, userId) }
+}
+
+export function handleCreateCircle(
+  db: DB,
+  userId: number,
+  input: {
+    name: string
+    memberIds?: number[]
+    defaultPayerId?: number | null
+  }
+): Result<{ id: number }> {
+  try {
+    const result = createCircle(db, {
+      ownerUserId: userId,
+      name: input.name,
+      memberIds: input.memberIds,
+      defaultPayerId: input.defaultPayerId,
+    })
+    return { success: true, data: result }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to create circle',
+    }
+  }
+}
+
+export function handleGetCircle(
+  db: DB,
+  userId: number,
+  circleId: number
+): Result<CircleSummary> {
+  const circle = getCircle(db, circleId, userId)
+  if (!circle) return { success: false, error: 'Not found' }
+  return { success: true, data: circle }
+}
+
+export function handleUpdateCircle(
+  db: DB,
+  userId: number,
+  circleId: number,
+  patch: {
+    name?: string
+    memberIds?: number[]
+    defaultPayerId?: number | null
+  }
+): Result {
+  try {
+    const ok = updateCircle(db, circleId, userId, patch)
+    if (!ok) return { success: false, error: 'Not found' }
+    return { success: true }
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to update circle',
+    }
+  }
+}
+
+export function handleDeleteCircle(
+  db: DB,
+  userId: number,
+  circleId: number
+): Result {
+  const ok = deleteCircle(db, circleId, userId)
+  if (!ok) return { success: false, error: 'Not found' }
+  return { success: true }
 }

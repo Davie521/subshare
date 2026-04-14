@@ -136,6 +136,42 @@ export const api = {
       body: JSON.stringify({ counterpartyUserId, currency }),
     }),
 
+  // Circles (UI label "Group") — member preset templates
+  circles: () =>
+    request<
+      Array<{
+        id: number;
+        name: string;
+        ownerUserId: number;
+        defaultPayerId: number | null;
+        memberIds: number[];
+        createdAt: string;
+      }>
+    >("/api/circles"),
+  createCircle: (body: {
+    name: string;
+    memberIds?: number[];
+    defaultPayerId?: number | null;
+  }) =>
+    request<{ id: number }>("/api/circles", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateCircle: (
+    id: number,
+    body: {
+      name?: string;
+      memberIds?: number[];
+      defaultPayerId?: number | null;
+    }
+  ) =>
+    request(`/api/circles/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  deleteCircle: (id: number) =>
+    request(`/api/circles/${id}`, { method: "DELETE" }),
+
   // Subscription members / payer
   addSubMembers: (subId: number, members: number[]) =>
     request<{ added: number }>(`/api/subscriptions/${subId}/members`, {

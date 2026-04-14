@@ -209,6 +209,7 @@ function SubscriptionForm({
   const [selectedMemberIds, setSelectedMemberIds] = useState<number[]>([]);
   const [selfId, setSelfId] = useState<number | null>(null);
   const [payerId, setPayerId] = useState<number | null>(null);
+  const [circles, setCircles] = useState<Array<{ id: number; name: string; memberIds: number[]; defaultPayerId: number | null }>>([]);
 
   useEffect(() => {
     void api.me().then((r) => {
@@ -227,7 +228,19 @@ function SubscriptionForm({
         );
       }
     });
+    void api.circles().then((r) => {
+      if (r.data) setCircles(r.data);
+    });
   }, []);
+
+  function applyCircle(circleId: number) {
+    const c = circles.find((x) => x.id === circleId);
+    if (!c || selfId === null) return;
+    setMode("shared");
+    setSelectedMemberIds(c.memberIds.filter((id) => id !== selfId));
+    if (c.defaultPayerId !== null) setPayerId(c.defaultPayerId);
+    else setPayerId(selfId);
+  }
 
   function toggleMember(userId: number) {
     setSelectedMemberIds((prev) =>
@@ -390,6 +403,31 @@ function SubscriptionForm({
             {mode === "shared" && (
               <div className="space-y-4 pt-2">
                 <Separator />
+
+                {/* Groups (circles) quick-pick */}
+                {circles.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>Pick a group</Label>
+                    <p className="text-[12px] text-muted-foreground">
+                      One tap to pre-fill members from a saved template.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {circles.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => applyCircle(c.id)}
+                          className="cursor-pointer px-3 py-1.5 rounded-md border text-[13px] font-medium border-input bg-muted/40 text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04]"
+                        >
+                          {c.name}{" "}
+                          <span className="text-muted-foreground/70">
+                            ({c.memberIds.length})
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Friends picker */}
                 <div className="space-y-2">

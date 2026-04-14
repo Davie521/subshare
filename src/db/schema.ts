@@ -127,6 +127,34 @@ export const billingRecords = sqliteTable(
   ]
 )
 
+export const circles = sqliteTable(
+  'circles',
+  {
+    id: integer('id').primaryKey({ autoIncrement: true }),
+    name: text('name').notNull(),
+    ownerUserId: integer('owner_user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    defaultPayerId: integer('default_payer_id').references(() => users.id),
+    createdAt: text('created_at').notNull().default("(datetime('now'))"),
+  },
+  (t) => [index('circles_by_owner').on(t.ownerUserId)]
+)
+
+export const circleMembers = sqliteTable(
+  'circle_members',
+  {
+    circleId: integer('circle_id')
+      .notNull()
+      .references(() => circles.id, { onDelete: 'cascade' }),
+    userId: integer('user_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    addedAt: text('added_at').notNull().default("(datetime('now'))"),
+  },
+  (t) => [primaryKey({ columns: [t.circleId, t.userId] })]
+)
+
 export const categories = sqliteTable('categories', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
