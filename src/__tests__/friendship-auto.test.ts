@@ -24,7 +24,7 @@ beforeEach(async () => {
   sqlite = setup.sqlite
 })
 
-async function hasFriendship(userA: number, userB: number): boolean {
+async function hasFriendship(userA: number, userB: number): Promise<boolean> {
   const [lo, hi] = userA < userB ? [userA, userB] : [userB, userA]
   const row = await sqlite.prepare(
       `SELECT 1 FROM friendships WHERE user_a_id = ? AND user_b_id = ?`
@@ -33,7 +33,7 @@ async function hasFriendship(userA: number, userB: number): boolean {
   return !!row
 }
 
-async function friendshipCount(): number {
+async function friendshipCount(): Promise<number> {
   const row = await sqlite.prepare(`SELECT COUNT(*) AS n FROM friendships`)
     .get() as { n: number }
   return row.n

@@ -12,7 +12,7 @@ beforeEach(async () => {
   sqlite = setup.sqlite
 })
 
-async function billsForDate(date: string): number {
+async function billsForDate(date: string): Promise<number> {
   return (
     await sqlite.prepare(
         'SELECT COUNT(*) AS n FROM billing_records WHERE billing_date = ?'
