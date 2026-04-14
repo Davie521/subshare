@@ -562,12 +562,18 @@ export function transferPayer(
 }
 
 /**
- * T12 — change the price of a subscription (R5 non-retroactive).
+ * T19 — change the price of a subscription (R5 NEW: rewrite current-month).
  *
- * Updates subscriptions.price only. Does NOT touch any existing
- * billing_records. Emits one price_changed notification to each active
- * non-payer member with old/new price, old/new share, delta, and the
- * first billing date the new price takes effect (YYYY-MM-01 of next month).
+ * Updates subscriptions.price, then rewrites every is_paid=0 billing_record
+ * for this sub whose billing_date falls in the current calendar month:
+ *   - R1 full-share bill (billing_date = YYYY-MM-01) → amount = newShare
+ *   - R2 pro-rata bill (billing_date = join day) → amount preserves ratio
+ *     days_covered/D_M against newShare
+ *   - localAmount recomputed using the bill's stored exchange_rate
+ *     (FX rate is NOT re-fetched; it stays locked from original generation)
+ *   - is_paid=1 bills and bills outside current month are untouched
+ * Emits one price_changed notification per active non-payer member with
+ * effective_from = current month's 1st.
  */
 export function changeSubscriptionPrice(
   db: DB,
@@ -599,17 +605,48 @@ export function changeSubscriptionPrice(
   const today = new Date().toISOString().slice(0, 10)
   const members = getActiveMembersAt(db, input.subscriptionId, today)
   const nonPayers = members.filter((m) => m.userId !== sub.payerId)
-  if (nonPayers.length === 0) return
 
   const n = members.length
-  const oldShare = calculateShares(oldPrice, n)
-  const newShare = calculateShares(input.newPrice, n)
+  const oldShare = n > 0 ? calculateShares(oldPrice, n) : 0
+  const newShare = n > 0 ? calculateShares(input.newPrice, n) : 0
 
   const [yy, mm] = today.split('-').map(Number)
-  const effectiveFrom =
-    mm === 12
-      ? `${yy + 1}-01-01`
-      : `${yy}-${String(mm + 1).padStart(2, '0')}-01`
+  const monthStart = `${yy}-${String(mm).padStart(2, '0')}-01`
+  const daysInMonth = new Date(yy, mm, 0).getDate()
+  const monthEnd = `${yy}-${String(mm).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
+
+  const currentMonthBills = db
+    .select()
+    .from(schema.billingRecords)
+    .where(
+      and(
+        eq(schema.billingRecords.subscriptionId, input.subscriptionId),
+        eq(schema.billingRecords.isPaid, 0),
+        gte(schema.billingRecords.billingDate, monthStart),
+        lte(schema.billingRecords.billingDate, monthEnd)
+      )
+    )
+    .all()
+
+  for (const bill of currentMonthBills) {
+    let newAmount: number
+    if (bill.billingDate === monthStart) {
+      newAmount = newShare
+    } else {
+      const dayOfMonth = Number(bill.billingDate.slice(8, 10))
+      const daysCovered = daysInMonth - dayOfMonth + 1
+      newAmount = Math.floor((newShare * daysCovered) / daysInMonth)
+    }
+    const newLocalAmount = Math.floor(
+      (newAmount * bill.exchangeRate) / 1_000_000
+    )
+    db.update(schema.billingRecords)
+      .set({ amount: newAmount, localAmount: newLocalAmount })
+      .where(eq(schema.billingRecords.id, bill.id))
+      .run()
+  }
+
+  if (nonPayers.length === 0) return
 
   for (const m of nonPayers) {
     insertNotification(db, {
@@ -624,7 +661,7 @@ export function changeSubscriptionPrice(
         old_share: oldShare,
         new_share: newShare,
         delta: newShare - oldShare,
-        effective_from: effectiveFrom,
+        effective_from: monthStart,
       },
     })
   }
