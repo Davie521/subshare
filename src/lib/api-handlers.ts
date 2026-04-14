@@ -1,4 +1,4 @@
-import { eq, and, inArray, or, desc } from 'drizzle-orm'
+import { eq, and, inArray, or, desc, isNull } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import {
@@ -327,11 +327,28 @@ export async function handleMarkPairSettled(
   return { success: true, data: { marked } }
 }
 
+export interface FriendSharedSub {
+  id: number
+  name: string
+  price: number
+  currency: string
+  memberCount: number
+  myShare: number
+}
+
+export interface FriendNet {
+  currency: string
+  /** Positive = they owe me; Negative = I owe them. */
+  net: number
+}
+
 export interface FriendRow {
   userId: number
   displayName: string
   email?: string
   since: string
+  sharedSubs: FriendSharedSub[]
+  nets: FriendNet[]
 }
 
 export async function handleListFriends(
@@ -369,18 +386,130 @@ export async function handleListFriends(
     })
     .from(schema.users)
     .where(inArray(schema.users.id, otherIds))
-    
-
   const byId = new Map(users.map((u) => [u.id, u]))
+
+  // Shared subs per friend: every active sub where both me and friend
+  // are in subscription_members.
+  const coMembers = await db
+    .select({
+      subscriptionId: schema.subscriptionMembers.subscriptionId,
+      userId: schema.subscriptionMembers.userId,
+    })
+    .from(schema.subscriptionMembers)
+    .where(
+      and(
+        inArray(schema.subscriptionMembers.userId, [userId, ...otherIds]),
+        isNull(schema.subscriptionMembers.leftAt)
+      )
+    )
+
+  // Per sub: set of active user ids.
+  const subToMembers = new Map<number, Set<number>>()
+  for (const r of coMembers) {
+    const s = subToMembers.get(r.subscriptionId) ?? new Set<number>()
+    s.add(r.userId)
+    subToMembers.set(r.subscriptionId, s)
+  }
+
+  const mySubIds: number[] = []
+  for (const [subId, members] of subToMembers) {
+    if (members.has(userId)) mySubIds.push(subId)
+  }
+
+  const subRows =
+    mySubIds.length > 0
+      ? (
+          await db
+            .select({
+              id: schema.subscriptions.id,
+              name: schema.subscriptions.name,
+              price: schema.subscriptions.price,
+              currency: schema.subscriptions.currency,
+              inactive: schema.subscriptions.inactive,
+            })
+            .from(schema.subscriptions)
+            .where(inArray(schema.subscriptions.id, mySubIds))
+        ).filter((s) => !s.inactive)
+      : []
+  const subById = new Map(subRows.map((s) => [s.id, s]))
+
+  // Net balance per (me, friend, currency) from unpaid bills.
+  const bills = await db
+    .select({
+      subscriptionId: schema.billingRecords.subscriptionId,
+      userId: schema.billingRecords.userId,
+      amount: schema.billingRecords.amount,
+      currency: schema.billingRecords.currency,
+      payerId: schema.subscriptions.payerId,
+    })
+    .from(schema.billingRecords)
+    .innerJoin(
+      schema.subscriptions,
+      eq(schema.billingRecords.subscriptionId, schema.subscriptions.id)
+    )
+    .where(
+      and(
+        eq(schema.billingRecords.isPaid, false),
+        or(
+          and(
+            eq(schema.billingRecords.userId, userId),
+            inArray(schema.subscriptions.payerId, otherIds)
+          ),
+          and(
+            inArray(schema.billingRecords.userId, otherIds),
+            eq(schema.subscriptions.payerId, userId)
+          )
+        )
+      )
+    )
+
+  // net[friendId][currency] = signed cents (positive = they owe me).
+  const netMap = new Map<number, Map<string, number>>()
+  for (const b of bills) {
+    const iOwe = b.userId === userId
+    const friend = iOwe ? b.payerId : b.userId
+    const cur = b.currency
+    const byCur = netMap.get(friend) ?? new Map<string, number>()
+    byCur.set(cur, (byCur.get(cur) ?? 0) + (iOwe ? -b.amount : +b.amount))
+    netMap.set(friend, byCur)
+  }
+
   const result: FriendRow[] = rows
     .map((r) => {
       const other = r.userAId === userId ? r.userBId : r.userAId
       const u = byId.get(other)
       if (!u) return null
+
+      const sharedSubs: FriendSharedSub[] = []
+      for (const subId of mySubIds) {
+        const subMembers = subToMembers.get(subId)
+        const sub = subById.get(subId)
+        if (!subMembers || !sub) continue
+        if (!subMembers.has(other)) continue
+        const memberCount = subMembers.size
+        sharedSubs.push({
+          id: sub.id,
+          name: sub.name,
+          price: sub.price,
+          currency: sub.currency,
+          memberCount,
+          myShare: Math.floor(sub.price / memberCount),
+        })
+      }
+
+      const byCur = netMap.get(other)
+      const nets: FriendNet[] = byCur
+        ? Array.from(byCur.entries())
+            .filter(([, v]) => v !== 0)
+            .map(([currency, net]) => ({ currency, net }))
+        : []
+
       const out: FriendRow = {
         userId: u.id,
         displayName: u.displayName?.trim() || u.name,
         since: r.since,
+        sharedSubs,
+        nets,
       }
       if (u.showEmail) out.email = u.email
       return out
