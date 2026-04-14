@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {

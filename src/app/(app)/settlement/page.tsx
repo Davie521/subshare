@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Check, Sparkles } from "lucide-react";
+import { ArrowRight, Check, History, Sparkles } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,7 @@ type View = "unpaid" | "paid";
 export default function SettlementPage() {
   const [view, setView] = useState<View>("unpaid");
   const [rows, setRows] = useState<SettlementRow[] | null>(null);
+  const [me, setMe] = useState<string>("You");
   const [settlingKey, setSettlingKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -42,6 +43,12 @@ export default function SettlementPage() {
   }
 
   useEffect(() => {
+    void api.me().then((r) => {
+      if (r.data) setMe(r.data.displayName || r.data.name || "You");
+    });
+  }, []);
+
+  useEffect(() => {
     const t = setTimeout(() => {
       void load(view);
     }, 0);
@@ -57,6 +64,21 @@ export default function SettlementPage() {
     await load(view);
   }
 
+  const totals = useMemo(() => {
+    if (!rows) return null;
+    const perCurrency = new Map<string, { owe: number; due: number }>();
+    for (const r of rows) {
+      const e = perCurrency.get(r.currency) ?? { owe: 0, due: 0 };
+      if (r.net < 0) e.owe += Math.abs(r.net);
+      else if (r.net > 0) e.due += r.net;
+      perCurrency.set(r.currency, e);
+    }
+    return Array.from(perCurrency.entries()).map(([currency, v]) => ({
+      currency,
+      ...v,
+    }));
+  }, [rows]);
+
   if (loadError && !rows) {
     return (
       <div className="max-w-md space-y-4">
@@ -69,172 +91,104 @@ export default function SettlementPage() {
     );
   }
 
+  const showingPaid = view === "paid";
+
   return (
-    <div className="space-y-6 max-w-2xl">
-      <header className="space-y-1.5">
-        <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
-          Settlement
-        </h1>
-        <p className="text-[14px] text-muted-foreground max-w-md">
-          {view === "unpaid"
-            ? "One net transfer per person per currency — instead of paying for each subscription separately."
-            : "Already-settled history, grouped by person and currency."}
-        </p>
+    <div className="space-y-10">
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="space-y-1.5 min-w-0">
+          <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
+            Settlement
+          </h1>
+          <p className="text-[14px] text-muted-foreground max-w-xl">
+            {showingPaid
+              ? "Already-settled history, grouped by person and currency."
+              : "One net transfer per person per currency — instead of paying for each subscription separately."}
+          </p>
+        </div>
+        <ToggleSwitch
+          on={showingPaid}
+          onChange={(v) => setView(v ? "paid" : "unpaid")}
+          label="Show paid history"
+        />
       </header>
 
-      {/* Unpaid / Paid toggle */}
-      <div
-        role="tablist"
-        aria-label="Settlement view"
-        className="inline-flex items-center rounded-md border bg-muted/40 p-0.5"
-      >
-        {(["unpaid", "paid"] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            role="tab"
-            aria-selected={view === v}
-            onClick={() => setView(v)}
-            className={cn(
-              "px-3 py-1.5 rounded-[5px] text-[13px] font-medium cursor-pointer transition-colors",
-              view === v
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {v === "unpaid" ? "Unpaid" : "Paid"}
-          </button>
-        ))}
-      </div>
+      {/* Summary totals */}
+      {!showingPaid && totals && totals.length > 0 && (
+        <div
+          className={cn(
+            "grid gap-4",
+            totals.length === 1 ? "md:grid-cols-2" : "md:grid-cols-2 lg:grid-cols-3"
+          )}
+        >
+          {totals.flatMap((t) => {
+            const items: React.ReactNode[] = [];
+            if (t.owe > 0)
+              items.push(
+                <TotalCard
+                  key={`${t.currency}-owe`}
+                  label={`You owe · ${t.currency}`}
+                  amount={t.owe}
+                  currency={t.currency}
+                  tone="owe"
+                />
+              );
+            if (t.due > 0)
+              items.push(
+                <TotalCard
+                  key={`${t.currency}-due`}
+                  label={`Owed to you · ${t.currency}`}
+                  amount={t.due}
+                  currency={t.currency}
+                  tone="due"
+                />
+              );
+            return items;
+          })}
+        </div>
+      )}
 
       {rows === null ? (
-        <div className="space-y-2">
+        <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-28 bg-muted rounded-xl animate-pulse" />
+            <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />
           ))}
         </div>
       ) : rows.length === 0 ? (
         <Card className="border-dashed bg-muted/30 shadow-none">
-          <CardContent className="py-14 flex flex-col items-center gap-2.5 text-center">
-            <div className="size-9 rounded-full bg-[var(--accent)] flex items-center justify-center">
-              <Sparkles className="size-[16px] text-[var(--accent-foreground)]" />
+          <CardContent className="py-16 flex flex-col items-center gap-2.5 text-center">
+            <div className="size-10 rounded-full bg-[var(--accent)] flex items-center justify-center">
+              <Sparkles className="size-[18px] text-[var(--accent-foreground)]" />
             </div>
             <p className="text-sm font-medium">
-              {view === "unpaid" ? "All settled" : "No history yet"}
+              {showingPaid ? "No history yet" : "All settled"}
             </p>
-            <p className="text-[13px] text-muted-foreground max-w-[26ch]">
-              {view === "unpaid"
-                ? "No outstanding balances with anyone. When new bills arrive they'll show up here."
-                : "Once you mark balances as settled they'll appear here."}
+            <p className="text-[13px] text-muted-foreground max-w-[30ch]">
+              {showingPaid
+                ? "Once you mark balances as settled they'll appear here."
+                : "No outstanding balances with anyone. New bills will show up here."}
             </p>
           </CardContent>
         </Card>
       ) : (
-        <ul className="space-y-2.5">
-          {rows.map((row) => {
-            const key = `${row.counterpartyUserId}-${row.currency}`;
-            const netAbs = Math.abs(row.net);
-            const iOwe = row.net < 0;
-            const even = row.net === 0;
-            const settling = settlingKey === key;
-
-            return (
-              <li key={key}>
-                <Card
-                  className={cn(
-                    "transition-colors",
-                    iOwe && "ring-[var(--brand)]/25 dark:ring-[var(--brand)]/35"
-                  )}
-                >
-                  <CardContent className="space-y-4">
-                    {/* Headline */}
-                    <div className="flex items-start gap-3">
-                      <UserAvatar name={row.counterpartyName} size="lg" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold truncate">
-                          {row.counterpartyName}
-                        </p>
-                        <div className="mt-0.5 flex items-baseline gap-1.5">
-                          <span className="text-[13px] text-muted-foreground">
-                            {even
-                              ? "Even — nothing to transfer"
-                              : iOwe
-                              ? "You owe"
-                              : "They owe you"}
-                          </span>
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] tracking-wide"
-                          >
-                            {row.currency}
-                          </Badge>
-                        </div>
-                      </div>
-                      <p
-                        className={cn(
-                          "text-[22px] font-bold tabular-nums shrink-0 tracking-[-0.018em]",
-                          even && "text-muted-foreground",
-                          !even && iOwe && "text-[var(--brand)]",
-                          !even && !iOwe && "text-[#0d8a2d] dark:text-[#22c55e]"
-                        )}
-                      >
-                        {even ? "—" : formatMoney(netAbs, row.currency)}
-                      </p>
-                    </div>
-
-                    {/* Breakdown */}
-                    {!even && (row.owedByMe > 0 || row.owedToMe > 0) && (
-                      <div className="rounded-md bg-muted/50 px-3 py-2 text-[12px] text-muted-foreground space-y-0.5 tabular-nums">
-                        {row.owedByMe > 0 && (
-                          <div className="flex items-center justify-between">
-                            <span>You → {row.counterpartyName}</span>
-                            <span>{formatMoney(row.owedByMe, row.currency)}</span>
-                          </div>
-                        )}
-                        {row.owedToMe > 0 && (
-                          <div className="flex items-center justify-between">
-                            <span>
-                              {row.counterpartyName} → You
-                            </span>
-                            <span>{formatMoney(row.owedToMe, row.currency)}</span>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Action — only for Unpaid view */}
-                    {view === "unpaid" && !even && (
-                      <div className="flex items-center justify-between">
-                        <p className="text-[12px] text-muted-foreground">
-                          After you&apos;ve transferred off-app →
-                        </p>
-                        <Button
-                          size="sm"
-                          variant={iOwe ? "default" : "outline"}
-                          disabled={settling}
-                          onClick={() => onSettle(row)}
-                          className="cursor-pointer gap-1.5"
-                        >
-                          {settling ? (
-                            "Settling…"
-                          ) : (
-                            <>
-                              <Check className="size-3.5" />
-                              Mark settled
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </li>
-            );
-          })}
+        <ul className="space-y-3">
+          {rows.map((row) => (
+            <li key={`${row.counterpartyUserId}-${row.currency}`}>
+              <FlowRow
+                row={row}
+                meName={me}
+                showingPaid={showingPaid}
+                settling={
+                  settlingKey === `${row.counterpartyUserId}-${row.currency}`
+                }
+                onSettle={() => onSettle(row)}
+              />
+            </li>
+          ))}
         </ul>
       )}
 
-      {view === "unpaid" && rows && rows.length > 0 && (
+      {!showingPaid && rows && rows.length > 0 && (
         <Card className="border-dashed bg-muted/30 shadow-none">
           <CardContent className="py-4 text-[12px] text-muted-foreground flex items-start gap-2">
             <ArrowRight className="size-3.5 mt-0.5 shrink-0" />
@@ -247,5 +201,336 @@ export default function SettlementPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+/* ---------------- Flow row (single-pair, single-row) ---------------- */
+
+function FlowRow({
+  row,
+  meName,
+  showingPaid,
+  settling,
+  onSettle,
+}: {
+  row: SettlementRow;
+  meName: string;
+  showingPaid: boolean;
+  settling: boolean;
+  onSettle: () => void;
+}) {
+  const iOwe = row.net < 0;
+  const even = row.net === 0;
+  const netAbs = Math.abs(row.net);
+  const hasBothSides = row.owedByMe > 0 && row.owedToMe > 0;
+
+  // Visual direction: source → destination (money flow)
+  const source = iOwe
+    ? { name: meName, label: "You" }
+    : { name: row.counterpartyName, label: row.counterpartyName };
+  const dest = iOwe
+    ? { name: row.counterpartyName, label: row.counterpartyName }
+    : { name: meName, label: "You" };
+
+  return (
+    <Card
+      className={cn(
+        "transition-all overflow-hidden",
+        !showingPaid && iOwe &&
+          "ring-[var(--brand)]/25 dark:ring-[var(--brand)]/35",
+        showingPaid && "opacity-95"
+      )}
+    >
+      <CardContent className="p-0">
+        <div className="flex items-center gap-4 md:gap-6 px-4 md:px-6 py-5">
+          {/* LEFT — source */}
+          <div className="flex flex-col items-center gap-1.5 shrink-0 w-[72px]">
+            <UserAvatar
+              name={source.name}
+              size="lg"
+              tone={!showingPaid && iOwe ? "brand" : "neutral"}
+            />
+            <p className="text-[12px] font-medium truncate max-w-full text-center">
+              {source.label}
+            </p>
+          </div>
+
+          {/* CENTER — flow */}
+          <div className="flex-1 min-w-0 flex flex-col items-center">
+            {even ? (
+              <>
+                <div className="flex items-center gap-2 w-full">
+                  <DashedLine />
+                  <p className="text-[13px] font-medium text-muted-foreground whitespace-nowrap">
+                    Even
+                  </p>
+                  <DashedLine />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  Nothing to transfer
+                </p>
+              </>
+            ) : (
+              <>
+                <p
+                  className={cn(
+                    "text-[26px] md:text-[30px] font-bold tabular-nums tracking-[-0.018em] leading-none",
+                    !showingPaid && iOwe && "text-[var(--brand)]",
+                    !showingPaid && !iOwe &&
+                      "text-[#0d8a2d] dark:text-[#22c55e]",
+                    showingPaid && "text-muted-foreground"
+                  )}
+                >
+                  {formatMoney(netAbs, row.currency)}
+                </p>
+                <FlowArrow
+                  tone={
+                    showingPaid
+                      ? "muted"
+                      : iOwe
+                      ? "brand"
+                      : "green"
+                  }
+                />
+                <div className="flex items-center gap-1.5 mt-1">
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] tracking-wide"
+                  >
+                    {row.currency}
+                  </Badge>
+                  {showingPaid && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] gap-1 pl-1 pr-1.5"
+                    >
+                      <History className="size-2.5" />
+                      Settled
+                    </Badge>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* RIGHT — destination */}
+          <div className="flex flex-col items-center gap-1.5 shrink-0 w-[72px]">
+            <UserAvatar
+              name={dest.name}
+              size="lg"
+              tone={!showingPaid && !iOwe && !even ? "brand" : "neutral"}
+            />
+            <p className="text-[12px] font-medium truncate max-w-full text-center">
+              {dest.label}
+            </p>
+          </div>
+
+          {/* ACTION */}
+          {!showingPaid && !even && (
+            <div className="shrink-0 hidden sm:block">
+              <Button
+                size="sm"
+                variant={iOwe ? "default" : "outline"}
+                disabled={settling}
+                onClick={onSettle}
+                className="cursor-pointer gap-1.5"
+              >
+                {settling ? (
+                  "Settling…"
+                ) : (
+                  <>
+                    <Check className="size-3.5" />
+                    Mark settled
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Mobile action bar (stacks under flow on small screens) */}
+        {!showingPaid && !even && (
+          <div className="sm:hidden border-t bg-muted/20 px-4 py-2.5 flex items-center justify-between">
+            <p className="text-[12px] text-muted-foreground">
+              After transferring off-app
+            </p>
+            <Button
+              size="sm"
+              variant={iOwe ? "default" : "outline"}
+              disabled={settling}
+              onClick={onSettle}
+              className="cursor-pointer gap-1.5"
+            >
+              {settling ? (
+                "Settling…"
+              ) : (
+                <>
+                  <Check className="size-3.5" />
+                  Mark settled
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {/* Bidirectional breakdown — small, subtle strip */}
+        {!even && hasBothSides && (
+          <div className="border-t bg-muted/20 px-4 md:px-6 py-2 flex items-center justify-center gap-4 md:gap-6 text-[11px] text-muted-foreground tabular-nums flex-wrap">
+            <span>
+              You → {row.counterpartyName}:{" "}
+              <span className="text-foreground font-medium">
+                {formatMoney(row.owedByMe, row.currency)}
+              </span>
+            </span>
+            <span className="text-muted-foreground/50">·</span>
+            <span>
+              {row.counterpartyName} → You:{" "}
+              <span className="text-foreground font-medium">
+                {formatMoney(row.owedToMe, row.currency)}
+              </span>
+            </span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DashedLine() {
+  return (
+    <div
+      aria-hidden
+      className="flex-1 h-0 border-t-2 border-dashed border-border"
+    />
+  );
+}
+
+function FlowArrow({ tone }: { tone: "brand" | "green" | "muted" }) {
+  const stroke =
+    tone === "brand"
+      ? "var(--brand)"
+      : tone === "green"
+      ? "currentColor"
+      : "currentColor";
+  const color =
+    tone === "green"
+      ? "text-[#0d8a2d] dark:text-[#22c55e]"
+      : tone === "muted"
+      ? "text-muted-foreground/50"
+      : "text-[var(--brand)]";
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 200 14"
+      className={cn("w-full max-w-[220px] mt-2", color)}
+      preserveAspectRatio="none"
+    >
+      <line
+        x1="0"
+        y1="7"
+        x2="188"
+        y2="7"
+        stroke={stroke}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <polyline
+        points="182,2 192,7 182,12"
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function TotalCard({
+  label,
+  amount,
+  currency,
+  tone,
+}: {
+  label: string;
+  amount: number;
+  currency: string;
+  tone: "owe" | "due";
+}) {
+  return (
+    <Card
+      className={cn(
+        "relative overflow-hidden",
+        tone === "owe" && "ring-[var(--brand)]/25 dark:ring-[var(--brand)]/35"
+      )}
+    >
+      <div
+        className={cn(
+          "absolute inset-y-0 left-0 w-[3px]",
+          tone === "owe"
+            ? "bg-[var(--brand)]"
+            : "bg-[#1aae39] dark:bg-[#10b981]"
+        )}
+      />
+      <CardContent className="space-y-2">
+        <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          {label}
+        </p>
+        <p
+          className={cn(
+            "text-[28px] font-bold tracking-[-0.022em] tabular-nums leading-none",
+            tone === "owe"
+              ? "text-[var(--brand)]"
+              : "text-[#0d8a2d] dark:text-[#22c55e]"
+          )}
+        >
+          {formatMoney(amount, currency)}
+        </p>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ToggleSwitch({
+  on,
+  onChange,
+  label,
+}: {
+  on: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={() => onChange(!on)}
+      className="group shrink-0 flex items-center gap-2.5 cursor-pointer select-none rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+    >
+      <span
+        className={cn(
+          "text-[12px] font-medium transition-colors whitespace-nowrap",
+          on ? "text-foreground" : "text-muted-foreground"
+        )}
+      >
+        {label}
+      </span>
+      <span
+        className={cn(
+          "relative inline-flex h-[22px] w-[38px] items-center rounded-full transition-colors",
+          on
+            ? "bg-[var(--brand)]"
+            : "bg-muted border border-border group-hover:bg-muted/70"
+        )}
+      >
+        <span
+          className={cn(
+            "inline-block size-[16px] transform rounded-full bg-background shadow-sm transition-transform",
+            on ? "translate-x-[19px]" : "translate-x-[3px]"
+          )}
+        />
+      </span>
+    </button>
   );
 }

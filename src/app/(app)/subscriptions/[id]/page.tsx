@@ -52,6 +52,7 @@ export default function SubscriptionDetailPage() {
 
   const [showAdd, setShowAdd] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
+  const [confirmLeave, setConfirmLeave] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -385,7 +386,7 @@ export default function SubscriptionDetailPage() {
         {/* Self leave */}
         {selfMember && !selfMember.isPayer && (
           <Card className="border-destructive/20 bg-destructive/[0.02]">
-            <CardContent>
+            <CardContent className="space-y-3">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <p className="text-[13px] font-semibold">Leave subscription</p>
@@ -394,16 +395,46 @@ export default function SubscriptionDetailPage() {
                     won&apos;t be charged going forward.
                   </p>
                 </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  disabled={busy}
-                  onClick={() => handleRemove(selfMember.userId, true)}
-                  className="cursor-pointer shrink-0"
-                >
-                  Leave
-                </Button>
+                {!confirmLeave && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => setConfirmLeave(true)}
+                    className="cursor-pointer shrink-0"
+                  >
+                    Leave
+                  </Button>
+                )}
               </div>
+              {confirmLeave && (
+                <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/[0.04] px-3 py-2.5">
+                  <p className="text-[12px] font-medium text-foreground">
+                    Leave <span className="font-semibold">{sub.name}</span>?
+                    This can&apos;t be undone.
+                  </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => setConfirmLeave(false)}
+                      className="cursor-pointer"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={busy}
+                      onClick={() => handleRemove(selfMember.userId, true)}
+                      className="cursor-pointer bg-destructive hover:bg-destructive/90 text-white"
+                    >
+                      {busy ? "Leaving…" : "Yes, leave"}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

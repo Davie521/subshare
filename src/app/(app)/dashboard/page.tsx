@@ -8,8 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { ArrowRight, TrendingUp } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
-import { UserAvatar } from "@/components/user-avatar";
-import { cn } from "@/lib/utils";
+import { NotificationsList } from "@/components/notifications-list";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 
@@ -22,6 +21,7 @@ type Dashboard = {
     currency: string;
   }>;
   subscriptions: Array<{
+    id: number;
     name: string;
     price: number;
     currency: string;
@@ -66,6 +66,8 @@ export default function DashboardPage() {
     });
   }, [router]);
 
+  // settlement kept only to power the "To transfer" stat card.
+
   const greeting = useMemo(() => {
     const h = new Date().getHours();
     if (h < 5) return "Still up";
@@ -104,8 +106,7 @@ export default function DashboardPage() {
     );
   }
 
-  // "You need to transfer" = only outgoing direction (I owe).
-  // Incoming balances go on /settlement, not here.
+  // Outgoing count powers the "To transfer" stat card.
   const outgoingPairs = (settlement ?? []).filter((r) => r.net < 0);
 
   const personalSubs = data.subscriptions.filter((s) => s.memberCount === 1);
@@ -143,81 +144,31 @@ export default function DashboardPage() {
               : "No shared yet"
           }
         />
-        <StatCard
-          label="To transfer"
-          value={String(outgoingPairs.length)}
-          sub={
-            outgoingPairs.length === 0
-              ? "Nothing owed"
-              : outgoingPairs.length === 1
-              ? "1 person"
-              : `${outgoingPairs.length} people`
-          }
-          tone={outgoingPairs.length > 0 ? "warn" : "neutral"}
-        />
+        <Link
+          href="/settlement"
+          className="rounded-xl transition-transform hover:-translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40"
+        >
+          <StatCard
+            label="To transfer"
+            value={String(outgoingPairs.length)}
+            sub={
+              outgoingPairs.length === 0
+                ? "Nothing owed"
+                : outgoingPairs.length === 1
+                ? "1 person · tap to settle"
+                : `${outgoingPairs.length} people · tap to settle`
+            }
+            tone={outgoingPairs.length > 0 ? "warn" : "neutral"}
+          />
+        </Link>
       </div>
 
       {/* Two-column layout on desktop */}
       <div className="grid gap-8 lg:grid-cols-5">
-        {/* Activity preview — wider, links to /activity for full view */}
+        {/* Updates (notifications feed) — wider, left */}
         <section className="space-y-4 lg:col-span-3">
-          <div className="flex items-center justify-between">
-            <SectionHeader title="Activity" count={outgoingPairs.length} />
-            <Link
-              href="/activity"
-              className="text-[13px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
-            >
-              View all <ArrowRight className="size-3" />
-            </Link>
-          </div>
-
-          {outgoingPairs.length === 0 ? (
-            <Card className="border-dashed bg-muted/30 shadow-none">
-              <CardContent className="py-10 flex flex-col items-center gap-2 text-center">
-                <p className="text-sm font-medium">Nothing to transfer</p>
-                <p className="text-[13px] text-muted-foreground">
-                  You don&apos;t owe anyone right now.
-                </p>
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="space-y-2.5">
-              {outgoingPairs.slice(0, 3).map((row) => {
-                const key = `${row.counterpartyUserId}-${row.currency}`;
-                const netAbs = Math.abs(row.net);
-                return (
-                  <Link key={key} href="/activity" className="block group">
-                    <Card
-                      size="sm"
-                      className="transition-all duration-150 group-hover:ring-[rgba(0,0,0,0.14)] dark:group-hover:ring-white/[0.12] dark:group-hover:bg-white/[0.03]"
-                    >
-                      <CardContent className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <UserAvatar name={row.counterpartyName} size="md" />
-                          <div className="min-w-0">
-                            <p className="font-semibold text-sm truncate">
-                              {row.counterpartyName}
-                            </p>
-                            <p className="text-[13px] text-muted-foreground">
-                              You owe · {row.currency}
-                            </p>
-                          </div>
-                        </div>
-                        <p
-                          className={cn(
-                            "text-[16px] font-semibold tabular-nums tracking-[-0.015em] shrink-0",
-                            "text-[var(--brand)]"
-                          )}
-                        >
-                          {formatMoney(netAbs, row.currency)}
-                        </p>
-                      </CardContent>
-                    </Card>
-                  </Link>
-                );
-              })}
-            </div>
-          )}
+          <SectionHeader title="Updates" />
+          <NotificationsList limit={20} showMarkAll />
         </section>
 
         {/* Subscriptions — narrower */}
@@ -247,7 +198,7 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-2">
               {personalSubs.slice(0, 4).map((sub) => (
-                <SubRow key={`p-${sub.name}`} sub={sub} />
+                <SubRow key={`p-${sub.id}`} sub={sub} />
               ))}
 
               {sharedSubs.length > 0 && personalSubs.length > 0 && (
@@ -259,7 +210,7 @@ export default function DashboardPage() {
               )}
 
               {sharedSubs.slice(0, 4).map((sub) => (
-                <SubRow key={`s-${sub.name}`} sub={sub} shared />
+                <SubRow key={`s-${sub.id}`} sub={sub} shared />
               ))}
             </div>
           )}
@@ -346,15 +297,17 @@ function StatCard({
   );
 }
 
-function SectionHeader({ title, count }: { title: string; count: number }) {
+function SectionHeader({ title, count }: { title: string; count?: number }) {
   return (
     <div className="flex items-baseline gap-2">
       <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
         {title}
       </h2>
-      <span className="text-[11px] font-medium text-muted-foreground/60 tabular-nums">
-        {count}
-      </span>
+      {typeof count === "number" && count > 0 && (
+        <span className="text-[11px] font-medium text-muted-foreground/60 tabular-nums">
+          {count}
+        </span>
+      )}
     </div>
   );
 }
@@ -364,6 +317,7 @@ function SubRow({
   shared = false,
 }: {
   sub: {
+    id: number;
     name: string;
     price: number;
     currency: string;
@@ -376,7 +330,10 @@ function SubRow({
     : sub.price;
 
   return (
-    <div className="group flex items-center justify-between gap-3 py-2 px-1 rounded-md transition-colors hover:bg-foreground/[0.025] dark:hover:bg-white/[0.03]">
+    <Link
+      href={`/subscriptions/${sub.id}`}
+      className="group flex items-center justify-between gap-3 py-2 px-1 rounded-md transition-colors hover:bg-foreground/[0.025] dark:hover:bg-white/[0.03] cursor-pointer"
+    >
       <div className="flex items-center gap-2.5 min-w-0">
         <BrandIcon name={sub.name} size={22} />
         <p className="font-medium text-sm truncate">{sub.name}</p>
@@ -392,6 +349,6 @@ function SubRow({
           /mo
         </span>
       </p>
-    </div>
+    </Link>
   );
 }
