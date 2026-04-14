@@ -86,6 +86,12 @@ export async function addMemberToSubscription(
   },
   rates: Record<string, number> = {}
 ): Promise<void> {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.addedAt)) {
+    throw new Error(
+      `addedAt must be ISO date YYYY-MM-DD, got "${input.addedAt}"`
+    )
+  }
+
   // Detect whether this is a genuine new insert vs. a no-op re-add.
   const [existingMember] = await db
     .select({ userId: schema.subscriptionMembers.userId })
