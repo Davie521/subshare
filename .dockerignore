@@ -5,3 +5,9 @@ data
 *.md
 .env*
 coverage
+.claude
+.playwright-mcp
+src/__tests__
+tsconfig.tsbuildinfo
+Dockerfile*
+docker-compose*.yml
