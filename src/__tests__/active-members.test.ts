@@ -61,34 +61,15 @@ describe('T6 getActiveMembersAt', () => {
     expect(ids).toEqual([a, b, c].sort())
   })
 
-<<<<<<< HEAD
   it('excludes members whose leftAt <= atDate', async () => {
     const { a, b, c, sub } = await setup3()
     // B leaves April 20; on April 21, only A and C should remain.
     await leaveSubscription(db, {
-||||||| edd84f2
-  it('excludes members whose leftAt <= atDate', () => {
-    const { a, b, c, sub } = setup3()
-    // B leaves April 20; on April 21, only A and C should remain.
-    leaveSubscription(db, {
-=======
-  it('excludes members whose leftAt <= atDate', () => {
-    const { a, b, c, sub } = setup3()
-    // B joined 4/1 so R2 minimum = 4/30. Leave 5/10 is past minimum
-    // (passes through unchanged). On 5/11, only A and C remain.
-    leaveSubscription(db, {
->>>>>>> origin/main
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-05-10',
     })
-<<<<<<< HEAD
     const members = await getActiveMembersAt(db, sub.id, '2026-04-21')
-||||||| edd84f2
-    const members = getActiveMembersAt(db, sub.id, '2026-04-21')
-=======
-    const members = getActiveMembersAt(db, sub.id, '2026-05-11')
->>>>>>> origin/main
     const ids = members.map((m) => m.userId).sort()
     expect(ids).toEqual([a, c].sort())
   })
@@ -100,16 +81,8 @@ describe('T6 getActiveMembersAt', () => {
       userId: b,
       leftAt: '2026-05-10',
     })
-<<<<<<< HEAD
     // B is "active" on April 20 — their last billable day.
     const members = await getActiveMembersAt(db, sub.id, '2026-04-20')
-||||||| edd84f2
-    // B is "active" on April 20 — their last billable day.
-    const members = getActiveMembersAt(db, sub.id, '2026-04-20')
-=======
-    // B is "active" on May 10 — their last billable day.
-    const members = getActiveMembersAt(db, sub.id, '2026-05-10')
->>>>>>> origin/main
     const ids = members.map((m) => m.userId).sort()
     expect(ids).toEqual([a, b, c].sort())
   })

@@ -1,14 +1,4 @@
-<<<<<<< HEAD
 import { describe, it, expect, beforeEach } from 'vitest'
-||||||| edd84f2
-import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-=======
-import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
->>>>>>> origin/main
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -69,41 +59,19 @@ async function setup3() {
   return { a, b, c, sub }
 }
 
-<<<<<<< HEAD
 describe('T12 changeSubscriptionPrice (R5)', () => {
   it('updates subscriptions.price', async () => {
     const { sub } = await setup3()
     await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 25000 })
-||||||| edd84f2
-describe('T12 changeSubscriptionPrice (R5)', () => {
-  it('updates subscriptions.price', () => {
-    const { sub } = setup3()
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 25000 })
-=======
-describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)', () => {
-  it('updates subscriptions.price', () => {
-    const { sub } = setup3()
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 25000 })
->>>>>>> origin/main
 
     const row = await sqlite.prepare('SELECT price FROM subscriptions WHERE id = ?')
       .get(sub.id) as { price: number }
     expect(row.price).toBe(25000)
   })
 
-<<<<<<< HEAD
   it('does NOT modify bills already generated for the current month', async () => {
     const { sub } = await setup3()
     await generateMonthlyBills(db, '2026-05') // 2 bills at share 5000 (15000/3)
-||||||| edd84f2
-  it('does NOT modify bills already generated for the current month', () => {
-    const { sub } = setup3()
-    generateMonthlyBills(db, '2026-05') // 2 bills at share 5000 (15000/3)
-=======
-  it('rewrites is_paid=0 full-share bills in the current month to new share', () => {
-    const { sub } = setup3()
-    generateMonthlyBills(db, '2026-05') // 2 bills at share 5000 (15000/3)
->>>>>>> origin/main
 
     const before = await sqlite.prepare(
         "SELECT COUNT(*) AS n, SUM(amount) AS total FROM billing_records WHERE billing_date = '2026-05-01'"
@@ -114,16 +82,7 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
 
     await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
-<<<<<<< HEAD
     const after = await sqlite.prepare(
-||||||| edd84f2
-    const after = sqlite
-      .prepare(
-=======
-    // newShare = floor(30000/3) = 10000 → total 2 × 10000 = 20000
-    const after = sqlite
-      .prepare(
->>>>>>> origin/main
         "SELECT COUNT(*) AS n, SUM(amount) AS total FROM billing_records WHERE billing_date = '2026-05-01'"
       )
       .get() as { n: number; total: number }
@@ -131,33 +90,29 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
     expect(after.total).toBe(20000)
   })
 
-  it('does NOT touch is_paid=1 bills in current month', () => {
-    const { sub } = setup3()
-    generateMonthlyBills(db, '2026-05')
+  it('does NOT touch is_paid=1 bills in current month', async () => {
+    const { sub } = await setup3()
+    await generateMonthlyBills(db, '2026-05')
 
     // Pay one of the bills.
-    sqlite
-      .prepare(
+    await sqlite.prepare(
         "UPDATE billing_records SET is_paid = 1, paid_at = '2026-05-05' WHERE billing_date = '2026-05-01' ORDER BY id LIMIT 1"
       )
       .run()
 
-    const paidBefore = sqlite
-      .prepare(
+    const paidBefore = await sqlite.prepare(
         "SELECT amount FROM billing_records WHERE billing_date = '2026-05-01' AND is_paid = 1"
       )
       .get() as { amount: number }
     expect(paidBefore.amount).toBe(5000)
 
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
-    const paidAfter = sqlite
-      .prepare(
+    const paidAfter = await sqlite.prepare(
         "SELECT amount FROM billing_records WHERE billing_date = '2026-05-01' AND is_paid = 1"
       )
       .get() as { amount: number }
-    const unpaidAfter = sqlite
-      .prepare(
+    const unpaidAfter = await sqlite.prepare(
         "SELECT amount FROM billing_records WHERE billing_date = '2026-05-01' AND is_paid = 0"
       )
       .get() as { amount: number }
@@ -166,22 +121,20 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
     expect(unpaidAfter.amount).toBe(10000) // rewritten
   })
 
-  it('does NOT touch bills outside the current calendar month', () => {
-    const { sub } = setup3()
+  it('does NOT touch bills outside the current calendar month', async () => {
+    const { sub } = await setup3()
     // April bills (prior month)
-    generateMonthlyBills(db, '2026-04')
+    await generateMonthlyBills(db, '2026-04')
     // May bills (current month)
-    generateMonthlyBills(db, '2026-05')
+    await generateMonthlyBills(db, '2026-05')
 
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
-    const april = sqlite
-      .prepare(
+    const april = await sqlite.prepare(
         "SELECT SUM(amount) AS total FROM billing_records WHERE billing_date = '2026-04-01'"
       )
       .get() as { total: number }
-    const may = sqlite
-      .prepare(
+    const may = await sqlite.prepare(
         "SELECT SUM(amount) AS total FROM billing_records WHERE billing_date = '2026-05-01'"
       )
       .get() as { total: number }
@@ -190,12 +143,12 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
     expect(may.total).toBe(20000) // rewritten (current month)
   })
 
-  it('preserves pro-rata ratio for R2 mid-month joiner bills', () => {
+  it('preserves pro-rata ratio for R2 mid-month joiner bills', async () => {
     // A (payer) + B. D joins May 15, gets pro-rata bill.
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const d = createUser(sqlite, { email: 'd@t.com', currency: 'CNY' })
-    const sub = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const d = await createUser(db, { email: 'd@t.com', currency: 'CNY' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 15000,
       currency: 'CNY',
@@ -203,34 +156,32 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-03-10',
     })
-    generateMonthlyBills(db, '2026-05') // R1 bill for B
+    await generateMonthlyBills(db, '2026-05') // R1 bill for B
 
     // Add D on May 15 → R2 pro-rata (17/31 of share) at old price.
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: d,
       addedBy: a,
       addedAt: '2026-05-15',
     })
 
-    const dBillBefore = sqlite
-      .prepare(
+    const dBillBefore = await sqlite.prepare(
         "SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = '2026-05-15'"
       )
       .get(d) as { amount: number }
     // oldShare(n=3) = 5000; days_covered = 31-15+1 = 17; floor(5000*17/31) = 2741
     expect(dBillBefore.amount).toBe(2741)
 
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
-    const dBillAfter = sqlite
-      .prepare(
+    const dBillAfter = await sqlite.prepare(
         "SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = '2026-05-15'"
       )
       .get(d) as { amount: number }
@@ -238,10 +189,10 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
     expect(dBillAfter.amount).toBe(5483)
   })
 
-  it('does NOT re-fetch FX — exchange_rate stays locked, localAmount recomputed with stored rate', () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'USD' }) // foreign
-    const sub = createSubscription(db, {
+  it('does NOT re-fetch FX — exchange_rate stays locked, localAmount recomputed with stored rate', async () => {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'USD' }) // foreign
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 15000, // ¥150
       currency: 'CNY',
@@ -249,7 +200,7 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(
+    await addMemberToSubscription(
       db,
       {
         subscriptionId: sub.id,
@@ -260,10 +211,9 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
       { CNY_USD: 0.14 }
     )
     // Generate with a known rate: 1 CNY = 0.14 USD
-    generateMonthlyBills(db, '2026-05', { CNY_USD: 0.14 })
+    await generateMonthlyBills(db, '2026-05', { CNY_USD: 0.14 })
 
-    const before = sqlite
-      .prepare(
+    const before = await sqlite.prepare(
         "SELECT amount, local_amount, exchange_rate FROM billing_records WHERE user_id = ? AND billing_date = '2026-05-01'"
       )
       .get(b) as { amount: number; local_amount: number; exchange_rate: number }
@@ -271,10 +221,9 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
     expect(before.exchange_rate).toBe(140000) // 0.14 × 1e6
     expect(before.local_amount).toBe(1050) // floor(7500 × 0.14)
 
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
-    const after = sqlite
-      .prepare(
+    const after = await sqlite.prepare(
         "SELECT amount, local_amount, exchange_rate FROM billing_records WHERE user_id = ? AND billing_date = '2026-05-01'"
       )
       .get(b) as { amount: number; local_amount: number; exchange_rate: number }
@@ -290,21 +239,10 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
     const priceNotifsFor = async (uid: number) =>
       (await listNotifications(db, uid)).filter((n) => n.type === 'price_changed')
 
-<<<<<<< HEAD
     // Only B and C receive — A is payer.
     expect(await priceNotifsFor(a)).toHaveLength(0)
     expect(await priceNotifsFor(b)).toHaveLength(1)
     expect(await priceNotifsFor(c)).toHaveLength(1)
-||||||| edd84f2
-    // Only B and C receive — A is payer.
-    expect(priceNotifsFor(a)).toHaveLength(0)
-    expect(priceNotifsFor(b)).toHaveLength(1)
-    expect(priceNotifsFor(c)).toHaveLength(1)
-=======
-    expect(priceNotifsFor(a)).toHaveLength(0)
-    expect(priceNotifsFor(b)).toHaveLength(1)
-    expect(priceNotifsFor(c)).toHaveLength(1)
->>>>>>> origin/main
 
     for (const recipient of [b, c]) {
       const n = (await priceNotifsFor(recipient))[0] as {
@@ -359,10 +297,10 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
   it('rejects negative or non-numeric price', async () => {
     const { sub } = await setup3()
     await expect(
-      changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: -100 })
+      await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: -100 })
     ).rejects.toThrow()
     await expect(
-      changeSubscriptionPrice(db, {
+      await changeSubscriptionPrice(db, {
         subscriptionId: sub.id,
         // @ts-expect-error intentionally bad input
         newPrice: 'abc',

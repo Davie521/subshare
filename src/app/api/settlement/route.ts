@@ -11,14 +11,7 @@ export async function GET(req: NextRequest) {
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-<<<<<<< HEAD
   const result = await handleGetSettlement(db, userId)
-||||||| edd84f2
-  const result = handleGetSettlement(db, userId)
-=======
-  const view = req.nextUrl.searchParams.get('view') === 'paid' ? 'paid' : 'unpaid'
-  const result = handleGetSettlement(db, userId, { view })
->>>>>>> origin/main
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }

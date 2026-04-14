@@ -18,7 +18,7 @@ export async function GET(
   const numId = parseId(id)
   if (!numId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
-  const result = handleGetCircle(db, userId, numId)
+  const result = await handleGetCircle(db, userId, numId)
   if (!result.success) {
     return NextResponse.json(
       { error: result.error },
@@ -47,7 +47,7 @@ export async function PUT(
     )
   }
 
-  const result = handleUpdateCircle(db, userId, numId, parsed.data)
+  const result = await handleUpdateCircle(db, userId, numId, parsed.data)
   if (!result.success) {
     return NextResponse.json(
       { error: result.error },
@@ -68,7 +68,7 @@ export async function DELETE(
   const numId = parseId(id)
   if (!numId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
-  const result = handleDeleteCircle(db, userId, numId)
+  const result = await handleDeleteCircle(db, userId, numId)
   if (!result.success) {
     return NextResponse.json(
       { error: result.error },

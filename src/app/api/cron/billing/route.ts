@@ -26,18 +26,8 @@ export async function POST(req: NextRequest) {
   const db = getDb()
   const today = new Date().toISOString().split('T')[0]
 
-<<<<<<< HEAD
   // Find shared subscriptions where next_payment <= today
   const dueSubs = await db
-||||||| edd84f2
-  // Find shared subscriptions where next_payment <= today
-  const dueSubs = db
-=======
-  // All active auto-renew subs whose next_payment has arrived.
-  // Personal subs (1 member) are no-ops in generateAndSaveBillingRecords
-  // but still get next_payment advanced for correct display.
-  const dueSubs = db
->>>>>>> origin/main
     .select()
     .from(schema.subscriptions)
     .where(
@@ -91,49 +81,14 @@ async function fetchRequiredRates(
 ): Promise<Record<string, number>> {
   if (subs.length === 0) return {}
 
-<<<<<<< HEAD
   const memberCurrencies = await db
-||||||| edd84f2
-  const memberCurrencies = db
-=======
-  const subIds = subs.map((s) => s.id)
-  const today = new Date().toISOString().slice(0, 10)
-
-  // For each due sub, collect its active members' preferred currencies via
-  // subscription_members (authoritative). Legacy group_members is no longer
-  // consulted — migrated data must also live in subscription_members.
-  const memberCurrencies = db
->>>>>>> origin/main
     .select({
       subscriptionId: schema.subscriptionMembers.subscriptionId,
       preferredCurrency: schema.users.preferredCurrency,
     })
-<<<<<<< HEAD
     .from(schema.groupMembers)
     .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
     .where(inArray(schema.groupMembers.groupId, groupIds))
-||||||| edd84f2
-    .from(schema.groupMembers)
-    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
-    .where(inArray(schema.groupMembers.groupId, groupIds))
-    .all()
-=======
-    .from(schema.subscriptionMembers)
-    .innerJoin(
-      schema.users,
-      eq(schema.subscriptionMembers.userId, schema.users.id)
-    )
-    .where(
-      and(
-        inArray(schema.subscriptionMembers.subscriptionId, subIds),
-        or(
-          isNull(schema.subscriptionMembers.leftAt),
-          gte(schema.subscriptionMembers.leftAt, today)
-        )
-      )
-    )
-    .all()
->>>>>>> origin/main
 
   const bySub = new Map<number, Set<string>>()
   for (const row of memberCurrencies) {

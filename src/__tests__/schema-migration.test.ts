@@ -4,13 +4,13 @@ import { setupTestDb } from './helpers'
 /**
  * Post-Postgres-migration: the detailed SQLite schema introspection tests
  * (PRAGMA table_info, sqlite_schema queries, INTEGER vs TEXT type checks)
- * no longer apply. We still want to assert that the migrate() function
+ * no longer apply. We still want to assert that the await migrate() function
  * produces a usable schema, so we keep a single smoke test that inserts a
  * row into every table round-trip.
  */
 
 describe('T3 schema migration (smoke)', () => {
-  it('migrate() produces a working schema — can round-trip users, groups, subs, friendships, notifications', async () => {
+  it('await migrate() produces a working schema — can round-trip users, groups, subs, friendships, notifications', async () => {
     const { db, sqlite } = await setupTestDb()
 
     // users
@@ -50,7 +50,7 @@ describe('T3 schema migration (smoke)', () => {
     ).run(1, 2)
     // Reverse direction violates CHECK
     await expect(
-      sqlite.prepare(
+      await sqlite.prepare(
         'INSERT INTO friendships (user_a_id, user_b_id) VALUES ($1, $2)'
       ).run(2, 1)
     ).rejects.toThrow(/check|constraint/i)

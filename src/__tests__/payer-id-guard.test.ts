@@ -6,7 +6,7 @@ import { migrate } from '@/db/migrate'
  * Post-Postgres-migration: the legacy SQLite path that simulated a pre-
  * payer_id schema and ran ALTER TABLE backfill no longer exists. Fresh
  * Postgres databases get payer_id as NOT NULL from day one, and the
- * H1 guard in migrate() runs an orphan check that we exercise here.
+ * H1 guard in await migrate() runs an orphan check that we exercise here.
  */
 
 describe('T17 migration payer_id guard', () => {

@@ -8,7 +8,7 @@ export async function GET() {
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const result = handleListCircles(db, userId)
+  const result = await handleListCircles(db, userId)
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }
@@ -28,7 +28,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const result = handleCreateCircle(db, userId, parsed.data)
+  const result = await handleCreateCircle(db, userId, parsed.data)
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }

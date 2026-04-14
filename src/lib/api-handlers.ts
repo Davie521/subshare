@@ -1,13 +1,5 @@
 import { eq, and, inArray, or, desc } from 'drizzle-orm'
-<<<<<<< HEAD
-import { nanoid } from 'nanoid'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
-||||||| edd84f2
-import { nanoid } from 'nanoid'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-=======
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
->>>>>>> origin/main
 import * as schema from '@/db/schema'
 import {
   createSubscription,
@@ -49,283 +41,6 @@ type Result<T = unknown> =
   | { success: true; data?: T }
   | { success: false; error: string }
 
-<<<<<<< HEAD
-const MAX_GROUP_MEMBERS = 20
-
-export async function handleCreateGroup(
-  db: DB,
-  userId: number,
-  input: { name: string }
-): Promise<Result<{ id: number; name: string; publicId: string }>> {
-  const publicId = nanoid(10)
-
-  const [group] = await db
-    .insert(schema.groups)
-    .values({
-      name: input.name,
-      publicId,
-      createdBy: userId,
-    })
-    .returning()
-
-  // Add creator as member
-  await db
-    .insert(schema.groupMembers)
-    .values({ groupId: group.id, userId })
-
-  return {
-    success: true,
-    data: { id: group.id, name: group.name, publicId: group.publicId },
-  }
-}
-
-export async function handleJoinGroup(
-  db: DB,
-  userId: number,
-  publicId: string
-): Promise<Result> {
-  const [group] = await db
-    .select()
-    .from(schema.groups)
-    .where(eq(schema.groups.publicId, publicId))
-
-  if (!group) return { success: false, error: 'Group not found' }
-
-  // Check if already a member
-  const [existing] = await db
-    .select()
-    .from(schema.groupMembers)
-    .where(
-      and(
-        eq(schema.groupMembers.groupId, group.id),
-        eq(schema.groupMembers.userId, userId)
-      )
-    )
-
-  if (existing) return { success: false, error: 'Already a member' }
-
-  const memberRows = await db
-    .select({ userId: schema.groupMembers.userId })
-    .from(schema.groupMembers)
-    .where(eq(schema.groupMembers.groupId, group.id))
-
-  if (memberRows.length >= MAX_GROUP_MEMBERS) {
-    return { success: false, error: 'Group is full' }
-  }
-
-  await db
-    .insert(schema.groupMembers)
-    .values({ groupId: group.id, userId })
-
-  return { success: true }
-}
-
-export async function handleLeaveGroup(
-  db: DB,
-  userId: number,
-  groupId: number
-): Promise<Result> {
-  if (!(await canLeaveGroup(db, groupId, userId))) {
-    const [group] = await db
-      .select()
-      .from(schema.groups)
-      .where(eq(schema.groups.id, groupId))
-
-    if (group && group.createdBy === userId) {
-      return {
-        success: false,
-        error: 'Creator cannot leave. Dissolve the group instead.',
-      }
-    }
-    return { success: false, error: 'Cannot leave with unpaid bills' }
-  }
-
-  await removeGroupMember(db, groupId, userId)
-  return { success: true }
-}
-
-export async function handleDeleteGroup(
-  db: DB,
-  userId: number,
-  groupId: number
-): Promise<Result> {
-  const [group] = await db
-    .select()
-    .from(schema.groups)
-    .where(eq(schema.groups.id, groupId))
-
-  if (!group) return { success: false, error: 'Group not found' }
-  if (group.createdBy !== userId)
-    return {
-      success: false,
-      error: 'Only the creator can delete the group',
-    }
-
-  // Check for unpaid bills
-  const unpaid = await db
-    .select({ id: schema.billingRecords.id })
-    .from(schema.billingRecords)
-    .innerJoin(
-      schema.subscriptions,
-      eq(schema.billingRecords.subscriptionId, schema.subscriptions.id)
-    )
-    .where(
-      and(
-        eq(schema.subscriptions.groupId, groupId),
-        eq(schema.billingRecords.isPaid, false)
-      )
-    )
-    .limit(1)
-
-  if (unpaid.length > 0)
-    return { success: false, error: 'Cannot delete group with unpaid bills' }
-
-  // Cascade delete: group → group_members, subscriptions → billing_records
-  await db.delete(schema.groups).where(eq(schema.groups.id, groupId))
-
-  return { success: true }
-}
-
-||||||| edd84f2
-export function handleCreateGroup(
-  db: DB,
-  userId: number,
-  input: { name: string }
-): Result<{ id: number; name: string; publicId: string }> {
-  const publicId = nanoid(10)
-
-  const group = db
-    .insert(schema.groups)
-    .values({
-      name: input.name,
-      publicId,
-      createdBy: userId,
-    })
-    .returning()
-    .get()
-
-  // Add creator as member
-  db.insert(schema.groupMembers)
-    .values({ groupId: group.id, userId })
-    .run()
-
-  return {
-    success: true,
-    data: { id: group.id, name: group.name, publicId: group.publicId },
-  }
-}
-
-export function handleJoinGroup(
-  db: DB,
-  userId: number,
-  publicId: string
-): Result {
-  const group = db
-    .select()
-    .from(schema.groups)
-    .where(eq(schema.groups.publicId, publicId))
-    .get()
-
-  if (!group) return { success: false, error: 'Group not found' }
-
-  // Check if already a member
-  const existing = db
-    .select()
-    .from(schema.groupMembers)
-    .where(
-      and(
-        eq(schema.groupMembers.groupId, group.id),
-        eq(schema.groupMembers.userId, userId)
-      )
-    )
-    .get()
-
-  if (existing) return { success: false, error: 'Already a member' }
-
-  const memberCount = db
-    .select({ userId: schema.groupMembers.userId })
-    .from(schema.groupMembers)
-    .where(eq(schema.groupMembers.groupId, group.id))
-    .all().length
-
-  if (memberCount >= MAX_GROUP_MEMBERS) {
-    return { success: false, error: 'Group is full' }
-  }
-
-  db.insert(schema.groupMembers)
-    .values({ groupId: group.id, userId })
-    .run()
-
-  return { success: true }
-}
-
-const MAX_GROUP_MEMBERS = 20
-
-export function handleLeaveGroup(
-  db: DB,
-  userId: number,
-  groupId: number
-): Result {
-  if (!canLeaveGroup(db, groupId, userId)) {
-    const group = db
-      .select()
-      .from(schema.groups)
-      .where(eq(schema.groups.id, groupId))
-      .get()
-
-    if (group && group.createdBy === userId) {
-      return { success: false, error: 'Creator cannot leave. Dissolve the group instead.' }
-    }
-    return { success: false, error: 'Cannot leave with unpaid bills' }
-  }
-
-  removeGroupMember(db, groupId, userId)
-  return { success: true }
-}
-
-export function handleDeleteGroup(
-  db: DB,
-  userId: number,
-  groupId: number
-): Result {
-  const group = db
-    .select()
-    .from(schema.groups)
-    .where(eq(schema.groups.id, groupId))
-    .get()
-
-  if (!group) return { success: false, error: 'Group not found' }
-  if (group.createdBy !== userId)
-    return { success: false, error: 'Only the creator can delete the group' }
-
-  // Check for unpaid bills
-  const unpaid = db
-    .select({ id: schema.billingRecords.id })
-    .from(schema.billingRecords)
-    .innerJoin(
-      schema.subscriptions,
-      eq(schema.billingRecords.subscriptionId, schema.subscriptions.id)
-    )
-    .where(
-      and(
-        eq(schema.subscriptions.groupId, groupId),
-        eq(schema.billingRecords.isPaid, 0)
-      )
-    )
-    .limit(1)
-    .all()
-
-  if (unpaid.length > 0)
-    return { success: false, error: 'Cannot delete group with unpaid bills' }
-
-  // Cascade delete: group → group_members, subscriptions → billing_records
-  db.delete(schema.groups).where(eq(schema.groups.id, groupId)).run()
-
-  return { success: true }
-}
-
-=======
->>>>>>> origin/main
 export async function handleCreateSubscription(
   db: DB,
   userId: number,
@@ -341,44 +56,7 @@ export async function handleCreateSubscription(
     notes?: string
     categoryId?: number
   }
-<<<<<<< HEAD
-): Promise<Result<{ id: number; name: string; groupId: number | null }>> {
-  if (input.groupId) {
-    const [membership] = await db
-      .select()
-      .from(schema.groupMembers)
-      .where(
-        and(
-          eq(schema.groupMembers.groupId, input.groupId),
-          eq(schema.groupMembers.userId, userId)
-        )
-      )
-
-    if (!membership)
-      return { success: false, error: 'You are not a member of this group' }
-  }
-
-||||||| edd84f2
-): Promise<Result<{ id: number; name: string; groupId: number | null }>> {
-  if (input.groupId) {
-    const membership = db
-      .select()
-      .from(schema.groupMembers)
-      .where(
-        and(
-          eq(schema.groupMembers.groupId, input.groupId),
-          eq(schema.groupMembers.userId, userId)
-        )
-      )
-      .get()
-
-    if (!membership)
-      return { success: false, error: 'You are not a member of this group' }
-  }
-
-=======
 ): Promise<Result<{ id: number; name: string }>> {
->>>>>>> origin/main
   const invitees = (input.members ?? []).filter((id) => id !== userId)
   const payerId = input.payerId ?? userId
 
@@ -414,30 +92,6 @@ export async function handleCreateSubscription(
     }
   }
 
-<<<<<<< HEAD
-  if (sub.groupId) {
-    void fetchRatesForGroup(db, sub.groupId, input.currency)
-      .then((rates) => generateAndSaveBillingRecords(db, sub.id, rates))
-      .catch((err) =>
-        console.error(
-          '[billing] initial generation failed for sub',
-          sub.id,
-          err
-        )
-      )
-  }
-
-||||||| edd84f2
-  if (sub.groupId) {
-    void fetchRatesForGroup(db, sub.groupId, input.currency)
-      .then((rates) => generateAndSaveBillingRecords(db, sub.id, rates))
-      .catch((err) =>
-        console.error('[billing] initial generation failed for sub', sub.id, err)
-      )
-  }
-
-=======
->>>>>>> origin/main
   return { success: true, data: sub }
 }
 
@@ -451,6 +105,7 @@ async function fetchRatesForUsers(
     .select({ preferredCurrency: schema.users.preferredCurrency })
     .from(schema.users)
     .where(inArray(schema.users.id, userIds))
+    
   const targets = new Set(
     rows.map((r) => r.preferredCurrency).filter((c) => c !== subCurrency)
   )
@@ -464,63 +119,6 @@ async function fetchRatesForUsers(
   return rates
 }
 
-<<<<<<< HEAD
-async function fetchRatesForGroup(
-  db: DB,
-  groupId: number,
-  subCurrency: string
-): Promise<Record<string, number>> {
-  const memberCurrencies = await db
-    .select({ preferredCurrency: schema.users.preferredCurrency })
-    .from(schema.groupMembers)
-    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
-    .where(eq(schema.groupMembers.groupId, groupId))
-
-  const targets = new Set(
-    memberCurrencies
-      .map((m) => m.preferredCurrency)
-      .filter((c) => c !== subCurrency)
-  )
-  const rates: Record<string, number> = {}
-  await Promise.all(
-    Array.from(targets).map(async (to) => {
-      const rate = await getRate(subCurrency, to)
-      if (rate !== null) rates[`${subCurrency}_${to}`] = rate
-    })
-  )
-  return rates
-}
-
-||||||| edd84f2
-async function fetchRatesForGroup(
-  db: DB,
-  groupId: number,
-  subCurrency: string
-): Promise<Record<string, number>> {
-  const memberCurrencies = db
-    .select({ preferredCurrency: schema.users.preferredCurrency })
-    .from(schema.groupMembers)
-    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
-    .where(eq(schema.groupMembers.groupId, groupId))
-    .all()
-
-  const targets = new Set(
-    memberCurrencies
-      .map((m) => m.preferredCurrency)
-      .filter((c) => c !== subCurrency)
-  )
-  const rates: Record<string, number> = {}
-  await Promise.all(
-    Array.from(targets).map(async (to) => {
-      const rate = await getRate(subCurrency, to)
-      if (rate !== null) rates[`${subCurrency}_${to}`] = rate
-    })
-  )
-  return rates
-}
-
-=======
->>>>>>> origin/main
 export async function handleAddMembers(
   db: DB,
   actorId: number,
@@ -531,6 +129,7 @@ export async function handleAddMembers(
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
+    
   if (!sub) return { success: false, error: 'Subscription not found' }
 
   if (sub.ownerId !== actorId && sub.payerId !== actorId) {
@@ -547,7 +146,7 @@ export async function handleAddMembers(
   const today = new Date().toISOString().slice(0, 10)
   let added = 0
   for (const uid of invitees) {
-    const [before] = await db
+    const before = await db
       .select({ userId: schema.subscriptionMembers.userId })
       .from(schema.subscriptionMembers)
       .where(
@@ -556,6 +155,7 @@ export async function handleAddMembers(
           eq(schema.subscriptionMembers.userId, uid)
         )
       )
+      
     if (before) continue
     await addMemberToSubscription(
       db,
@@ -578,6 +178,7 @@ export async function handleRemoveMember(
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
+    
   if (!sub) return { success: false, error: 'Subscription not found' }
 
   const isSelf = actorId === targetUserId
@@ -637,6 +238,7 @@ export async function runBillingCron(
       eq(schema.subscriptionMembers.userId, schema.users.id)
     )
     .where(eq(schema.subscriptions.inactive, false))
+    
 
   const need = new Set<string>()
   for (const p of pairs) {
@@ -674,23 +276,13 @@ const CURRENCY_WHITELIST = new Set([
 
 export async function handleGetSettlement(
   db: DB,
-<<<<<<< HEAD
-  userId: number
-): Promise<Result<EnrichedSettlementRow[]>> {
-  const rows = await getSettlementSummary(db, userId)
-||||||| edd84f2
-  userId: number
-): Result<EnrichedSettlementRow[]> {
-  const rows = getSettlementSummary(db, userId)
-=======
   userId: number,
   opts: { view?: 'unpaid' | 'paid' } = {}
-): Result<EnrichedSettlementRow[]> {
+): Promise<Result<EnrichedSettlementRow[]>> {
   const rows =
     opts.view === 'paid'
-      ? getSettledHistory(db, userId)
-      : getSettlementSummary(db, userId)
->>>>>>> origin/main
+      ? await getSettledHistory(db, userId)
+      : await getSettlementSummary(db, userId)
   if (rows.length === 0) return { success: true, data: [] }
 
   const counterpartyIds = Array.from(
@@ -704,6 +296,7 @@ export async function handleGetSettlement(
     })
     .from(schema.users)
     .where(inArray(schema.users.id, counterpartyIds))
+    
   const byId = new Map(users.map((u) => [u.id, u]))
 
   const enriched: EnrichedSettlementRow[] = rows.map((r) => {
@@ -759,6 +352,7 @@ export async function handleListFriends(
       )
     )
     .orderBy(desc(schema.friendships.createdAt))
+    
 
   if (rows.length === 0) return { success: true, data: [] }
 
@@ -775,6 +369,7 @@ export async function handleListFriends(
     })
     .from(schema.users)
     .where(inArray(schema.users.id, otherIds))
+    
 
   const byId = new Map(users.map((u) => [u.id, u]))
   const result: FriendRow[] = rows
@@ -787,7 +382,7 @@ export async function handleListFriends(
         displayName: u.displayName?.trim() || u.name,
         since: r.since,
       }
-      if (u.showEmail) out.email = u.email
+      if (u.showEmail === 1) out.email = u.email
       return out
     })
     .filter((x): x is FriendRow => x !== null)
@@ -814,6 +409,7 @@ export async function handleMarkNotificationRead(
     .select({ userId: schema.notifications.userId })
     .from(schema.notifications)
     .where(eq(schema.notifications.id, notificationId))
+    
   if (!row) return { success: false, error: 'Notification not found' }
   if (row.userId !== userId) {
     return { success: false, error: 'Not your notification' }
@@ -840,6 +436,7 @@ export async function handleTransferPayer(
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
+    
   if (!sub) return { success: false, error: 'Subscription not found' }
 
   if (sub.ownerId !== actorId && sub.payerId !== actorId) {
@@ -868,27 +465,22 @@ export async function handleUpdateSubscription(
     name?: string
     price?: number
     nextPayment?: string
-    inactive?: boolean
+    inactive?: number
   }
 ): Promise<Result> {
   const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
+    
 
   if (!sub) return { success: false, error: 'Subscription not found' }
   if (sub.ownerId !== userId)
-    return {
-      success: false,
-      error: 'Only the owner can update this subscription',
-    }
+    return { success: false, error: 'Only the owner can update this subscription' }
 
   // Price changes go through changeSubscriptionPrice so R5 notifications fire.
   if (input.price !== undefined && input.price !== sub.price) {
-    await changeSubscriptionPrice(db, {
-      subscriptionId: subId,
-      newPrice: input.price,
-    })
+    await changeSubscriptionPrice(db, { subscriptionId: subId, newPrice: input.price })
   }
 
   const updates: Record<string, unknown> = {}
@@ -897,10 +489,10 @@ export async function handleUpdateSubscription(
   if (input.inactive !== undefined) updates.inactive = input.inactive
 
   if (Object.keys(updates).length > 0) {
-    await db
-      .update(schema.subscriptions)
+    await db.update(schema.subscriptions)
       .set(updates)
       .where(eq(schema.subscriptions.id, subId))
+      
   }
 
   return { success: true }
@@ -915,13 +507,11 @@ export async function handleDeleteSubscription(
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
+    
 
   if (!sub) return { success: false, error: 'Subscription not found' }
   if (sub.ownerId !== userId)
-    return {
-      success: false,
-      error: 'Only the owner can delete this subscription',
-    }
+    return { success: false, error: 'Only the owner can delete this subscription' }
 
   // Check for unpaid bills
   const unpaid = await db
@@ -934,18 +524,19 @@ export async function handleDeleteSubscription(
       )
     )
     .limit(1)
+    
 
   if (unpaid.length > 0) {
     // Soft delete
-    await db
-      .update(schema.subscriptions)
+    await db.update(schema.subscriptions)
       .set({ inactive: true })
       .where(eq(schema.subscriptions.id, subId))
+      
   } else {
     // Hard delete
-    await db
-      .delete(schema.subscriptions)
+    await db.delete(schema.subscriptions)
       .where(eq(schema.subscriptions.id, subId))
+      
   }
 
   return { success: true }
@@ -960,6 +551,7 @@ export async function handleMarkPaid(
     .select()
     .from(schema.billingRecords)
     .where(eq(schema.billingRecords.id, billId))
+    
 
   if (!bill) return { success: false, error: 'Bill not found' }
   if (bill.userId !== userId)
@@ -989,10 +581,11 @@ export async function handleGetDashboard(
 }> {
   const spendingData = await getMonthlySpendingData(db, userId)
 
-  const [user] = await db
+  const user = await db
     .select()
     .from(schema.users)
     .where(eq(schema.users.id, userId))
+    
 
   const preferredCurrency = user?.preferredCurrency ?? 'CNY'
 
@@ -1017,7 +610,7 @@ export async function handleGetDashboard(
     rates
   )
 
-  const pendingBills = (await getPendingBills(db, userId)).map((b) => ({
+  const pendingBills = await getPendingBills(db, userId).map((b) => ({
     id: b.id,
     subscriptionName: b.subscriptionName,
     amount: b.amount,
@@ -1033,14 +626,14 @@ export async function handleGetDashboard(
 
 // --- Circles (member preset templates; UI label: "Group") ---
 
-export function handleListCircles(
+export async function handleListCircles(
   db: DB,
   userId: number
-): Result<CircleSummary[]> {
-  return { success: true, data: listCirclesForOwner(db, userId) }
+): Promise<Result<CircleSummary[]>> {
+  return { success: true, data: await listCirclesForOwner(db, userId) }
 }
 
-export function handleCreateCircle(
+export async function handleCreateCircle(
   db: DB,
   userId: number,
   input: {
@@ -1048,9 +641,9 @@ export function handleCreateCircle(
     memberIds?: number[]
     defaultPayerId?: number | null
   }
-): Result<{ id: number }> {
+): Promise<Result<{ id: number }>> {
   try {
-    const result = createCircle(db, {
+    const result = await createCircle(db, {
       ownerUserId: userId,
       name: input.name,
       memberIds: input.memberIds,
@@ -1065,17 +658,17 @@ export function handleCreateCircle(
   }
 }
 
-export function handleGetCircle(
+export async function handleGetCircle(
   db: DB,
   userId: number,
   circleId: number
-): Result<CircleSummary> {
-  const circle = getCircle(db, circleId, userId)
+): Promise<Result<CircleSummary>> {
+  const circle = await getCircle(db, circleId, userId)
   if (!circle) return { success: false, error: 'Not found' }
   return { success: true, data: circle }
 }
 
-export function handleUpdateCircle(
+export async function handleUpdateCircle(
   db: DB,
   userId: number,
   circleId: number,
@@ -1084,9 +677,9 @@ export function handleUpdateCircle(
     memberIds?: number[]
     defaultPayerId?: number | null
   }
-): Result {
+): Promise<Result> {
   try {
-    const ok = updateCircle(db, circleId, userId, patch)
+    const ok = await updateCircle(db, circleId, userId, patch)
     if (!ok) return { success: false, error: 'Not found' }
     return { success: true }
   } catch (err) {
@@ -1097,12 +690,12 @@ export function handleUpdateCircle(
   }
 }
 
-export function handleDeleteCircle(
+export async function handleDeleteCircle(
   db: DB,
   userId: number,
   circleId: number
-): Result {
-  const ok = deleteCircle(db, circleId, userId)
+): Promise<Result> {
+  const ok = await deleteCircle(db, circleId, userId)
   if (!ok) return { success: false, error: 'Not found' }
   return { success: true }
 }

@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -19,20 +17,20 @@ import {
  * circle afterwards never propagates.
  */
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 describe('T32 Circles CRUD', () => {
-  it('creates a circle with owner auto-added as member', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const c = createUser(sqlite, { email: 'c@t.com' })
+  it('creates a circle with owner auto-added as member', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const c = await createUser(db, { email: 'c@t.com' })
 
     const { id } = createCircle(db, {
       ownerUserId: a,
@@ -46,16 +44,16 @@ describe('T32 Circles CRUD', () => {
     expect(circle!.memberIds.sort()).toEqual([a, b, c].sort())
   })
 
-  it('rejects empty name', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
+  it('rejects empty name', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
     expect(() =>
       createCircle(db, { ownerUserId: a, name: '   ' })
     ).toThrow(/empty/i)
   })
 
-  it('stores optional defaultPayerId', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
+  it('stores optional defaultPayerId', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
 
     const { id } = createCircle(db, {
       ownerUserId: a,
@@ -68,9 +66,9 @@ describe('T32 Circles CRUD', () => {
     expect(circle!.defaultPayerId).toBe(b)
   })
 
-  it('listCirclesForOwner returns only the owner`s circles', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
+  it('listCirclesForOwner returns only the owner`s circles', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
 
     createCircle(db, { ownerUserId: a, name: 'Family' })
     createCircle(db, { ownerUserId: a, name: 'Roommates' })
@@ -83,9 +81,9 @@ describe('T32 Circles CRUD', () => {
     expect(bCircles.map((c) => c.name)).toEqual(['Work'])
   })
 
-  it('getCircle enforces owner-scoped access (returns null for others)', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
+  it('getCircle enforces owner-scoped access (returns null for others)', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
 
     const { id } = createCircle(db, { ownerUserId: a, name: 'Family' })
 
@@ -93,10 +91,10 @@ describe('T32 Circles CRUD', () => {
     expect(getCircle(db, id, b)).toBeNull()
   })
 
-  it('updateCircle replaces members + renames + sets defaultPayer', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const c = createUser(sqlite, { email: 'c@t.com' })
+  it('updateCircle replaces members + renames + sets defaultPayer', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const c = await createUser(db, { email: 'c@t.com' })
 
     const { id } = createCircle(db, {
       ownerUserId: a,
@@ -117,9 +115,9 @@ describe('T32 Circles CRUD', () => {
     expect(circle.defaultPayerId).toBe(c)
   })
 
-  it('updateCircle rejects non-owner and returns false', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
+  it('updateCircle rejects non-owner and returns false', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
     const { id } = createCircle(db, { ownerUserId: a, name: 'Family' })
 
     const ok = updateCircle(db, id, b, { name: 'Hijacked' })
@@ -127,9 +125,9 @@ describe('T32 Circles CRUD', () => {
     expect(getCircle(db, id, a)!.name).toBe('Family')
   })
 
-  it('deleteCircle cascades to circle_members', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
+  it('deleteCircle cascades to circle_members', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
     const { id } = createCircle(db, {
       ownerUserId: a,
       name: 'Family',
@@ -139,28 +137,27 @@ describe('T32 Circles CRUD', () => {
     expect(deleteCircle(db, id, a)).toBe(true)
     expect(getCircle(db, id, a)).toBeNull()
 
-    const remaining = sqlite
-      .prepare(
+    const remaining = await sqlite.prepare(
         'SELECT COUNT(*) AS n FROM circle_members WHERE circle_id = ?'
       )
       .get(id) as { n: number }
     expect(remaining.n).toBe(0)
   })
 
-  it('deleteCircle returns false for non-owner', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
+  it('deleteCircle returns false for non-owner', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
     const { id } = createCircle(db, { ownerUserId: a, name: 'Family' })
 
     expect(deleteCircle(db, id, b)).toBe(false)
     expect(getCircle(db, id, a)).not.toBeNull()
   })
 
-  it('no FK from subscriptions to circles — dropping a circle never affects subs', () => {
+  it('no FK from subscriptions to circles — dropping a circle never affects subs', async () => {
     // Snapshot invariant: circles exist purely as UX templates. This
     // test documents it by asserting the subscriptions table has no
     // circle_id column.
-    const rows = sqlite.prepare('PRAGMA table_info(subscriptions)').all() as Array<{
+    const rows = await sqlite.prepare('PRAGMA table_info(subscriptions)').all() as Array<{
       name: string
     }>
     const cols = rows.map((r) => r.name)

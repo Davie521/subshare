@@ -24,20 +24,11 @@ interface BillRow {
   amount: number
   currency: string
   payerId: number
-  isPaid: boolean
+  isPaid: number
 }
 
-<<<<<<< HEAD
-async function fetchOutstandingBills(
-  db: DB,
-  viewerId: number
-): Promise<BillRow[]> {
-||||||| edd84f2
-function fetchOutstandingBills(db: DB, viewerId: number): BillRow[] {
-=======
 function fetchBills(db: DB, viewerId: number, paid: boolean): BillRow[] {
   const isPaidValue = paid ? 1 : 0
->>>>>>> origin/main
   // Outgoing: bills I owe (user_id = viewerId).
   const outgoing = await db
     .select({
@@ -57,15 +48,10 @@ function fetchBills(db: DB, viewerId: number, paid: boolean): BillRow[] {
     .where(
       and(
         eq(schema.billingRecords.userId, viewerId),
-<<<<<<< HEAD
-        eq(schema.billingRecords.isPaid, false)
-||||||| edd84f2
-        eq(schema.billingRecords.isPaid, 0)
-=======
         eq(schema.billingRecords.isPaid, isPaidValue)
->>>>>>> origin/main
       )
     )
+    
 
   // Incoming: bills owed TO me (I'm the payer of the sub).
   const incoming = await db
@@ -86,53 +72,18 @@ function fetchBills(db: DB, viewerId: number, paid: boolean): BillRow[] {
     .where(
       and(
         eq(schema.subscriptions.payerId, viewerId),
-<<<<<<< HEAD
-        eq(schema.billingRecords.isPaid, false)
-||||||| edd84f2
-        eq(schema.billingRecords.isPaid, 0)
-=======
         eq(schema.billingRecords.isPaid, isPaidValue)
->>>>>>> origin/main
       )
     )
+    
 
   return [...outgoing, ...incoming]
 }
 
-<<<<<<< HEAD
-/**
- * T16 — netting per (counterparty, currency) bucket.
- * Returns one row per counterparty per currency; may emit multiple rows
- * for the same counterparty if debts span multiple currencies.
- */
-export async function getSettlementSummary(
-  db: DB,
-||||||| edd84f2
-/**
- * T16 — netting per (counterparty, currency) bucket.
- * Returns one row per counterparty per currency; may emit multiple rows
- * for the same counterparty if debts span multiple currencies.
- */
-export function getSettlementSummary(
-  db: DB,
-=======
 function bucketByPairCurrency(
   bills: BillRow[],
->>>>>>> origin/main
   viewerId: number
-<<<<<<< HEAD
-): Promise<SettlementRow[]> {
-  const bills = await fetchOutstandingBills(db, viewerId)
-
-  // bucket key = counterparty|currency
-||||||| edd84f2
 ): SettlementRow[] {
-  const bills = fetchOutstandingBills(db, viewerId)
-
-  // bucket key = counterparty|currency
-=======
-): SettlementRow[] {
->>>>>>> origin/main
   type Bucket = {
     counterpartyUserId: number
     currency: string
@@ -174,10 +125,10 @@ function bucketByPairCurrency(
  * Returns one row per counterparty per currency; may emit multiple rows
  * for the same counterparty if debts span multiple currencies.
  */
-export function getSettlementSummary(
+export async function getSettlementSummary(
   db: DB,
   viewerId: number
-): SettlementRow[] {
+): Promise<SettlementRow[]> {
   return bucketByPairCurrency(fetchBills(db, viewerId, false), viewerId)
 }
 
@@ -186,10 +137,10 @@ export function getSettlementSummary(
  * over is_paid=1 bills. `owedByMe` / `owedToMe` represent flow (what you
  * paid them vs. what they paid you) rather than current balance.
  */
-export function getSettledHistory(
+export async function getSettledHistory(
   db: DB,
   viewerId: number
-): SettlementRow[] {
+): Promise<SettlementRow[]> {
   return bucketByPairCurrency(fetchBills(db, viewerId, true), viewerId)
 }
 
@@ -227,6 +178,7 @@ export async function markPairSettled(
         )
       )
     )
+    
 
   const targetIds = rows
     .filter(
@@ -239,10 +191,10 @@ export async function markPairSettled(
   if (targetIds.length === 0) return 0
 
   const paidAt = new Date().toISOString()
-  await db
-    .update(schema.billingRecords)
+  await db.update(schema.billingRecords)
     .set({ isPaid: true, paidAt })
     .where(inArray(schema.billingRecords.id, targetIds))
+    
 
   return targetIds.length
 }

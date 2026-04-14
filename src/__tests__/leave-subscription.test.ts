@@ -40,14 +40,7 @@ describe('T5 leaveSubscription', () => {
   it('sets left_at on the member row', async () => {
     const { b, sub } = await scenario()
 
-<<<<<<< HEAD
     await leaveSubscription(db, {
-||||||| edd84f2
-    leaveSubscription(db, {
-=======
-    // B joined 4/15 → R2 minimum-cycle end = 5/31. Leaving 4/20 clamps.
-    leaveSubscription(db, {
->>>>>>> origin/main
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-04-20',
@@ -95,28 +88,13 @@ describe('T5 leaveSubscription', () => {
   it('is a no-op when the user already left (idempotent)', async () => {
     const { b, sub } = await scenario()
 
-<<<<<<< HEAD
     await leaveSubscription(db, {
-||||||| edd84f2
-    leaveSubscription(db, {
-=======
-    // First call: 4/20 clamps to 5/31 (R2 minimum).
-    leaveSubscription(db, {
->>>>>>> origin/main
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-04-20',
     })
-<<<<<<< HEAD
     // Second call with a later date must NOT overwrite the first.
     await leaveSubscription(db, {
-||||||| edd84f2
-    // Second call with a later date must NOT overwrite the first.
-    leaveSubscription(db, {
-=======
-    // Second call must NOT overwrite the first.
-    leaveSubscription(db, {
->>>>>>> origin/main
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-06-15',
