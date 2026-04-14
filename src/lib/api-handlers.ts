@@ -702,6 +702,7 @@ export async function handleGetDashboard(
     currency: string
   }>
   subscriptions: Array<{
+    id: number
     name: string
     price: number
     currency: string

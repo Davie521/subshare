@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { ArrowRight, Check, Sparkles } from "lucide-react";
+import { ArrowRight, Check, History, Sparkles } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -69,43 +69,27 @@ export default function SettlementPage() {
     );
   }
 
-  return (
-    <div className="space-y-6 max-w-2xl">
-      <header className="space-y-1.5">
-        <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
-          Settlement
-        </h1>
-        <p className="text-[14px] text-muted-foreground max-w-md">
-          {view === "unpaid"
-            ? "One net transfer per person per currency — instead of paying for each subscription separately."
-            : "Already-settled history, grouped by person and currency."}
-        </p>
-      </header>
+  const showingPaid = view === "paid";
 
-      {/* Unpaid / Paid toggle */}
-      <div
-        role="tablist"
-        aria-label="Settlement view"
-        className="inline-flex items-center rounded-md border bg-muted/40 p-0.5"
-      >
-        {(["unpaid", "paid"] as const).map((v) => (
-          <button
-            key={v}
-            type="button"
-            role="tab"
-            aria-selected={view === v}
-            onClick={() => setView(v)}
-            className={cn(
-              "px-3 py-1.5 rounded-[5px] text-[13px] font-medium cursor-pointer transition-colors",
-              view === v
-                ? "bg-background text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {v === "unpaid" ? "Unpaid" : "Paid"}
-          </button>
-        ))}
-      </div>
+  return (
+    <div className="space-y-8 max-w-2xl">
+      <header className="flex items-start justify-between gap-4">
+        <div className="space-y-1.5 min-w-0">
+          <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
+            Settlement
+          </h1>
+          <p className="text-[14px] text-muted-foreground max-w-md">
+            {showingPaid
+              ? "Already-settled history, grouped by person and currency."
+              : "One net transfer per person per currency — instead of paying for each subscription separately."}
+          </p>
+        </div>
+        <ToggleSwitch
+          on={showingPaid}
+          onChange={(v) => setView(v ? "paid" : "unpaid")}
+          label="Show paid history"
+        />
+      </header>
 
       {rows === null ? (
         <div className="space-y-2">
@@ -120,12 +104,12 @@ export default function SettlementPage() {
               <Sparkles className="size-[16px] text-[var(--accent-foreground)]" />
             </div>
             <p className="text-sm font-medium">
-              {view === "unpaid" ? "All settled" : "No history yet"}
+              {showingPaid ? "No history yet" : "All settled"}
             </p>
             <p className="text-[13px] text-muted-foreground max-w-[26ch]">
-              {view === "unpaid"
-                ? "No outstanding balances with anyone. When new bills arrive they'll show up here."
-                : "Once you mark balances as settled they'll appear here."}
+              {showingPaid
+                ? "Once you mark balances as settled they'll appear here."
+                : "No outstanding balances with anyone. When new bills arrive they'll show up here."}
             </p>
           </CardContent>
         </Card>
@@ -142,8 +126,10 @@ export default function SettlementPage() {
               <li key={key}>
                 <Card
                   className={cn(
-                    "transition-colors",
-                    iOwe && "ring-[var(--brand)]/25 dark:ring-[var(--brand)]/35"
+                    "transition-all",
+                    !showingPaid && iOwe &&
+                      "ring-[var(--brand)]/25 dark:ring-[var(--brand)]/35",
+                    showingPaid && "opacity-95"
                   )}
                 >
                   <CardContent className="space-y-4">
@@ -151,15 +137,30 @@ export default function SettlementPage() {
                     <div className="flex items-start gap-3">
                       <UserAvatar name={row.counterpartyName} size="lg" />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold truncate">
-                          {row.counterpartyName}
-                        </p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold truncate">
+                            {row.counterpartyName}
+                          </p>
+                          {showingPaid && (
+                            <Badge
+                              variant="secondary"
+                              className="text-[10px] gap-1 pl-1 pr-1.5"
+                            >
+                              <History className="size-2.5" />
+                              Settled
+                            </Badge>
+                          )}
+                        </div>
                         <div className="mt-0.5 flex items-baseline gap-1.5">
                           <span className="text-[13px] text-muted-foreground">
                             {even
                               ? "Even — nothing to transfer"
                               : iOwe
-                              ? "You owe"
+                              ? showingPaid
+                                ? "You paid"
+                                : "You owe"
+                              : showingPaid
+                              ? "They paid you"
                               : "They owe you"}
                           </span>
                           <Badge
@@ -174,8 +175,15 @@ export default function SettlementPage() {
                         className={cn(
                           "text-[22px] font-bold tabular-nums shrink-0 tracking-[-0.018em]",
                           even && "text-muted-foreground",
-                          !even && iOwe && "text-[var(--brand)]",
-                          !even && !iOwe && "text-[#0d8a2d] dark:text-[#22c55e]"
+                          !even &&
+                            !showingPaid &&
+                            iOwe &&
+                            "text-[var(--brand)]",
+                          !even &&
+                            !showingPaid &&
+                            !iOwe &&
+                            "text-[#0d8a2d] dark:text-[#22c55e]",
+                          !even && showingPaid && "text-muted-foreground"
                         )}
                       >
                         {even ? "—" : formatMoney(netAbs, row.currency)}
@@ -203,7 +211,7 @@ export default function SettlementPage() {
                     )}
 
                     {/* Action — only for Unpaid view */}
-                    {view === "unpaid" && !even && (
+                    {!showingPaid && !even && (
                       <div className="flex items-center justify-between">
                         <p className="text-[12px] text-muted-foreground">
                           After you&apos;ve transferred off-app →
@@ -234,7 +242,7 @@ export default function SettlementPage() {
         </ul>
       )}
 
-      {view === "unpaid" && rows && rows.length > 0 && (
+      {!showingPaid && rows && rows.length > 0 && (
         <Card className="border-dashed bg-muted/30 shadow-none">
           <CardContent className="py-4 text-[12px] text-muted-foreground flex items-start gap-2">
             <ArrowRight className="size-3.5 mt-0.5 shrink-0" />
@@ -247,5 +255,49 @@ export default function SettlementPage() {
         </Card>
       )}
     </div>
+  );
+}
+
+function ToggleSwitch({
+  on,
+  onChange,
+  label,
+}: {
+  on: boolean;
+  onChange: (next: boolean) => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={() => onChange(!on)}
+      className="group shrink-0 flex items-center gap-2.5 cursor-pointer select-none"
+    >
+      <span
+        className={cn(
+          "text-[12px] font-medium transition-colors whitespace-nowrap",
+          on ? "text-foreground" : "text-muted-foreground"
+        )}
+      >
+        {label}
+      </span>
+      <span
+        className={cn(
+          "relative inline-flex h-[22px] w-[38px] items-center rounded-full transition-colors",
+          on
+            ? "bg-[var(--brand)]"
+            : "bg-muted border border-border group-hover:bg-muted/70"
+        )}
+      >
+        <span
+          className={cn(
+            "inline-block size-[16px] transform rounded-full bg-background shadow-sm transition-transform",
+            on ? "translate-x-[19px]" : "translate-x-[3px]"
+          )}
+        />
+      </span>
+    </button>
   );
 }

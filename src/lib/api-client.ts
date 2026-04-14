@@ -40,7 +40,7 @@ export const api = {
     request<{
       monthlyTotal: number;
       pendingBills: Array<{ id: number; subscriptionName: string; amount: number; currency: string }>;
-      subscriptions: Array<{ name: string; price: number; currency: string; memberCount: number }>;
+      subscriptions: Array<{ id: number; name: string; price: number; currency: string; memberCount: number }>;
     }>("/api/dashboard"),
 
   // Subscriptions

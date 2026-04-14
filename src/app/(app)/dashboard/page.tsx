@@ -21,6 +21,7 @@ type Dashboard = {
     currency: string;
   }>;
   subscriptions: Array<{
+    id: number;
     name: string;
     price: number;
     currency: string;
@@ -192,7 +193,7 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-2">
               {personalSubs.slice(0, 4).map((sub) => (
-                <SubRow key={`p-${sub.name}`} sub={sub} />
+                <SubRow key={`p-${sub.id}`} sub={sub} />
               ))}
 
               {sharedSubs.length > 0 && personalSubs.length > 0 && (
@@ -204,7 +205,7 @@ export default function DashboardPage() {
               )}
 
               {sharedSubs.slice(0, 4).map((sub) => (
-                <SubRow key={`s-${sub.name}`} sub={sub} shared />
+                <SubRow key={`s-${sub.id}`} sub={sub} shared />
               ))}
             </div>
           )}
@@ -311,6 +312,7 @@ function SubRow({
   shared = false,
 }: {
   sub: {
+    id: number;
     name: string;
     price: number;
     currency: string;
@@ -323,7 +325,10 @@ function SubRow({
     : sub.price;
 
   return (
-    <div className="group flex items-center justify-between gap-3 py-2 px-1 rounded-md transition-colors hover:bg-foreground/[0.025] dark:hover:bg-white/[0.03]">
+    <Link
+      href={`/subscriptions/${sub.id}`}
+      className="group flex items-center justify-between gap-3 py-2 px-1 rounded-md transition-colors hover:bg-foreground/[0.025] dark:hover:bg-white/[0.03] cursor-pointer"
+    >
       <div className="flex items-center gap-2.5 min-w-0">
         <BrandIcon name={sub.name} size={22} />
         <p className="font-medium text-sm truncate">{sub.name}</p>
@@ -339,6 +344,6 @@ function SubRow({
           /mo
         </span>
       </p>
-    </div>
+    </Link>
   );
 }
