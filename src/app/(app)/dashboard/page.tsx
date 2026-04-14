@@ -6,7 +6,7 @@ import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Check, ArrowRight, TrendingUp, Sparkles } from "lucide-react";
+import { ArrowRight, TrendingUp, Sparkles } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
@@ -27,27 +27,39 @@ type Dashboard = {
   }>;
 };
 
+type SettlementSummaryRow = {
+  counterpartyUserId: number;
+  counterpartyName: string;
+  currency: string;
+  owedByMe: number;
+  owedToMe: number;
+  net: number;
+  billIds: number[];
+};
+
 export default function DashboardPage() {
   const router = useRouter();
   const [data, setData] = useState<Dashboard | null>(null);
+  const [settlement, setSettlement] = useState<SettlementSummaryRow[] | null>(
+    null
+  );
   const [loading, setLoading] = useState(true);
-  const [markPaidErrors, setMarkPaidErrors] = useState<Set<number>>(new Set());
 
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.dashboard().then((res) => {
-      if (res.data) {
-        setData(res.data);
-        setLoadError(null);
-        setLoading(false);
-        return;
-      }
-      if (res.status === 401) {
+    Promise.all([api.dashboard(), api.settlement()]).then(([d, s]) => {
+      if (d.status === 401) {
         router.push("/login");
         return;
       }
-      setLoadError(res.error || "Failed to load");
+      if (d.data) {
+        setData(d.data);
+        setLoadError(null);
+      } else {
+        setLoadError(d.error || "Failed to load");
+      }
+      if (s.data) setSettlement(s.data);
       setLoading(false);
     });
   }, [router]);
@@ -90,21 +102,7 @@ export default function DashboardPage() {
     );
   }
 
-  async function handleMarkPaid(billId: number) {
-    const paid = await api.markPaid(billId);
-    if (paid.error) {
-      setMarkPaidErrors((prev) => new Set(prev).add(billId));
-      return;
-    }
-    setMarkPaidErrors((prev) => {
-      if (!prev.has(billId)) return prev;
-      const next = new Set(prev);
-      next.delete(billId);
-      return next;
-    });
-    const res = await api.dashboard();
-    if (res.data) setData(res.data);
-  }
+  const outstandingPairs = (settlement ?? []).filter((r) => r.net !== 0);
 
   const personalSubs = data.subscriptions.filter((s) => s.memberCount === 1);
   const sharedSubs = data.subscriptions.filter((s) => s.memberCount > 1);
@@ -142,73 +140,89 @@ export default function DashboardPage() {
           }
         />
         <StatCard
-          label="Pending bills"
-          value={String(data.pendingBills.length)}
+          label="Settlement"
+          value={String(outstandingPairs.length)}
           sub={
-            data.pendingBills.length === 0
-              ? "All clear"
-              : data.pendingBills.length === 1
-              ? "Needs attention"
-              : "Needs attention"
+            outstandingPairs.length === 0
+              ? "All settled"
+              : outstandingPairs.length === 1
+              ? "1 open balance"
+              : `${outstandingPairs.length} open balances`
           }
-          tone={data.pendingBills.length > 0 ? "warn" : "neutral"}
+          tone={outstandingPairs.length > 0 ? "warn" : "neutral"}
         />
       </div>
 
       {/* Two-column layout on desktop */}
       <div className="grid gap-8 lg:grid-cols-5">
-        {/* Pending bills — wider */}
+        {/* Settlement — wider */}
         <section className="space-y-4 lg:col-span-3">
-          <SectionHeader title="Pending" count={data.pendingBills.length} />
-          {data.pendingBills.length === 0 ? (
+          <div className="flex items-center justify-between">
+            <SectionHeader title="Settlement" count={outstandingPairs.length} />
+            {outstandingPairs.length > 0 && (
+              <Link
+                href="/settlement"
+                className="text-[13px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+              >
+                All <ArrowRight className="size-3" />
+              </Link>
+            )}
+          </div>
+
+          {outstandingPairs.length === 0 ? (
             <Card className="border-dashed bg-muted/30 shadow-none">
               <CardContent className="py-12 flex flex-col items-center gap-2.5 text-center">
                 <div className="size-9 rounded-full bg-[var(--accent)] flex items-center justify-center">
                   <Sparkles className="size-[16px] text-[var(--accent-foreground)]" />
                 </div>
-                <p className="text-sm font-medium">All caught up</p>
+                <p className="text-sm font-medium">All settled</p>
                 <p className="text-[13px] text-muted-foreground">
-                  No pending bills this month.
+                  No outstanding balances with anyone.
                 </p>
               </CardContent>
             </Card>
           ) : (
             <div className="space-y-2.5">
-              {data.pendingBills.map((bill) => (
-                <Card
-                  key={bill.id}
-                  size="sm"
-                  className="transition-all duration-150 hover:ring-[rgba(0,0,0,0.14)] dark:hover:ring-white/[0.12] dark:hover:bg-white/[0.03]"
-                >
-                  <CardContent className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3 min-w-0">
-                      <BrandIcon name={bill.subscriptionName} size={32} />
-                      <div className="min-w-0">
-                        <p className="font-semibold text-sm truncate">
-                          {bill.subscriptionName}
-                        </p>
-                        <p className="text-[13px] text-muted-foreground tabular-nums">
-                          {formatMoney(bill.amount, bill.currency)}
-                        </p>
-                        {markPaidErrors.has(bill.id) && (
-                          <p className="text-[11px] font-medium text-destructive mt-0.5">
-                            Couldn&apos;t mark paid — try again
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                    <Button
+              {outstandingPairs.slice(0, 4).map((row) => {
+                const key = `${row.counterpartyUserId}-${row.currency}`;
+                const iOwe = row.net < 0;
+                const netAbs = Math.abs(row.net);
+                return (
+                  <Link key={key} href="/settlement" className="block group">
+                    <Card
                       size="sm"
-                      variant="outline"
-                      className="cursor-pointer gap-1.5"
-                      onClick={() => handleMarkPaid(bill.id)}
+                      className="transition-all duration-150 group-hover:ring-[rgba(0,0,0,0.14)] dark:group-hover:ring-white/[0.12] dark:group-hover:bg-white/[0.03]"
                     >
-                      <Check className="size-3.5" />
-                      Paid
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+                      <CardContent className="flex items-center justify-between gap-3">
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div
+                            className="size-9 rounded-full flex items-center justify-center text-sm font-semibold shrink-0 text-white"
+                            style={{
+                              backgroundColor: iOwe
+                                ? "var(--brand)"
+                                : "#1aae39",
+                            }}
+                            aria-hidden
+                          >
+                            {row.counterpartyName.trim().charAt(0).toUpperCase() || "?"}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-semibold text-sm truncate">
+                              {row.counterpartyName}
+                            </p>
+                            <p className="text-[13px] text-muted-foreground">
+                              {iOwe ? "You owe" : "They owe you"} · {row.currency}
+                            </p>
+                          </div>
+                        </div>
+                        <p className="text-[16px] font-semibold tabular-nums tracking-[-0.015em] shrink-0">
+                          {formatMoney(netAbs, row.currency)}
+                        </p>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </section>
