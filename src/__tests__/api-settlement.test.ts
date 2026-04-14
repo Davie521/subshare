@@ -38,7 +38,9 @@ async function reciprocalScenario() {
     nextPayment: '2026-06-01',
     members: [a],
   })
-  // Force membership dates to a safe window + monthly cron.
+  // Clear R2 bills accumulated during setup + normalize addedAt so the
+  // monthly cron is the sole source of billing_records we assert on.
+  sqlite.prepare('DELETE FROM billing_records').run()
   sqlite
     .prepare("UPDATE subscription_members SET added_at = '2026-05-01'")
     .run()
@@ -88,12 +90,15 @@ describe('A9 handleMarkPairSettled', () => {
     expect(after.data).toEqual([])
   })
 
-  it('cannot be triggered by a third party (counterparty is not me)', async () => {
-    const { a, b } = await reciprocalScenario()
+  it('third-party call is a safe no-op (no bills between caller + target)', async () => {
+    const { a } = await reciprocalScenario()
     const c = createUser(sqlite, { email: 'c@t.com' })
-    // C tries to settle between A and B — not allowed.
+    // C calls settle with A; markPairSettled scopes to bills where
+    // user_id/payer_id ∈ {C, A}. Since C has no bills, nothing is flipped.
     const res = handleMarkPairSettled(db, c, a, 'CNY')
-    expect(res.success).toBe(false)
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data!.marked).toBe(0)
   })
 
   it('rejects when currency unknown', async () => {

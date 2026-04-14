@@ -18,6 +18,11 @@ import {
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
 import {
+  getSettlementSummary,
+  markPairSettled,
+  type SettlementRow,
+} from './settlement'
+import {
   listNotifications,
   markNotificationRead,
   markAllNotificationsRead,
@@ -381,6 +386,69 @@ export function handleRemoveMember(
     }
   }
   return { success: true }
+}
+
+export type EnrichedSettlementRow = SettlementRow & {
+  counterpartyName: string
+}
+
+const CURRENCY_WHITELIST = new Set([
+  'CNY',
+  'USD',
+  'HKD',
+  'CAD',
+  'EUR',
+  'GBP',
+  'JPY',
+])
+
+export function handleGetSettlement(
+  db: DB,
+  userId: number
+): Result<EnrichedSettlementRow[]> {
+  const rows = getSettlementSummary(db, userId)
+  if (rows.length === 0) return { success: true, data: [] }
+
+  const counterpartyIds = Array.from(
+    new Set(rows.map((r) => r.counterpartyUserId))
+  )
+  const users = db
+    .select({
+      id: schema.users.id,
+      name: schema.users.name,
+      displayName: schema.users.displayName,
+    })
+    .from(schema.users)
+    .where(inArray(schema.users.id, counterpartyIds))
+    .all()
+  const byId = new Map(users.map((u) => [u.id, u]))
+
+  const enriched: EnrichedSettlementRow[] = rows.map((r) => {
+    const u = byId.get(r.counterpartyUserId)
+    const counterpartyName = u?.displayName?.trim() || u?.name || 'Unknown'
+    return { ...r, counterpartyName }
+  })
+  return { success: true, data: enriched }
+}
+
+export function handleMarkPairSettled(
+  db: DB,
+  userId: number,
+  counterpartyUserId: number,
+  currency: string
+): Result<{ marked: number }> {
+  if (userId === counterpartyUserId) {
+    return { success: false, error: 'Cannot settle with yourself' }
+  }
+  if (!CURRENCY_WHITELIST.has(currency)) {
+    return { success: false, error: 'Unsupported currency' }
+  }
+  const marked = markPairSettled(db, {
+    userA: userId,
+    userB: counterpartyUserId,
+    currency,
+  })
+  return { success: true, data: { marked } }
 }
 
 export interface FriendRow {
