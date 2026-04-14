@@ -792,7 +792,7 @@ export async function generateAndSaveBillingRecords(
           currency: sub.currency,
           localAmount,
           localCurrency: member.preferredCurrency,
-          exchangeRate: rate * 1000000,
+          exchangeRate: Math.round(rate * 1_000_000),
           billingDate: sub.nextPayment,
         })
         
