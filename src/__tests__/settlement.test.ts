@@ -164,12 +164,16 @@ describe('T16 getSettlementSummary', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
-      subscriptionId: sub1.id,
-      userId: b,
-      addedBy: a,
-      addedAt: '2026-05-01',
-    })
+    addMemberToSubscription(
+      db,
+      {
+        subscriptionId: sub1.id,
+        userId: b,
+        addedBy: a,
+        addedAt: '2026-05-01',
+      },
+      { CNY_USD: 0.14 }
+    )
     const sub2 = createSubscription(db, {
       name: 'Spotify',
       price: 2000,
@@ -178,12 +182,16 @@ describe('T16 getSettlementSummary', () => {
       startDate: '2026-03-01',
       ownerId: b,
     })
-    addMemberToSubscription(db, {
-      subscriptionId: sub2.id,
-      userId: a,
-      addedBy: b,
-      addedAt: '2026-05-01',
-    })
+    addMemberToSubscription(
+      db,
+      {
+        subscriptionId: sub2.id,
+        userId: a,
+        addedBy: b,
+        addedAt: '2026-05-01',
+      },
+      { USD_CNY: 7.2 }
+    )
     generateMonthlyBills(db, '2026-05', { CNY_USD: 0.14, USD_CNY: 7.2 })
 
     const bSum = getSettlementSummary(db, b)

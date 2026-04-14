@@ -66,7 +66,8 @@ export function addMemberToSubscription(
     userId: number
     addedBy: number
     addedAt: string // ISO date YYYY-MM-DD
-  }
+  },
+  rates: Record<string, number> = {}
 ): void {
   // Detect whether this is a genuine new insert vs. a no-op re-add.
   const existingMember = db
@@ -148,12 +149,16 @@ export function addMemberToSubscription(
     .get()
   if (!user) return
 
-  const localAmount =
-    sub.currency === user.preferredCurrency ? amount : amount
-  // NOTE: cross-currency join bills convert via same fetcher pathway as
-  // monthly cron; for now we keep join bills in sub currency and stamp
-  // local_amount = amount when same-currency. Cross-currency flows to
-  // be unified in a later iter alongside API layer.
+  const rate =
+    sub.currency === user.preferredCurrency
+      ? 1
+      : rates[`${sub.currency}_${user.preferredCurrency}`]
+  if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
+    throw new Error(
+      `Missing exchange rate for ${sub.currency}_${user.preferredCurrency}`
+    )
+  }
+  const localAmount = Math.floor(amount * rate)
 
   // Idempotent: skip if a bill already exists for this sub/user/canonicalDate.
   const existing = db
@@ -177,7 +182,7 @@ export function addMemberToSubscription(
       currency: sub.currency,
       localAmount,
       localCurrency: user.preferredCurrency,
-      exchangeRate: 1_000_000,
+      exchangeRate: Math.round(rate * 1_000_000),
       billingDate: canonicalAddedAt,
     })
     .run()

@@ -243,12 +243,16 @@ describe('T8 generateMonthlyBills (R1)', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
-      subscriptionId: sub.id,
-      userId: b,
-      addedBy: a,
-      addedAt: '2026-03-10',
-    })
+    addMemberToSubscription(
+      db,
+      {
+        subscriptionId: sub.id,
+        userId: b,
+        addedBy: a,
+        addedAt: '2026-03-10',
+      },
+      { USD_CNY: 7.2 }
+    )
 
     generateMonthlyBills(db, '2026-05', { USD_CNY: 7.2 })
 
