@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import Database from 'better-sqlite3'
 import { migrate } from '@/db/migrate'
 
 /**
@@ -16,7 +15,7 @@ function legacyDbWithPrePayerSchema(): Database.Database {
   // Simulate a DB created before the payer_id column existed.
   const sqlite = new Database(':memory:')
   sqlite.pragma('foreign_keys = ON')
-  sqlite.exec(`
+  await sqlite.exec(`
     CREATE TABLE users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
@@ -41,37 +40,34 @@ function legacyDbWithPrePayerSchema(): Database.Database {
       group_id INTEGER REFERENCES groups(id)
     );
   `)
-  sqlite
-    .prepare("INSERT INTO users (id, name, email, password_hash) VALUES (1, 'A', 'a@t', 'x')")
+  await sqlite.prepare("INSERT INTO users (id, name, email, password_hash) VALUES (1, 'A', 'a@t', 'x')")
     .run()
   return sqlite
 }
 
 describe('T17 migration payer_id guard', () => {
-  it('backfills payer_id=owner_id for a personal sub (happy path)', () => {
+  it('backfills payer_id=owner_id for a personal sub (happy path)', async () => {
     const sqlite = legacyDbWithPrePayerSchema()
-    sqlite
-      .prepare(
+    await sqlite.prepare(
         `INSERT INTO subscriptions (id, name, price, next_payment, start_date, owner_id)
          VALUES (10, 'Spotify', 1500, '2026-05-01', '2026-01-01', 1)`
       )
       .run()
 
-    expect(() => migrate(sqlite)).not.toThrow()
+    expect(() => await migrate(sqlite)).not.toThrow()
 
-    const row = sqlite
-      .prepare('SELECT payer_id FROM subscriptions WHERE id = 10')
+    const row = await sqlite.prepare('SELECT payer_id FROM subscriptions WHERE id = 10')
       .get() as { payer_id: number }
     expect(row.payer_id).toBe(1)
   })
 
-  it('throws when a subscription has no resolvable payer after backfill', () => {
+  it('throws when a subscription has no resolvable payer after backfill', async () => {
     const sqlite = legacyDbWithPrePayerSchema()
     // Directly insert a row that violates owner_id NOT NULL — impossible
     // via the CREATE TABLE above. So instead, simulate the pathology with
     // a NULL-allowed shadow column. We recreate the table without
     // owner_id NOT NULL, insert NULL, then run migrate.
-    sqlite.exec(`
+    await sqlite.exec(`
       DROP TABLE subscriptions;
       CREATE TABLE subscriptions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -84,13 +80,12 @@ describe('T17 migration payer_id guard', () => {
         group_id INTEGER REFERENCES groups(id)
       );
     `)
-    sqlite
-      .prepare(
+    await sqlite.prepare(
         `INSERT INTO subscriptions (id, name, price, next_payment, start_date, owner_id)
          VALUES (11, 'Orphan', 100, '2026-05-01', '2026-01-01', NULL)`
       )
       .run()
 
-    expect(() => migrate(sqlite)).toThrow(/payer_id/i)
+    expect(() => await migrate(sqlite)).toThrow(/payer_id/i)
   })
 })

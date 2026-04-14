@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -17,20 +15,20 @@ import { listNotifications } from '@/lib/notifications'
  * notifications to every active non-payer member.
  */
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
-function setup3() {
-  const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-  const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-  const c = createUser(sqlite, { email: 'c@t.com', currency: 'CNY' })
-  const sub = createSubscription(db, {
+async function setup3() {
+  const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+  const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+  const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
+  const sub = await createSubscription(db, {
     name: 'Netflix',
     price: 15000, // ¥150
     currency: 'CNY',
@@ -38,13 +36,13 @@ function setup3() {
     startDate: '2026-03-01',
     ownerId: a,
   })
-  addMemberToSubscription(db, {
+  await addMemberToSubscription(db, {
     subscriptionId: sub.id,
     userId: b,
     addedBy: a,
     addedAt: '2026-03-10',
   })
-  addMemberToSubscription(db, {
+  await addMemberToSubscription(db, {
     subscriptionId: sub.id,
     userId: c,
     addedBy: a,
@@ -54,32 +52,29 @@ function setup3() {
 }
 
 describe('T12 changeSubscriptionPrice (R5)', () => {
-  it('updates subscriptions.price', () => {
-    const { sub } = setup3()
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 25000 })
+  it('updates subscriptions.price', async () => {
+    const { sub } = await setup3()
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 25000 })
 
-    const row = sqlite
-      .prepare('SELECT price FROM subscriptions WHERE id = ?')
+    const row = await sqlite.prepare('SELECT price FROM subscriptions WHERE id = ?')
       .get(sub.id) as { price: number }
     expect(row.price).toBe(25000)
   })
 
-  it('does NOT modify bills already generated for the current month', () => {
-    const { sub } = setup3()
-    generateMonthlyBills(db, '2026-05') // 2 bills at share 5000 (15000/3)
+  it('does NOT modify bills already generated for the current month', async () => {
+    const { sub } = await setup3()
+    await generateMonthlyBills(db, '2026-05') // 2 bills at share 5000 (15000/3)
 
-    const before = sqlite
-      .prepare(
+    const before = await sqlite.prepare(
         "SELECT COUNT(*) AS n, SUM(amount) AS total FROM billing_records WHERE billing_date = '2026-05-01'"
       )
       .get() as { n: number; total: number }
     expect(before.n).toBe(2)
     expect(before.total).toBe(10000)
 
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
-    const after = sqlite
-      .prepare(
+    const after = await sqlite.prepare(
         "SELECT COUNT(*) AS n, SUM(amount) AS total FROM billing_records WHERE billing_date = '2026-05-01'"
       )
       .get() as { n: number; total: number }
@@ -87,12 +82,12 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
     expect(after.total).toBe(before.total) // unchanged
   })
 
-  it('emits price_changed notifications to all active non-payer members', () => {
-    const { a, b, c, sub } = setup3()
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
+  it('emits price_changed notifications to all active non-payer members', async () => {
+    const { a, b, c, sub } = await setup3()
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
     const priceNotifsFor = (uid: number) =>
-      listNotifications(db, uid).filter((n) => n.type === 'price_changed')
+      await listNotifications(db, uid).filter((n) => n.type === 'price_changed')
 
     // Only B and C receive — A is payer.
     expect(priceNotifsFor(a)).toHaveLength(0)
@@ -125,14 +120,13 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
     }
   })
 
-  it('next monthly cron uses new price', () => {
-    const { sub } = setup3()
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
+  it('next monthly cron uses new price', async () => {
+    const { sub } = await setup3()
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
-    generateMonthlyBills(db, '2026-06')
+    await generateMonthlyBills(db, '2026-06')
 
-    const bills = sqlite
-      .prepare(
+    const bills = await sqlite.prepare(
         "SELECT amount FROM billing_records WHERE billing_date = '2026-06-01'"
       )
       .all() as { amount: number }[]
@@ -140,22 +134,22 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
     for (const b of bills) expect(b.amount).toBe(10000)
   })
 
-  it('does not emit notification when new price equals old', () => {
-    const { a, b, sub } = setup3()
-    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 15000 })
+  it('does not emit notification when new price equals old', async () => {
+    const { a, b, sub } = await setup3()
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 15000 })
     const priceNotifsFor = (uid: number) =>
-      listNotifications(db, uid).filter((n) => n.type === 'price_changed')
+      await listNotifications(db, uid).filter((n) => n.type === 'price_changed')
     expect(priceNotifsFor(a)).toHaveLength(0)
     expect(priceNotifsFor(b)).toHaveLength(0)
   })
 
-  it('rejects negative or non-numeric price', () => {
-    const { sub } = setup3()
+  it('rejects negative or non-numeric price', async () => {
+    const { sub } = await setup3()
     expect(() =>
-      changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: -100 })
+      await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: -100 })
     ).toThrow()
     expect(() =>
-      changeSubscriptionPrice(db, {
+      await changeSubscriptionPrice(db, {
         subscriptionId: sub.id,
         // @ts-expect-error intentionally bad input
         newPrice: 'abc',

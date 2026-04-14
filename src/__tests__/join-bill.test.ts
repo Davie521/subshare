@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -17,11 +15,11 @@ import {
  * Payable to the payer (already paid the service in full for the month).
  */
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
@@ -35,8 +33,7 @@ function allBills(): Array<{
   localAmount: number
   localCurrency: string
 }> {
-  return sqlite
-    .prepare(
+  return await sqlite.prepare(
       `SELECT subscription_id as subscriptionId, user_id as userId,
               amount, currency, billing_date as billingDate,
               local_amount as localAmount, local_currency as localCurrency
@@ -46,12 +43,12 @@ function allBills(): Array<{
 }
 
 describe('T9 generateJoinBill on addMember (R2)', () => {
-  it('mid-month join → pro-rated bill (share × remaining / D)', () => {
+  it('mid-month join → pro-rated bill (share × remaining / D)', async () => {
     // April has 30 days. Add B on day 20 → 11 days covered.
     // price=10800 cents; with A+B: share=5400; 5400*11/30 = 1980
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10800,
       currency: 'CNY',
@@ -60,7 +57,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
@@ -76,11 +73,11 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
     expect(bills[0].billingDate).toBe('2026-04-20')
   })
 
-  it('day 1 join → full share (no pre-existing monthly bill in same cycle)', () => {
+  it('day 1 join → full share (no pre-existing monthly bill in same cycle)', async () => {
     // B joins on April 1 — R2 covers the whole month.
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10800,
       currency: 'CNY',
@@ -89,7 +86,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
@@ -101,12 +98,12 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
     expect(bills[0].amount).toBe(5400) // floor(10800/2)
   })
 
-  it('last day of month → 1/D of share', () => {
+  it('last day of month → 1/D of share', async () => {
     // B joins on April 30 (day 30 of 30). 1/30 share.
     // price=10800, share=5400, 5400/30 = 180
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10800,
       currency: 'CNY',
@@ -115,7 +112,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
@@ -125,17 +122,17 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
     expect(allBills()[0].amount).toBe(180)
   })
 
-  it('share uses member count AFTER insertion', () => {
+  it('share uses member count AFTER insertion', async () => {
     // Start with A+B (owner+member). Add C on April 20 → share becomes
     // floor(price/3). share*11/30.
     // price=9000, A already owns, B added 2026-04-01 (gets 5000 * 1/1 = 5000? no:
     // with A+B alone: share=4500; floor(4500*30/30)=4500).
     // Then C added April 20: now n=3, share=floor(9000/3)=3000.
     // C's pro-rata = floor(3000*11/30) = 1100.
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const c = createUser(sqlite, { email: 'c@t.com' })
-    const sub = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const c = await createUser(db, { email: 'c@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 9000,
       currency: 'CNY',
@@ -144,13 +141,13 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-01',
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: c,
       addedBy: a,
@@ -164,11 +161,11 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
     expect(cBill.amount).toBe(1100)
   })
 
-  it('no bill generated when the joiner is the payer (owner insert)', () => {
+  it('no bill generated when the joiner is the payer (owner insert)', async () => {
     // createSubscription auto-inserts the owner as the payer-member.
     // That self-insert must NOT create a billing_record.
     const a = createUser(sqlite)
-    createSubscription(db, {
+    await createSubscription(db, {
       name: 'Netflix',
       price: 10000,
       currency: 'CNY',
@@ -180,10 +177,10 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
     expect(allBills()).toHaveLength(0)
   })
 
-  it('bill is payable to the payer (currency = sub.currency)', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+  it('bill is payable to the payer (currency = sub.currency)', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10800,
       currency: 'CNY',
@@ -192,7 +189,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
@@ -207,10 +204,10 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
     expect(bills[0].subscriptionId).toBe(sub.id)
   })
 
-  it('is idempotent — re-adding the same user does not create a second bill', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+  it('is idempotent — re-adding the same user does not create a second bill', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10800,
       currency: 'CNY',
@@ -219,13 +216,13 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-15',
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,

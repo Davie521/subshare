@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import { handleCreateSubscription } from '@/lib/api-handlers'
@@ -20,20 +18,20 @@ import { getMembersOfSubscription } from '@/lib/db-operations'
  *  - Missing cross-currency rates → descriptive error.
  */
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 describe('A1 handleCreateSubscription with members', () => {
   it('creates a shared sub with the specified members', async () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const c = createUser(sqlite, { email: 'c@t.com', currency: 'CNY' })
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
 
     const res = await handleCreateSubscription(db, a, {
       name: 'Netflix',
@@ -45,13 +43,13 @@ describe('A1 handleCreateSubscription with members', () => {
 
     expect(res.success).toBe(true)
     if (!res.success) return
-    const members = getMembersOfSubscription(db, res.data!.id)
+    const members = await getMembersOfSubscription(db, res.data!.id)
     expect(members.map((m) => m.userId).sort()).toEqual([a, b, c].sort())
   })
 
   it('defaults payer to the owner', async () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
 
     const res = await handleCreateSubscription(db, a, {
       name: 'Netflix',
@@ -63,15 +61,14 @@ describe('A1 handleCreateSubscription with members', () => {
     expect(res.success).toBe(true)
     if (!res.success) return
 
-    const row = sqlite
-      .prepare('SELECT payer_id FROM subscriptions WHERE id = ?')
+    const row = await sqlite.prepare('SELECT payer_id FROM subscriptions WHERE id = ?')
       .get(res.data!.id) as { payer_id: number }
     expect(row.payer_id).toBe(a)
   })
 
   it('accepts explicit payerId (e.g. roommate pays, you set up)', async () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
 
     const res = await handleCreateSubscription(db, a, {
       name: 'Netflix',
@@ -84,16 +81,15 @@ describe('A1 handleCreateSubscription with members', () => {
     expect(res.success).toBe(true)
     if (!res.success) return
 
-    const row = sqlite
-      .prepare('SELECT payer_id FROM subscriptions WHERE id = ?')
+    const row = await sqlite.prepare('SELECT payer_id FROM subscriptions WHERE id = ?')
       .get(res.data!.id) as { payer_id: number }
     expect(row.payer_id).toBe(b)
   })
 
   it('rejects payerId that is not the owner or one of the members', async () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const c = createUser(sqlite, { email: 'c@t.com', currency: 'CNY' })
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
 
     const res = await handleCreateSubscription(db, a, {
       name: 'Netflix',
@@ -109,8 +105,8 @@ describe('A1 handleCreateSubscription with members', () => {
   })
 
   it('ignores self-add in members array (owner already inserted)', async () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
 
     const res = await handleCreateSubscription(db, a, {
       name: 'Netflix',
@@ -122,12 +118,12 @@ describe('A1 handleCreateSubscription with members', () => {
     expect(res.success).toBe(true)
     if (!res.success) return
 
-    const members = getMembersOfSubscription(db, res.data!.id)
+    const members = await getMembersOfSubscription(db, res.data!.id)
     expect(members).toHaveLength(2)
   })
 
   it('personal sub when members omitted or empty', async () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
 
     const res = await handleCreateSubscription(db, a, {
       name: 'Spotify',
@@ -138,7 +134,7 @@ describe('A1 handleCreateSubscription with members', () => {
     expect(res.success).toBe(true)
     if (!res.success) return
 
-    const members = getMembersOfSubscription(db, res.data!.id)
+    const members = await getMembersOfSubscription(db, res.data!.id)
     expect(members).toHaveLength(1)
     expect(members[0].userId).toBe(a)
   })

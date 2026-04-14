@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -8,19 +6,19 @@ import {
   handleTransferPayer,
 } from '@/lib/api-handlers'
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 async function setupScenario() {
-  const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-  const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-  const c = createUser(sqlite, { email: 'c@t.com', currency: 'CNY' })
+  const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+  const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+  const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
   const res = await handleCreateSubscription(db, a, {
     name: 'Netflix',
     price: 10000,
@@ -38,8 +36,7 @@ describe('A4 handleTransferPayer', () => {
     const res = await handleTransferPayer(db, a, subId, b)
     expect(res.success).toBe(true)
 
-    const row = sqlite
-      .prepare('SELECT payer_id FROM subscriptions WHERE id = ?')
+    const row = await sqlite.prepare('SELECT payer_id FROM subscriptions WHERE id = ?')
       .get(subId) as { payer_id: number }
     expect(row.payer_id).toBe(b)
   })
@@ -62,7 +59,7 @@ describe('A4 handleTransferPayer', () => {
 
   it('rejects transfer to non-member', async () => {
     const { a, subId } = await setupScenario()
-    const stranger = createUser(sqlite, { email: 'stranger@t.com' })
+    const stranger = await createUser(db, { email: 'stranger@t.com' })
     const res = await handleTransferPayer(db, a, subId, stranger)
     expect(res.success).toBe(false)
   })

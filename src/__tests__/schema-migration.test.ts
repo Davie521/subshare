@@ -1,5 +1,4 @@
 import { describe, it, expect } from 'vitest'
-import Database from 'better-sqlite3'
 import { migrate } from '@/db/migrate'
 
 /**
@@ -10,12 +9,12 @@ import { migrate } from '@/db/migrate'
 function freshDb() {
   const sqlite = new Database(':memory:')
   sqlite.pragma('foreign_keys = ON')
-  migrate(sqlite)
+  await migrate(sqlite)
   return sqlite
 }
 
 function tableInfo(sqlite: Database.Database, table: string) {
-  return sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{
+  return await sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{
     name: string
     type: string
     notnull: number
@@ -25,21 +24,19 @@ function tableInfo(sqlite: Database.Database, table: string) {
 }
 
 function tableExists(sqlite: Database.Database, table: string): boolean {
-  const row = sqlite
-    .prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`)
+  const row = await sqlite.prepare(`SELECT name FROM sqlite_schema WHERE type='table' AND name=?`)
     .get(table)
   return !!row
 }
 
 function indexExists(sqlite: Database.Database, name: string): boolean {
-  const row = sqlite
-    .prepare(`SELECT name FROM sqlite_schema WHERE type='index' AND name=?`)
+  const row = await sqlite.prepare(`SELECT name FROM sqlite_schema WHERE type='index' AND name=?`)
     .get(name)
   return !!row
 }
 
 describe('T3 schema migration', () => {
-  it('adds users.display_name (TEXT) and users.show_email (INTEGER, default 0)', () => {
+  it('adds users.display_name (TEXT) and users.show_email (INTEGER, default 0)', async () => {
     const sqlite = freshDb()
     const cols = tableInfo(sqlite, 'users')
     const displayName = cols.find((c) => c.name === 'display_name')
@@ -52,7 +49,7 @@ describe('T3 schema migration', () => {
     expect(showEmail!.dflt_value).toBe('0')
   })
 
-  it('adds subscriptions.payer_id (INTEGER, NOT NULL)', () => {
+  it('adds subscriptions.payer_id (INTEGER, NOT NULL)', async () => {
     const sqlite = freshDb()
     const cols = tableInfo(sqlite, 'subscriptions')
     const payer = cols.find((c) => c.name === 'payer_id')
@@ -61,7 +58,7 @@ describe('T3 schema migration', () => {
     expect(payer!.notnull).toBe(1)
   })
 
-  it('creates subscription_members table with correct columns', () => {
+  it('creates subscription_members table with correct columns', async () => {
     const sqlite = freshDb()
     expect(tableExists(sqlite, 'subscription_members')).toBe(true)
 
@@ -76,7 +73,7 @@ describe('T3 schema migration', () => {
     expect(pkCols).toEqual(['subscription_id', 'user_id'].sort())
   })
 
-  it('creates friendships table with (user_a_id, user_b_id) composite PK', () => {
+  it('creates friendships table with (user_a_id, user_b_id) composite PK', async () => {
     const sqlite = freshDb()
     expect(tableExists(sqlite, 'friendships')).toBe(true)
 
@@ -88,31 +85,27 @@ describe('T3 schema migration', () => {
     expect(pkCols).toEqual(['user_a_id', 'user_b_id'].sort())
   })
 
-  it('enforces a < b convention via CHECK constraint', () => {
+  it('enforces a < b convention via CHECK constraint', async () => {
     const sqlite = freshDb()
-    sqlite
-      .prepare('INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)')
+    await sqlite.prepare('INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)')
       .run('A', 'a@t', 'x')
-    sqlite
-      .prepare('INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)')
+    await sqlite.prepare('INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)')
       .run('B', 'b@t', 'x')
 
     // Valid direction
     expect(() =>
-      sqlite
-        .prepare('INSERT INTO friendships (user_a_id, user_b_id) VALUES (?, ?)')
+      await sqlite.prepare('INSERT INTO friendships (user_a_id, user_b_id) VALUES (?, ?)')
         .run(1, 2)
     ).not.toThrow()
 
     // Invalid: a >= b
     expect(() =>
-      sqlite
-        .prepare('INSERT INTO friendships (user_a_id, user_b_id) VALUES (?, ?)')
+      await sqlite.prepare('INSERT INTO friendships (user_a_id, user_b_id) VALUES (?, ?)')
         .run(2, 1)
     ).toThrow(/CHECK constraint/)
   })
 
-  it('creates notifications table with required columns + index', () => {
+  it('creates notifications table with required columns + index', async () => {
     const sqlite = freshDb()
     expect(tableExists(sqlite, 'notifications')).toBe(true)
 
@@ -133,16 +126,16 @@ describe('T3 schema migration', () => {
     expect(indexExists(sqlite, 'notif_user_unread')).toBe(true)
   })
 
-  it('keeps legacy groups and group_members tables intact', () => {
+  it('keeps legacy groups and group_members tables intact', async () => {
     const sqlite = freshDb()
     expect(tableExists(sqlite, 'groups')).toBe(true)
     expect(tableExists(sqlite, 'group_members')).toBe(true)
   })
 
-  it('migration is idempotent (running twice does not error)', () => {
+  it('migration is idempotent (running twice does not error)', async () => {
     const sqlite = new Database(':memory:')
     sqlite.pragma('foreign_keys = ON')
-    migrate(sqlite)
-    expect(() => migrate(sqlite)).not.toThrow()
+    await migrate(sqlite)
+    expect(() => await migrate(sqlite)).not.toThrow()
   })
 })

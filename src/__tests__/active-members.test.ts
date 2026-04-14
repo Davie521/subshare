@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -10,21 +8,21 @@ import {
   getActiveMembersAt,
 } from '@/lib/db-operations'
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 describe('T6 getActiveMembersAt', () => {
-  function setup3() {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const c = createUser(sqlite, { email: 'c@t.com' })
-    const sub = createSubscription(db, {
+  async function setup3() {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const c = await createUser(db, { email: 'c@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 15000,
       currency: 'CNY',
@@ -32,13 +30,13 @@ describe('T6 getActiveMembersAt', () => {
       startDate: '2026-03-01', // A has been on this sub since March
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-01',
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: c,
       addedBy: a,
@@ -47,67 +45,67 @@ describe('T6 getActiveMembersAt', () => {
     return { a, b, c, sub }
   }
 
-  it('includes members whose addedAt <= atDate', () => {
-    const { a, b, sub } = setup3()
+  it('includes members whose addedAt <= atDate', async () => {
+    const { a, b, sub } = await setup3()
     // On April 1st, only A (owner) and B are active.
-    const members = getActiveMembersAt(db, sub.id, '2026-04-01')
+    const members = await getActiveMembersAt(db, sub.id, '2026-04-01')
     const ids = members.map((m) => m.userId).sort()
     expect(ids).toEqual([a, b].sort())
   })
 
-  it('includes member added exactly on atDate (boundary)', () => {
-    const { a, b, c, sub } = setup3()
+  it('includes member added exactly on atDate (boundary)', async () => {
+    const { a, b, c, sub } = await setup3()
     // April 15 — C joins; should be included that very day.
-    const members = getActiveMembersAt(db, sub.id, '2026-04-15')
+    const members = await getActiveMembersAt(db, sub.id, '2026-04-15')
     const ids = members.map((m) => m.userId).sort()
     expect(ids).toEqual([a, b, c].sort())
   })
 
-  it('excludes members whose leftAt <= atDate', () => {
-    const { a, b, c, sub } = setup3()
+  it('excludes members whose leftAt <= atDate', async () => {
+    const { a, b, c, sub } = await setup3()
     // B leaves April 20; on April 21, only A and C should remain.
-    leaveSubscription(db, {
+    await leaveSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-04-20',
     })
-    const members = getActiveMembersAt(db, sub.id, '2026-04-21')
+    const members = await getActiveMembersAt(db, sub.id, '2026-04-21')
     const ids = members.map((m) => m.userId).sort()
     expect(ids).toEqual([a, c].sort())
   })
 
-  it('includes a member on their leftAt date (last active day)', () => {
-    const { a, b, c, sub } = setup3()
-    leaveSubscription(db, {
+  it('includes a member on their leftAt date (last active day)', async () => {
+    const { a, b, c, sub } = await setup3()
+    await leaveSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-04-20',
     })
     // B is "active" on April 20 — their last billable day.
-    const members = getActiveMembersAt(db, sub.id, '2026-04-20')
+    const members = await getActiveMembersAt(db, sub.id, '2026-04-20')
     const ids = members.map((m) => m.userId).sort()
     expect(ids).toEqual([a, b, c].sort())
   })
 
-  it('excludes members whose addedAt is AFTER atDate', () => {
-    const { a, b, c, sub } = setup3()
+  it('excludes members whose addedAt is AFTER atDate', async () => {
+    const { a, b, c, sub } = await setup3()
     // April 10 — A (joined Mar 1) and B (joined Apr 1) are in;
     // C (joined Apr 15) is NOT in yet.
-    const members = getActiveMembersAt(db, sub.id, '2026-04-10')
+    const members = await getActiveMembersAt(db, sub.id, '2026-04-10')
     const ids = members.map((m) => m.userId).sort()
     expect(ids).toContain(a)
     expect(ids).toContain(b)
     expect(ids).not.toContain(c)
   })
 
-  it('returns empty array when subscription has no members', () => {
-    const members = getActiveMembersAt(db, 9999, '2026-04-15')
+  it('returns empty array when subscription has no members', async () => {
+    const members = await getActiveMembersAt(db, 9999, '2026-04-15')
     expect(members).toEqual([])
   })
 
-  it('returns members with addedAt and payer flag consistent with schema', () => {
-    const { sub } = setup3()
-    const members = getActiveMembersAt(db, sub.id, '2026-04-15')
+  it('returns members with addedAt and payer flag consistent with schema', async () => {
+    const { sub } = await setup3()
+    const members = await getActiveMembersAt(db, sub.id, '2026-04-15')
     for (const m of members) {
       expect(m.userId).toBeTypeOf('number')
       expect(m.addedAt).toMatch(/\d{4}-\d{2}-\d{2}/)

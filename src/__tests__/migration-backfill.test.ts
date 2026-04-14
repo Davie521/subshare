@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import Database from 'better-sqlite3'
 import { migrate } from '@/db/migrate'
 import { backfillFromGroups } from '@/db/migrate'
 
@@ -23,39 +22,33 @@ import { backfillFromGroups } from '@/db/migrate'
 function legacyDb(): Database.Database {
   const sqlite = new Database(':memory:')
   sqlite.pragma('foreign_keys = ON')
-  migrate(sqlite)
+  await migrate(sqlite)
 
   // Seed a legacy dataset: 2 users, 1 group, 1 shared sub, 1 personal sub.
-  sqlite
-    .prepare(
+  await sqlite.prepare(
       "INSERT INTO users (id, name, email, password_hash) VALUES (1, 'Alice', 'a@t.com', 'x')"
     )
     .run()
-  sqlite
-    .prepare(
+  await sqlite.prepare(
       "INSERT INTO users (id, name, email, password_hash) VALUES (2, 'Bob', 'b@t.com', 'x')"
     )
     .run()
 
-  sqlite
-    .prepare(
+  await sqlite.prepare(
       "INSERT INTO groups (id, name, public_id, created_by) VALUES (1, 'Fam', 'p1', 1)"
     )
     .run()
-  sqlite
-    .prepare(
+  await sqlite.prepare(
       "INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, 1, '2026-01-01')"
     )
     .run()
-  sqlite
-    .prepare(
+  await sqlite.prepare(
       "INSERT INTO group_members (group_id, user_id, joined_at) VALUES (1, 2, '2026-02-15')"
     )
     .run()
 
-  // Shared sub in group 1, payer_id will be filled by migrate() from created_by
-  sqlite
-    .prepare(
+  // Shared sub in group 1, payer_id will be filled by await migrate() from created_by
+  await sqlite.prepare(
       `INSERT INTO subscriptions
        (id, name, price, currency, next_payment, start_date, owner_id, payer_id, group_id)
        VALUES (10, 'Netflix', 10800, 'CNY', '2026-05-01', '2026-01-01', 1, 1, 1)`
@@ -63,8 +56,7 @@ function legacyDb(): Database.Database {
     .run()
 
   // Personal sub (no group)
-  sqlite
-    .prepare(
+  await sqlite.prepare(
       `INSERT INTO subscriptions
        (id, name, price, currency, next_payment, start_date, owner_id, payer_id)
        VALUES (11, 'Spotify', 1500, 'CNY', '2026-05-01', '2026-01-01', 2, 2)`
@@ -75,12 +67,11 @@ function legacyDb(): Database.Database {
 }
 
 describe('T15 backfillFromGroups', () => {
-  it('populates subscription_members from group_members for shared subs', () => {
+  it('populates subscription_members from group_members for shared subs', async () => {
     const sqlite = legacyDb()
-    const inserted = backfillFromGroups(sqlite)
+    const inserted = await backfillFromGroups(sqlite)
 
-    const rows = sqlite
-      .prepare(
+    const rows = await sqlite.prepare(
         `SELECT subscription_id, user_id, added_at, added_by, left_at
          FROM subscription_members WHERE subscription_id = 10
          ORDER BY user_id`
@@ -110,24 +101,22 @@ describe('T15 backfillFromGroups', () => {
     })
   })
 
-  it('populates subscription_members for personal subs (owner as sole member)', () => {
+  it('populates subscription_members for personal subs (owner as sole member)', async () => {
     const sqlite = legacyDb()
-    backfillFromGroups(sqlite)
+    await backfillFromGroups(sqlite)
 
-    const rows = sqlite
-      .prepare(
+    const rows = await sqlite.prepare(
         `SELECT user_id FROM subscription_members WHERE subscription_id = 11`
       )
       .all() as { user_id: number }[]
     expect(rows.map((r) => r.user_id)).toEqual([2])
   })
 
-  it('creates friendships between group creator and each other member', () => {
+  it('creates friendships between group creator and each other member', async () => {
     const sqlite = legacyDb()
-    backfillFromGroups(sqlite)
+    await backfillFromGroups(sqlite)
 
-    const rows = sqlite
-      .prepare(
+    const rows = await sqlite.prepare(
         `SELECT user_a_id, user_b_id FROM friendships`
       )
       .all() as { user_a_id: number; user_b_id: number }[]
@@ -136,50 +125,45 @@ describe('T15 backfillFromGroups', () => {
     expect(rows[0].user_b_id).toBe(2)
   })
 
-  it('does NOT create friendship for self (creator is their own group member)', () => {
+  it('does NOT create friendship for self (creator is their own group member)', async () => {
     const sqlite = legacyDb()
-    backfillFromGroups(sqlite)
+    await backfillFromGroups(sqlite)
 
-    const selfRows = sqlite
-      .prepare(
+    const selfRows = await sqlite.prepare(
         `SELECT COUNT(*) AS n FROM friendships WHERE user_a_id = user_b_id`
       )
       .get() as { n: number }
     expect(selfRows.n).toBe(0)
   })
 
-  it('is idempotent — running twice does not duplicate', () => {
+  it('is idempotent — running twice does not duplicate', async () => {
     const sqlite = legacyDb()
-    backfillFromGroups(sqlite)
-    backfillFromGroups(sqlite)
+    await backfillFromGroups(sqlite)
+    await backfillFromGroups(sqlite)
 
-    const subMembers = sqlite
-      .prepare('SELECT COUNT(*) AS n FROM subscription_members')
+    const subMembers = await sqlite.prepare('SELECT COUNT(*) AS n FROM subscription_members')
       .get() as { n: number }
-    const friendships = sqlite
-      .prepare('SELECT COUNT(*) AS n FROM friendships')
+    const friendships = await sqlite.prepare('SELECT COUNT(*) AS n FROM friendships')
       .get() as { n: number }
 
     expect(subMembers.n).toBe(3) // 2 shared + 1 personal owner
     expect(friendships.n).toBe(1)
   })
 
-  it('no-op on already-migrated data (subscription_members already populated)', () => {
+  it('no-op on already-migrated data (subscription_members already populated)', async () => {
     const sqlite = legacyDb()
 
     // Pre-populate subscription_members from somewhere else.
-    sqlite
-      .prepare(
+    await sqlite.prepare(
         `INSERT INTO subscription_members (subscription_id, user_id, added_at, added_by)
          VALUES (10, 1, '2020-01-01', 1)`
       )
       .run()
 
-    backfillFromGroups(sqlite)
+    await backfillFromGroups(sqlite)
 
     // User 1's row was already there from pre-population: original added_at preserved.
-    const row = sqlite
-      .prepare(
+    const row = await sqlite.prepare(
         `SELECT added_at FROM subscription_members WHERE subscription_id = 10 AND user_id = 1`
       )
       .get() as { added_at: string }

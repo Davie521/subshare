@@ -13,7 +13,7 @@ import { sql } from 'drizzle-orm'
 const isoNow = () => new Date().toISOString()
 
 export const users = pgTable('users', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
@@ -26,7 +26,7 @@ export const users = pgTable('users', {
 })
 
 export const groups = pgTable('groups', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
   name: text('name').notNull(),
   publicId: text('public_id').notNull().unique(),
   createdBy: integer('created_by')
@@ -53,7 +53,7 @@ export const groupMembers = pgTable(
 )
 
 export const subscriptions = pgTable('subscriptions', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
   name: text('name').notNull(),
   logo: text('logo'),
   url: text('url'),
@@ -120,7 +120,7 @@ export const friendships = pgTable(
 export const notifications = pgTable(
   'notifications',
   {
-    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
     userId: integer('user_id')
       .notNull()
       .references(() => users.id),
@@ -139,7 +139,7 @@ export const notifications = pgTable(
 export const billingRecords = pgTable(
   'billing_records',
   {
-    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+    id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
     subscriptionId: integer('subscription_id')
       .notNull()
       .references(() => subscriptions.id, { onDelete: 'cascade' }),
@@ -166,7 +166,7 @@ export const billingRecords = pgTable(
 )
 
 export const categories = pgTable('categories', {
-  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
+  id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
   name: text('name').notNull(),
   icon: text('icon'),
   userId: integer('user_id').references(() => users.id), // null = global default

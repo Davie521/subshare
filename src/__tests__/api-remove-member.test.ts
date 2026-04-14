@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -10,19 +8,19 @@ import {
 import { getMembersOfSubscription } from '@/lib/db-operations'
 import { listNotifications } from '@/lib/notifications'
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 async function bootstrap() {
-  const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-  const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-  const c = createUser(sqlite, { email: 'c@t.com', currency: 'CNY' })
+  const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+  const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+  const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
   const res = await handleCreateSubscription(db, a, {
     name: 'Netflix',
     price: 10000,
@@ -41,12 +39,12 @@ describe('A3 handleRemoveMember', () => {
     const res = await handleRemoveMember(db, b, subId, b)
     expect(res.success).toBe(true)
 
-    const active = getMembersOfSubscription(db, subId).filter(
+    const active = await getMembersOfSubscription(db, subId).filter(
       (m) => m.leftAt === null
     )
     expect(active.map((m) => m.userId)).not.toContain(b)
 
-    const kickNotifs = listNotifications(db, b).filter(
+    const kickNotifs = await listNotifications(db, b).filter(
       (n) => n.type === 'removed_from_sub'
     )
     expect(kickNotifs).toHaveLength(0) // self-leave silent
@@ -58,7 +56,7 @@ describe('A3 handleRemoveMember', () => {
     const res = await handleRemoveMember(db, a, subId, b)
     expect(res.success).toBe(true)
 
-    const kickNotifs = listNotifications(db, b).filter(
+    const kickNotifs = await listNotifications(db, b).filter(
       (n) => n.type === 'removed_from_sub'
     )
     expect(kickNotifs).toHaveLength(1)
@@ -92,7 +90,7 @@ describe('A3 handleRemoveMember', () => {
 
   it('returns error when target is not a member', async () => {
     const { a, subId } = await bootstrap()
-    const stranger = createUser(sqlite, { email: 'stranger@t.com' })
+    const stranger = await createUser(db, { email: 'stranger@t.com' })
     const res = await handleRemoveMember(db, a, subId, stranger)
     expect(res.success).toBe(false)
     if (res.success) return

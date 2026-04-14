@@ -6,11 +6,63 @@ import { hashSync } from 'bcryptjs'
 
 export type TestDb = ReturnType<typeof drizzle<typeof schema>>
 
-export async function setupTestDb(): Promise<{ db: TestDb; pg: PGlite }> {
+export interface SqliteShim {
+  pragma: (s: string) => void
+  exec: (s: string) => Promise<void>
+  prepare: (sql: string) => {
+    get: <T = unknown>(...args: unknown[]) => Promise<T | undefined>
+    all: <T = unknown>(...args: unknown[]) => Promise<T[]>
+    run: (
+      ...args: unknown[]
+    ) => Promise<{ changes: number; lastInsertRowid: number }>
+  }
+}
+
+function sqliteToPg(sql: string): string {
+  let i = 0
+  return sql.replace(/\?/g, () => `$${++i}`)
+}
+
+function makeShim(pg: PGlite): SqliteShim {
+  return {
+    pragma: () => {
+      // no-op on Postgres
+    },
+    exec: async (s) => {
+      await pg.exec(s)
+    },
+    prepare: (sql: string) => {
+      const pgSql = sqliteToPg(sql)
+      return {
+        get: async <T = unknown>(...args: unknown[]) => {
+          const { rows } = await pg.query(pgSql, args)
+          return (rows[0] as T) ?? undefined
+        },
+        all: async <T = unknown>(...args: unknown[]) => {
+          const { rows } = await pg.query(pgSql, args)
+          return rows as T[]
+        },
+        run: async (...args: unknown[]) => {
+          const res = await pg.query(pgSql, args)
+          return {
+            changes: res.affectedRows ?? res.rows.length,
+            lastInsertRowid: 0,
+          }
+        },
+      }
+    },
+  }
+}
+
+export async function setupTestDb(): Promise<{
+  db: TestDb
+  pg: PGlite
+  sqlite: SqliteShim
+}> {
   const pg = new PGlite()
   const db = drizzle(pg, { schema })
   await migrate(db)
-  return { db, pg }
+  return { db, pg, sqlite: makeShim(pg) }
 }
 
 /** Insert a test user and return their id. */
@@ -64,7 +116,6 @@ export async function createGroup(
     })
     .returning({ id: schema.groups.id })
 
-  // Auto-add creator as member
   await db
     .insert(schema.groupMembers)
     .values({ groupId: row.id, userId: opts.createdBy })

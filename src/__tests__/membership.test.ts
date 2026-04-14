@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -15,19 +13,19 @@ import {
  * T7 / T9 / T11 / etc.).
  */
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 describe('T4 addMemberToSubscription', () => {
-  it('owner is auto-inserted as a member on createSubscription', () => {
+  it('owner is auto-inserted as a member on createSubscription', async () => {
     const owner = createUser(sqlite)
-    const sub = createSubscription(db, {
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 15000,
       currency: 'CNY',
@@ -35,7 +33,7 @@ describe('T4 addMemberToSubscription', () => {
       ownerId: owner,
     })
 
-    const members = getMembersOfSubscription(db, sub.id)
+    const members = await getMembersOfSubscription(db, sub.id)
     expect(members).toHaveLength(1)
     expect(members[0].userId).toBe(owner)
     expect(members[0].addedBy).toBe(owner)
@@ -43,10 +41,10 @@ describe('T4 addMemberToSubscription', () => {
     expect(members[0].leftAt).toBeNull()
   })
 
-  it('adds a new member with addedBy and addedAt recorded', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+  it('adds a new member with addedBy and addedAt recorded', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 15000,
       currency: 'CNY',
@@ -54,14 +52,14 @@ describe('T4 addMemberToSubscription', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-15',
     })
 
-    const members = getMembersOfSubscription(db, sub.id)
+    const members = await getMembersOfSubscription(db, sub.id)
     expect(members).toHaveLength(2)
     const bMember = members.find((m) => m.userId === b)!
     expect(bMember.addedBy).toBe(a)
@@ -69,10 +67,10 @@ describe('T4 addMemberToSubscription', () => {
     expect(bMember.leftAt).toBeNull()
   })
 
-  it('is idempotent — calling twice with same (subId, userId) is a no-op', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+  it('is idempotent — calling twice with same (subId, userId) is a no-op', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 15000,
       currency: 'CNY',
@@ -80,31 +78,31 @@ describe('T4 addMemberToSubscription', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-15',
     })
     // Second call with a different date must NOT overwrite the first.
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-20',
     })
 
-    const members = getMembersOfSubscription(db, sub.id)
+    const members = await getMembersOfSubscription(db, sub.id)
     expect(members).toHaveLength(2)
     const bMember = members.find((m) => m.userId === b)!
     expect(bMember.addedAt).toBe('2026-04-15') // original preserved
   })
 
-  it('getMembersOfSubscription returns every row including soft-left', () => {
+  it('getMembersOfSubscription returns every row including soft-left', async () => {
     // Used later (T6) for historical/debug views. Active-only filtering
     // lives in getActiveMembersAt (T6).
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const sub = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 15000,
       currency: 'CNY',
@@ -112,13 +110,13 @@ describe('T4 addMemberToSubscription', () => {
       ownerId: a,
     })
 
-    const rows = getMembersOfSubscription(db, sub.id)
+    const rows = await getMembersOfSubscription(db, sub.id)
     expect(rows.every((r) => r.leftAt === null)).toBe(true)
   })
 
-  it('creating a subscription writes exactly ONE subscription_members row for the owner', () => {
+  it('creating a subscription writes exactly ONE subscription_members row for the owner', async () => {
     const owner = createUser(sqlite)
-    const sub = createSubscription(db, {
+    const sub = await createSubscription(db, {
       name: 'Spotify',
       price: 1500,
       currency: 'CNY',
@@ -126,8 +124,7 @@ describe('T4 addMemberToSubscription', () => {
       ownerId: owner,
     })
 
-    const count = sqlite
-      .prepare(
+    const count = await sqlite.prepare(
         `SELECT COUNT(*) as n FROM subscription_members WHERE subscription_id = ?`
       )
       .get(sub.id) as { n: number }

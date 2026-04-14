@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -10,18 +8,18 @@ import {
 } from '@/lib/api-handlers'
 import { generateMonthlyBills } from '@/lib/db-operations'
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 async function reciprocalScenario() {
-  const a = createUser(sqlite, { name: 'Alice', email: 'a@t.com', currency: 'CNY' })
-  const b = createUser(sqlite, { name: 'Bob', email: 'b@t.com', currency: 'CNY' })
+  const a = await createUser(db, { name: 'Alice', email: 'a@t.com', currency: 'CNY' })
+  const b = await createUser(db, { name: 'Bob', email: 'b@t.com', currency: 'CNY' })
   // A hosts Netflix with B (B owes A)
   await handleCreateSubscription(db, a, {
     name: 'Netflix',
@@ -40,11 +38,10 @@ async function reciprocalScenario() {
   })
   // Clear R2 bills accumulated during setup + normalize addedAt so the
   // monthly cron is the sole source of billing_records we assert on.
-  sqlite.prepare('DELETE FROM billing_records').run()
-  sqlite
-    .prepare("UPDATE subscription_members SET added_at = '2026-05-01'")
+  await sqlite.prepare('DELETE FROM billing_records').run()
+  await sqlite.prepare("UPDATE subscription_members SET added_at = '2026-05-01'")
     .run()
-  generateMonthlyBills(db, '2026-05')
+  await generateMonthlyBills(db, '2026-05')
   return { a, b }
 }
 
@@ -52,7 +49,7 @@ describe('A8 handleGetSettlement', () => {
   it('returns netted summary with resolved counterparty names', async () => {
     const { a, b } = await reciprocalScenario()
 
-    const res = handleGetSettlement(db, b)
+    const res = await handleGetSettlement(db, b)
     expect(res.success).toBe(true)
     if (!res.success) return
 
@@ -66,9 +63,9 @@ describe('A8 handleGetSettlement', () => {
     expect(row.net).toBe(-4000)
   })
 
-  it('empty when no unpaid bills exist', () => {
+  it('empty when no unpaid bills exist', async () => {
     const a = createUser(sqlite)
-    const res = handleGetSettlement(db, a)
+    const res = await handleGetSettlement(db, a)
     expect(res.success).toBe(true)
     if (!res.success) return
     expect(res.data).toEqual([])
@@ -79,12 +76,12 @@ describe('A9 handleMarkPairSettled', () => {
   it('marks all unpaid bills between the pair in given currency', async () => {
     const { a, b } = await reciprocalScenario()
 
-    const res = handleMarkPairSettled(db, b, a, 'CNY')
+    const res = await handleMarkPairSettled(db, b, a, 'CNY')
     expect(res.success).toBe(true)
     if (!res.success) return
     expect(res.data!.marked).toBeGreaterThan(0)
 
-    const after = handleGetSettlement(db, b)
+    const after = await handleGetSettlement(db, b)
     expect(after.success).toBe(true)
     if (!after.success) return
     expect(after.data).toEqual([])
@@ -92,10 +89,10 @@ describe('A9 handleMarkPairSettled', () => {
 
   it('third-party call is a safe no-op (no bills between caller + target)', async () => {
     const { a } = await reciprocalScenario()
-    const c = createUser(sqlite, { email: 'c@t.com' })
+    const c = await createUser(db, { email: 'c@t.com' })
     // C calls settle with A; markPairSettled scopes to bills where
     // user_id/payer_id ∈ {C, A}. Since C has no bills, nothing is flipped.
-    const res = handleMarkPairSettled(db, c, a, 'CNY')
+    const res = await handleMarkPairSettled(db, c, a, 'CNY')
     expect(res.success).toBe(true)
     if (!res.success) return
     expect(res.data!.marked).toBe(0)
@@ -103,7 +100,7 @@ describe('A9 handleMarkPairSettled', () => {
 
   it('rejects when currency unknown', async () => {
     const { a, b } = await reciprocalScenario()
-    const res = handleMarkPairSettled(db, b, a, 'XYZ')
+    const res = await handleMarkPairSettled(db, b, a, 'XYZ')
     expect(res.success).toBe(false)
   })
 })

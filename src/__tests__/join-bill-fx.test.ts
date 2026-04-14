@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -14,18 +12,17 @@ import {
  * the monthly cron.
  */
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 function billFor(userId: number) {
-  return sqlite
-    .prepare(
+  return await sqlite.prepare(
       `SELECT amount, currency, local_amount AS localAmount,
               local_currency AS localCurrency, exchange_rate AS exchangeRate
        FROM billing_records WHERE user_id = ?`
@@ -40,10 +37,10 @@ function billFor(userId: number) {
 }
 
 describe('T18 R2 join bill FX conversion', () => {
-  it('same-currency: localAmount === amount, exchangeRate === 1_000_000', () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const sub = createSubscription(db, {
+  it('same-currency: localAmount === amount, exchangeRate === 1_000_000', async () => {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10000,
       currency: 'CNY',
@@ -51,7 +48,7 @@ describe('T18 R2 join bill FX conversion', () => {
       startDate: '2026-04-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
@@ -65,11 +62,11 @@ describe('T18 R2 join bill FX conversion', () => {
     expect(row.localCurrency).toBe('CNY')
   })
 
-  it('cross-currency with rates: localAmount = floor(amount * rate)', () => {
+  it('cross-currency with rates: localAmount = floor(amount * rate)', async () => {
     // sub USD, invitee preferred CNY, rate 7.2.
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'USD' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const sub = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'USD' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 1500, // $15 USD (cents)
       currency: 'USD',
@@ -77,7 +74,7 @@ describe('T18 R2 join bill FX conversion', () => {
       startDate: '2026-04-01',
       ownerId: a,
     })
-    addMemberToSubscription(
+    await addMemberToSubscription(
       db,
       {
         subscriptionId: sub.id,
@@ -97,10 +94,10 @@ describe('T18 R2 join bill FX conversion', () => {
     expect(row.exchangeRate).toBe(7_200_000)
   })
 
-  it('cross-currency without rates throws', () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'USD' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const sub = createSubscription(db, {
+  it('cross-currency without rates throws', async () => {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'USD' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 1500,
       currency: 'USD',
@@ -109,7 +106,7 @@ describe('T18 R2 join bill FX conversion', () => {
       ownerId: a,
     })
     expect(() =>
-      addMemberToSubscription(db, {
+      await addMemberToSubscription(db, {
         subscriptionId: sub.id,
         userId: b,
         addedBy: a,
@@ -118,10 +115,10 @@ describe('T18 R2 join bill FX conversion', () => {
     ).toThrow(/rate|USD_CNY/i)
   })
 
-  it('rejects invalid rate (non-positive, NaN)', () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'USD' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const sub = createSubscription(db, {
+  it('rejects invalid rate (non-positive, NaN)', async () => {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'USD' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 1500,
       currency: 'USD',
@@ -130,7 +127,7 @@ describe('T18 R2 join bill FX conversion', () => {
       ownerId: a,
     })
     expect(() =>
-      addMemberToSubscription(
+      await addMemberToSubscription(
         db,
         {
           subscriptionId: sub.id,
@@ -142,7 +139,7 @@ describe('T18 R2 join bill FX conversion', () => {
       )
     ).toThrow()
     expect(() =>
-      addMemberToSubscription(
+      await addMemberToSubscription(
         db,
         {
           subscriptionId: sub.id,
