@@ -189,7 +189,7 @@ describe('T8 generateMonthlyBills (R1)', () => {
   })
 
   it('skips personal subs (no group_id AND only one member)', async () => {
-    const a = createUser(sqlite)
+    const a = await createUser(db)
     await createSubscription(db, {
       name: 'Spotify',
       price: 1500,

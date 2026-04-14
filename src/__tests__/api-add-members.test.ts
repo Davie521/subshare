@@ -52,7 +52,7 @@ describe('A2 handleAddMembers', () => {
     const { a, c, subId } = await bootstrap()
     await handleAddMembers(db, a, subId, [c])
 
-    const notifs = await listNotifications(db, c).filter(
+    const notifs = (await listNotifications(db, c)).filter(
       (n) => n.type === 'added_to_sub'
     )
     expect(notifs).toHaveLength(1)
@@ -73,7 +73,7 @@ describe('A2 handleAddMembers', () => {
 
   it('no-op when adding an existing member (idempotent)', async () => {
     const { a, b, subId } = await bootstrap()
-    const before = await getMembersOfSubscription(db, subId).length
+    const before = (await getMembersOfSubscription(db, subId)).length
 
     const res = await handleAddMembers(db, a, subId, [b])
     expect(res.success).toBe(true)
@@ -82,7 +82,7 @@ describe('A2 handleAddMembers', () => {
   })
 
   it('rejects when subscription does not exist', async () => {
-    const a = createUser(sqlite)
+    const a = await createUser(db)
     const b = await createUser(db, { email: 'b@t.com' })
     const res = await handleAddMembers(db, a, 9999, [b])
     expect(res.success).toBe(false)

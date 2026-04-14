@@ -18,7 +18,7 @@ beforeEach(async () => {
 })
 
 describe('T5 leaveSubscription', () => {
-  function scenario() {
+  async function scenario() {
     const a = await createUser(db, { email: 'a@t.com' })
     const b = await createUser(db, { email: 'b@t.com' })
     const sub = await createSubscription(db, {
@@ -38,7 +38,7 @@ describe('T5 leaveSubscription', () => {
   }
 
   it('sets left_at on the member row', async () => {
-    const { b, sub } = scenario()
+    const { b, sub } = await scenario()
 
     await leaveSubscription(db, {
       subscriptionId: sub.id,
@@ -52,7 +52,7 @@ describe('T5 leaveSubscription', () => {
   })
 
   it('generates NO additional billing records on leave (R3, no refund)', async () => {
-    const { b, sub } = scenario()
+    const { b, sub } = await scenario()
 
     const before = (
       await sqlite.prepare(`SELECT COUNT(*) AS n FROM billing_records`)
@@ -74,20 +74,19 @@ describe('T5 leaveSubscription', () => {
   })
 
   it('rejects when the leaving user is the payer (R7)', async () => {
-    const { a, sub } = scenario()
+    const { a, sub } = await scenario()
     // A is the payer by default.
 
-    expect(() =>
-      await leaveSubscription(db, {
+    await expect(leaveSubscription(db, {
         subscriptionId: sub.id,
         userId: a,
         leftAt: '2026-04-20',
       })
-    ).toThrow(/payer/i)
+    ).rejects.toThrow(/payer/i)
   })
 
   it('is a no-op when the user already left (idempotent)', async () => {
-    const { b, sub } = scenario()
+    const { b, sub } = await scenario()
 
     await leaveSubscription(db, {
       subscriptionId: sub.id,
@@ -101,22 +100,21 @@ describe('T5 leaveSubscription', () => {
       leftAt: '2026-04-30',
     })
 
-    const bRow = await getMembersOfSubscription(db, sub.id).find(
+    const bRow = (await getMembersOfSubscription(db, sub.id)).find(
       (r) => r.userId === b
     )!
     expect(bRow.leftAt).toBe('2026-04-20')
   })
 
   it('throws when the user is not a member at all', async () => {
-    const { sub } = scenario()
+    const { sub } = await scenario()
     const stranger = await createUser(db, { email: 'stranger@t.com' })
 
-    expect(() =>
-      await leaveSubscription(db, {
+    await expect(leaveSubscription(db, {
         subscriptionId: sub.id,
         userId: stranger,
         leftAt: '2026-04-20',
       })
-    ).toThrow(/not a member/i)
+    ).rejects.toThrow(/not a member/i)
   })
 })

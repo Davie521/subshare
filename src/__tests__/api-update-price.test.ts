@@ -35,8 +35,7 @@ describe('A5 handleUpdateSubscription emits price_changed', () => {
     })
     expect(res.success).toBe(true)
 
-    const priceNotifs = (uid: number) =>
-      await listNotifications(db, uid).filter((n) => n.type === 'price_changed')
+    const priceNotifs = async (uid: number) => (await listNotifications(db, uid)).filter((n) => n.type === 'price_changed')
     expect(priceNotifs(a)).toHaveLength(0)
     expect(priceNotifs(b)).toHaveLength(1)
     expect(priceNotifs(c)).toHaveLength(1)
@@ -60,7 +59,7 @@ describe('A5 handleUpdateSubscription emits price_changed', () => {
 
     await handleUpdateSubscription(db, a, created.data!.id, { name: 'Netflix Plus' })
 
-    const priceNotifs = await listNotifications(db, b).filter(
+    const priceNotifs = (await listNotifications(db, b)).filter(
       (n) => n.type === 'price_changed'
     )
     expect(priceNotifs).toHaveLength(0)

@@ -86,16 +86,16 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
     const { a, b, c, sub } = await setup3()
     await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
 
-    const priceNotifsFor = (uid: number) =>
-      await listNotifications(db, uid).filter((n) => n.type === 'price_changed')
+    const priceNotifsFor = async (uid: number) =>
+      (await listNotifications(db, uid)).filter((n) => n.type === 'price_changed')
 
     // Only B and C receive — A is payer.
-    expect(priceNotifsFor(a)).toHaveLength(0)
-    expect(priceNotifsFor(b)).toHaveLength(1)
-    expect(priceNotifsFor(c)).toHaveLength(1)
+    expect(await priceNotifsFor(a)).toHaveLength(0)
+    expect(await priceNotifsFor(b)).toHaveLength(1)
+    expect(await priceNotifsFor(c)).toHaveLength(1)
 
     for (const recipient of [b, c]) {
-      const n = priceNotifsFor(recipient)[0] as {
+      const n = (await priceNotifsFor(recipient))[0] as {
         type: string
         subscriptionId: number | null
         payload: {
@@ -137,23 +137,23 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
   it('does not emit notification when new price equals old', async () => {
     const { a, b, sub } = await setup3()
     await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 15000 })
-    const priceNotifsFor = (uid: number) =>
-      await listNotifications(db, uid).filter((n) => n.type === 'price_changed')
-    expect(priceNotifsFor(a)).toHaveLength(0)
-    expect(priceNotifsFor(b)).toHaveLength(0)
+    const priceNotifsFor = async (uid: number) =>
+      (await listNotifications(db, uid)).filter((n) => n.type === 'price_changed')
+    expect(await priceNotifsFor(a)).toHaveLength(0)
+    expect(await priceNotifsFor(b)).toHaveLength(0)
   })
 
   it('rejects negative or non-numeric price', async () => {
     const { sub } = await setup3()
-    expect(() =>
-      await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: -100 })
-    ).toThrow()
-    expect(() =>
-      await changeSubscriptionPrice(db, {
+    await expect(
+      changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: -100 })
+    ).rejects.toThrow()
+    await expect(
+      changeSubscriptionPrice(db, {
         subscriptionId: sub.id,
         // @ts-expect-error intentionally bad input
         newPrice: 'abc',
       })
-    ).toThrow()
+    ).rejects.toThrow()
   })
 })

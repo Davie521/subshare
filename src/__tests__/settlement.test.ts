@@ -32,7 +32,7 @@ beforeEach(async () => {
 
 describe('T16 getSettlementSummary', () => {
   it('returns empty when no unpaid bills exist', async () => {
-    const a = createUser(sqlite)
+    const a = await createUser(db)
     expect(await getSettlementSummary(db, a)).toEqual([])
   })
 
@@ -200,7 +200,7 @@ describe('T16 getSettlementSummary', () => {
 })
 
 describe('T16 markPairSettled', () => {
-  function pair() {
+  async function pair() {
     const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
     const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
     const sub1 = await createSubscription(db, {
@@ -236,7 +236,7 @@ describe('T16 markPairSettled', () => {
   }
 
   it('flips is_paid=1 on all unpaid bills between the pair in the given currency', async () => {
-    const { a, b } = pair()
+    const { a, b } = await pair()
     const n = await markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
     expect(n).toBeGreaterThanOrEqual(2)
 
@@ -246,7 +246,7 @@ describe('T16 markPairSettled', () => {
   })
 
   it('is idempotent — second call marks 0 more rows', async () => {
-    const { a, b } = pair()
+    const { a, b } = await pair()
     await markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
     const second = await markPairSettled(db, {
       userA: a,
@@ -257,13 +257,13 @@ describe('T16 markPairSettled', () => {
   })
 
   it('direction-agnostic: userA/userB order does not matter', async () => {
-    const { a, b } = pair()
+    const { a, b } = await pair()
     const n = await markPairSettled(db, { userA: b, userB: a, currency: 'CNY' })
     expect(n).toBeGreaterThan(0)
   })
 
   it('currency scoping — leaves other-currency bills untouched', async () => {
-    const { a, b } = pair()
+    const { a, b } = await pair()
     // Add a USD bill between A and B manually on a different billing_date.
     await sqlite.prepare(
         `INSERT INTO billing_records
@@ -283,7 +283,7 @@ describe('T16 markPairSettled', () => {
   })
 
   it('does not touch bills involving a third party', async () => {
-    const { a, b } = pair()
+    const { a, b } = await pair()
     const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
     const sub3 = await createSubscription(db, {
       name: 'YT',

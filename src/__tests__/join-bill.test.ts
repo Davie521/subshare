@@ -164,7 +164,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
   it('no bill generated when the joiner is the payer (owner insert)', async () => {
     // createSubscription auto-inserts the owner as the payer-member.
     // That self-insert must NOT create a billing_record.
-    const a = createUser(sqlite)
+    const a = await createUser(db)
     await createSubscription(db, {
       name: 'Netflix',
       price: 10000,

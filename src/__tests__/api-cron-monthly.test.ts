@@ -12,7 +12,7 @@ beforeEach(async () => {
   sqlite = setup.sqlite
 })
 
-function billsForDate(date: string): number {
+async function billsForDate(date: string): number {
   return (
     await sqlite.prepare(
         'SELECT COUNT(*) AS n FROM billing_records WHERE billing_date = ?'
@@ -45,7 +45,7 @@ describe('A10 runBillingCron', () => {
     if (!result.success) return
 
     expect(result.data!.monthlyBillsGenerated).toBeGreaterThan(0)
-    expect(billsForDate('2026-05-01')).toBeGreaterThan(0)
+    expect(await billsForDate('2026-05-01')).toBeGreaterThan(0)
   })
 
   it('on non-1st days, does NOT run the monthly generator', async () => {
@@ -66,7 +66,7 @@ describe('A10 runBillingCron', () => {
     expect(result.success).toBe(true)
     if (!result.success) return
     expect(result.data!.monthlyBillsGenerated).toBe(0)
-    expect(billsForDate('2026-05-01')).toBe(0)
+    expect(await billsForDate('2026-05-01')).toBe(0)
   })
 
   it('is idempotent on 1st — second run adds zero new bills', async () => {

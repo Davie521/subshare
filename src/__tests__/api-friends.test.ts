@@ -17,7 +17,7 @@ beforeEach(async () => {
 
 describe('A7 handleListFriends', () => {
   it('returns empty when no friendships', async () => {
-    const a = createUser(sqlite)
+    const a = await createUser(db)
     const res = await handleListFriends(db, a)
     expect(res.success).toBe(true)
     if (!res.success) return

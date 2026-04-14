@@ -11,7 +11,7 @@ import { migrate } from '@/db/migrate'
  * downstream invariant (R7 payer guard, settlement netting) silently breaks.
  */
 
-function legacyDbWithPrePayerSchema(): Database.Database {
+async function legacyDbWithPrePayerSchema(): Database.Database {
   // Simulate a DB created before the payer_id column existed.
   const sqlite = new Database(':memory:')
   sqlite.pragma('foreign_keys = ON')
@@ -47,14 +47,14 @@ function legacyDbWithPrePayerSchema(): Database.Database {
 
 describe('T17 migration payer_id guard', () => {
   it('backfills payer_id=owner_id for a personal sub (happy path)', async () => {
-    const sqlite = legacyDbWithPrePayerSchema()
+    const sqlite = await legacyDbWithPrePayerSchema()
     await sqlite.prepare(
         `INSERT INTO subscriptions (id, name, price, next_payment, start_date, owner_id)
          VALUES (10, 'Spotify', 1500, '2026-05-01', '2026-01-01', 1)`
       )
       .run()
 
-    expect(() => await migrate(sqlite)).not.toThrow()
+    await expect(migrate(sqlite)).resolves.not.toThrow()
 
     const row = await sqlite.prepare('SELECT payer_id FROM subscriptions WHERE id = 10')
       .get() as { payer_id: number }
@@ -62,7 +62,7 @@ describe('T17 migration payer_id guard', () => {
   })
 
   it('throws when a subscription has no resolvable payer after backfill', async () => {
-    const sqlite = legacyDbWithPrePayerSchema()
+    const sqlite = await legacyDbWithPrePayerSchema()
     // Directly insert a row that violates owner_id NOT NULL — impossible
     // via the CREATE TABLE above. So instead, simulate the pathology with
     // a NULL-allowed shadow column. We recreate the table without
@@ -86,6 +86,6 @@ describe('T17 migration payer_id guard', () => {
       )
       .run()
 
-    expect(() => await migrate(sqlite)).toThrow(/payer_id/i)
+    await expect(migrate(sqlite)).rejects.toThrow(/payer_id/i)
   })
 })

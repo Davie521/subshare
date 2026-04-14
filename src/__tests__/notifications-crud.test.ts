@@ -21,7 +21,7 @@ beforeEach(async () => {
 
 describe('T10 notifications CRUD', () => {
   it('insertNotification persists row with created_at and null read_at', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     const id = await insertNotification(db, {
       userId: u,
       type: 'added_to_sub',
@@ -39,7 +39,7 @@ describe('T10 notifications CRUD', () => {
   })
 
   it('listNotifications returns latest first', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     await insertNotification(db, { userId: u, type: 'a', payload: { n: 1 } })
     await insertNotification(db, { userId: u, type: 'b', payload: { n: 2 } })
     await insertNotification(db, { userId: u, type: 'c', payload: { n: 3 } })
@@ -54,12 +54,12 @@ describe('T10 notifications CRUD', () => {
     await insertNotification(db, { userId: u1, type: 'x', payload: {} })
     await insertNotification(db, { userId: u2, type: 'y', payload: {} })
 
-    expect(await listNotifications(db, u1).map((r) => r.type)).toEqual(['x'])
-    expect(await listNotifications(db, u2).map((r) => r.type)).toEqual(['y'])
+    expect((await listNotifications(db, u1)).map((r) => r.type)).toEqual(['x'])
+    expect((await listNotifications(db, u2)).map((r) => r.type)).toEqual(['y'])
   })
 
   it('markNotificationRead flips read_at', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     const id = await insertNotification(db, {
       userId: u,
       type: 'x',
@@ -73,19 +73,19 @@ describe('T10 notifications CRUD', () => {
   })
 
   it('markAllNotificationsRead flips all unread for a user', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     await insertNotification(db, { userId: u, type: 'a', payload: {} })
     await insertNotification(db, { userId: u, type: 'b', payload: {} })
     await insertNotification(db, { userId: u, type: 'c', payload: {} })
 
     await markAllNotificationsRead(db, u)
 
-    const unread = await listNotifications(db, u).filter((r) => r.readAt === null)
+    const unread = (await listNotifications(db, u)).filter((r) => r.readAt === null)
     expect(unread).toHaveLength(0)
   })
 
   it('countUnreadNotifications returns only unread', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     const one = await insertNotification(db, {
       userId: u,
       type: 'a',
@@ -100,7 +100,7 @@ describe('T10 notifications CRUD', () => {
   })
 
   it('supports subscriptionId link for drill-through', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 1000,

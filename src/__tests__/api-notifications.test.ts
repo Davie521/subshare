@@ -19,7 +19,7 @@ beforeEach(async () => {
 
 describe('A6 notifications endpoints', () => {
   it('handleListNotifications returns latest-first with unread count', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     await insertNotification(db, { userId: u, type: 'a', payload: {} })
     await insertNotification(db, { userId: u, type: 'b', payload: {} })
     await insertNotification(db, { userId: u, type: 'c', payload: {} })
@@ -32,7 +32,7 @@ describe('A6 notifications endpoints', () => {
   })
 
   it('handleMarkNotificationRead flips read_at', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     const id = await insertNotification(db, {
       userId: u,
       type: 'x',
@@ -58,7 +58,7 @@ describe('A6 notifications endpoints', () => {
   })
 
   it('handleMarkAllNotificationsRead clears all my unread', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     await insertNotification(db, { userId: u, type: 'a', payload: {} })
     await insertNotification(db, { userId: u, type: 'b', payload: {} })
 
@@ -72,7 +72,7 @@ describe('A6 notifications endpoints', () => {
   })
 
   it('pagination: limit respected', async () => {
-    const u = createUser(sqlite)
+    const u = await createUser(db)
     for (let i = 0; i < 75; i++) {
       await insertNotification(db, { userId: u, type: 't', payload: { i } })
     }

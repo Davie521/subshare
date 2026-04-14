@@ -21,7 +21,7 @@ beforeEach(async () => {
   sqlite = setup.sqlite
 })
 
-function billFor(userId: number) {
+async function billFor(userId: number) {
   return await sqlite.prepare(
       `SELECT amount, currency, local_amount AS localAmount,
               local_currency AS localCurrency, exchange_rate AS exchangeRate
@@ -55,7 +55,7 @@ describe('T18 R2 join bill FX conversion', () => {
       addedAt: '2026-04-01',
     })
 
-    const row = billFor(b)
+    const row = await billFor(b)
     expect(row.amount).toBe(5000)
     expect(row.localAmount).toBe(5000)
     expect(row.exchangeRate).toBe(1_000_000)
@@ -85,7 +85,7 @@ describe('T18 R2 join bill FX conversion', () => {
       { USD_CNY: 7.2 }
     )
 
-    const row = billFor(b)
+    const row = await billFor(b)
     // day 1 of 30 → full share; share = 750; 750 * 7.2 = 5400.
     expect(row.amount).toBe(750)
     expect(row.currency).toBe('USD')
@@ -105,14 +105,13 @@ describe('T18 R2 join bill FX conversion', () => {
       startDate: '2026-04-01',
       ownerId: a,
     })
-    expect(() =>
-      await addMemberToSubscription(db, {
+    await expect(addMemberToSubscription(db, {
         subscriptionId: sub.id,
         userId: b,
         addedBy: a,
         addedAt: '2026-04-01',
       })
-    ).toThrow(/rate|USD_CNY/i)
+    ).rejects.toThrow(/rate|USD_CNY/i)
   })
 
   it('rejects invalid rate (non-positive, NaN)', async () => {
@@ -126,8 +125,7 @@ describe('T18 R2 join bill FX conversion', () => {
       startDate: '2026-04-01',
       ownerId: a,
     })
-    expect(() =>
-      await addMemberToSubscription(
+    await expect(addMemberToSubscription(
         db,
         {
           subscriptionId: sub.id,
@@ -137,9 +135,8 @@ describe('T18 R2 join bill FX conversion', () => {
         },
         { USD_CNY: 0 }
       )
-    ).toThrow()
-    expect(() =>
-      await addMemberToSubscription(
+    ).rejects.toThrow()
+    await expect(addMemberToSubscription(
         db,
         {
           subscriptionId: sub.id,
@@ -149,6 +146,6 @@ describe('T18 R2 join bill FX conversion', () => {
         },
         { USD_CNY: NaN }
       )
-    ).toThrow()
+    ).rejects.toThrow()
   })
 })

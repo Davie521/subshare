@@ -39,12 +39,12 @@ describe('A3 handleRemoveMember', () => {
     const res = await handleRemoveMember(db, b, subId, b)
     expect(res.success).toBe(true)
 
-    const active = await getMembersOfSubscription(db, subId).filter(
+    const active = (await getMembersOfSubscription(db, subId)).filter(
       (m) => m.leftAt === null
     )
     expect(active.map((m) => m.userId)).not.toContain(b)
 
-    const kickNotifs = await listNotifications(db, b).filter(
+    const kickNotifs = (await listNotifications(db, b)).filter(
       (n) => n.type === 'removed_from_sub'
     )
     expect(kickNotifs).toHaveLength(0) // self-leave silent
@@ -56,7 +56,7 @@ describe('A3 handleRemoveMember', () => {
     const res = await handleRemoveMember(db, a, subId, b)
     expect(res.success).toBe(true)
 
-    const kickNotifs = await listNotifications(db, b).filter(
+    const kickNotifs = (await listNotifications(db, b)).filter(
       (n) => n.type === 'removed_from_sub'
     )
     expect(kickNotifs).toHaveLength(1)

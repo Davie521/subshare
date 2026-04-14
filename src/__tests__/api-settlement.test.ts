@@ -64,7 +64,7 @@ describe('A8 handleGetSettlement', () => {
   })
 
   it('empty when no unpaid bills exist', async () => {
-    const a = createUser(sqlite)
+    const a = await createUser(db)
     const res = await handleGetSettlement(db, a)
     expect(res.success).toBe(true)
     if (!res.success) return

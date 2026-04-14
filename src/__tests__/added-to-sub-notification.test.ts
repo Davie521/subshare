@@ -71,7 +71,7 @@ describe('T11 added_to_sub notification', () => {
   })
 
   it('no notification sent when owner is self-inserted on createSubscription', async () => {
-    const a = createUser(sqlite)
+    const a = await createUser(db)
     await createSubscription(db, {
       name: 'Spotify',
       price: 1000,

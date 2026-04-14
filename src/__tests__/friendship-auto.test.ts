@@ -24,7 +24,7 @@ beforeEach(async () => {
   sqlite = setup.sqlite
 })
 
-function hasFriendship(userA: number, userB: number): boolean {
+async function hasFriendship(userA: number, userB: number): boolean {
   const [lo, hi] = userA < userB ? [userA, userB] : [userB, userA]
   const row = await sqlite.prepare(
       `SELECT 1 FROM friendships WHERE user_a_id = ? AND user_b_id = ?`
@@ -33,7 +33,7 @@ function hasFriendship(userA: number, userB: number): boolean {
   return !!row
 }
 
-function friendshipCount(): number {
+async function friendshipCount(): number {
   const row = await sqlite.prepare(`SELECT COUNT(*) AS n FROM friendships`)
     .get() as { n: number }
   return row.n
@@ -58,7 +58,7 @@ describe('T7 friendship auto-create on addMember', () => {
       addedAt: '2026-04-15',
     })
 
-    expect(hasFriendship(a, b)).toBe(true)
+    expect(await hasFriendship(a, b)).toBe(true)
   })
 
   it('A adds B then A adds C → no friendship(B, C)', async () => {
@@ -86,9 +86,9 @@ describe('T7 friendship auto-create on addMember', () => {
       addedAt: '2026-04-20',
     })
 
-    expect(hasFriendship(a, b)).toBe(true)
-    expect(hasFriendship(a, c)).toBe(true)
-    expect(hasFriendship(b, c)).toBe(false)
+    expect(await hasFriendship(a, b)).toBe(true)
+    expect(await hasFriendship(a, c)).toBe(true)
+    expect(await hasFriendship(b, c)).toBe(false)
   })
 
   it('re-adding the same user does not create a duplicate friendship', async () => {
@@ -115,11 +115,11 @@ describe('T7 friendship auto-create on addMember', () => {
       addedAt: '2026-04-16',
     })
 
-    expect(friendshipCount()).toBe(1)
+    expect(await friendshipCount()).toBe(1)
   })
 
   it('owner-self-insert on createSubscription does NOT create a self-friendship', async () => {
-    const a = createUser(sqlite)
+    const a = await createUser(db)
     await createSubscription(db, {
       name: 'Spotify',
       price: 1500,
@@ -128,7 +128,7 @@ describe('T7 friendship auto-create on addMember', () => {
       ownerId: a,
     })
 
-    expect(friendshipCount()).toBe(0)
+    expect(await friendshipCount()).toBe(0)
   })
 
   it('works regardless of add order (A adds B, then B added again in another sub)', async () => {
@@ -163,7 +163,7 @@ describe('T7 friendship auto-create on addMember', () => {
       addedAt: '2026-04-10',
     })
 
-    expect(friendshipCount()).toBe(1)
+    expect(await friendshipCount()).toBe(1)
   })
 
   it('symmetric: B adds A creates same friendship row as A adds B', async () => {
@@ -183,7 +183,7 @@ describe('T7 friendship auto-create on addMember', () => {
       addedAt: '2026-04-15',
     })
 
-    expect(hasFriendship(a, b)).toBe(true)
+    expect(await hasFriendship(a, b)).toBe(true)
     // Canonical ordering (smaller id first)
     const row = await sqlite.prepare(
         `SELECT user_a_id, user_b_id FROM friendships`

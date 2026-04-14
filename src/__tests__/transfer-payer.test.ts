@@ -58,8 +58,7 @@ describe('T13 transferPayer', () => {
     const { a, b, c, sub } = await setup3()
     await transferPayer(db, { subscriptionId: sub.id, newPayerId: b })
 
-    const payerNotifs = (uid: number) =>
-      await listNotifications(db, uid).filter((n) => n.type === 'payer_changed')
+    const payerNotifs = async (uid: number) => (await listNotifications(db, uid)).filter((n) => n.type === 'payer_changed')
 
     expect(payerNotifs(a)).toHaveLength(1) // old payer gets told
     expect(payerNotifs(b)).toHaveLength(1) // new payer gets told
@@ -86,16 +85,14 @@ describe('T13 transferPayer', () => {
     const { sub } = await setup3()
     const stranger = await createUser(db, { email: 'stranger@t.com' })
 
-    expect(() =>
-      await transferPayer(db, { subscriptionId: sub.id, newPayerId: stranger })
-    ).toThrow(/member/i)
+    await expect(transferPayer(db, { subscriptionId: sub.id, newPayerId: stranger })
+    ).rejects.toThrow(/member/i)
   })
 
   it('rejects when newPayerId equals current payer (no-op guard)', async () => {
     const { a, sub } = await setup3()
-    expect(() =>
-      await transferPayer(db, { subscriptionId: sub.id, newPayerId: a })
-    ).toThrow(/already/i)
+    await expect(transferPayer(db, { subscriptionId: sub.id, newPayerId: a })
+    ).rejects.toThrow(/already/i)
   })
 
   it('after transfer, new payer is excluded from monthly bills', async () => {

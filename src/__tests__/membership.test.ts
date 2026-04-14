@@ -24,7 +24,7 @@ beforeEach(async () => {
 
 describe('T4 addMemberToSubscription', () => {
   it('owner is auto-inserted as a member on createSubscription', async () => {
-    const owner = createUser(sqlite)
+    const owner = await createUser(db)
     const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 15000,
@@ -115,7 +115,7 @@ describe('T4 addMemberToSubscription', () => {
   })
 
   it('creating a subscription writes exactly ONE subscription_members row for the owner', async () => {
-    const owner = createUser(sqlite)
+    const owner = await createUser(db)
     const sub = await createSubscription(db, {
       name: 'Spotify',
       price: 1500,

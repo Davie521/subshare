@@ -79,7 +79,7 @@ describe('auth', () => {
 
 describe('handleCreateGroup', () => {
   it('creates a group and adds creator as member', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     const result = await handleCreateGroup(db, userId, { name: 'Roommates' })
 
     assertSuccess(result)
@@ -87,7 +87,7 @@ describe('handleCreateGroup', () => {
     expect(result.data!.publicId).toBeDefined()
     expect(result.data!.publicId.length).toBeGreaterThan(5)
 
-    const members = db
+    const members = await db
       .select()
       .from(schema.groupMembers)
       .where(
@@ -96,7 +96,7 @@ describe('handleCreateGroup', () => {
           result.data!.id
         )
       )
-      .all()
+      
     expect(members).toHaveLength(1)
     expect(members[0].userId).toBe(userId)
   })
@@ -111,16 +111,16 @@ describe('handleJoinGroup', () => {
     const result = await handleJoinGroup(db, userB, group.publicId)
     expect(result.success).toBe(true)
 
-    const members = db
+    const members = await db
       .select()
       .from(schema.groupMembers)
       .where(eq(schema.groupMembers.groupId, group.id))
-      .all()
+      
     expect(members).toHaveLength(2)
   })
 
   it('rejects invalid publicId', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     const result = await handleJoinGroup(db, userId, 'nonexistent')
     assertFailure(result)
     expect(result.error).toBeDefined()
@@ -183,11 +183,11 @@ describe('handleDeleteGroup', () => {
     const result = await handleDeleteGroup(db, userA, group.id)
     expect(result.success).toBe(true)
 
-    const found = db
+    const [found] = await db
       .select()
       .from(schema.groups)
       .where(eq(schema.groups.id, group.id))
-      .get()
+      
     expect(found).toBeUndefined()
   })
 
@@ -226,7 +226,7 @@ describe('handleDeleteGroup', () => {
 
 describe('handleCreateSubscription', () => {
   it('creates personal subscription', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     const result = await handleCreateSubscription(db, userId, {
       name: 'Spotify',
       price: 1500,
@@ -238,7 +238,7 @@ describe('handleCreateSubscription', () => {
   })
 
   it('creates shared subscription in a group', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     const group = await createGroup(db, { createdBy: userId })
 
     const result = await handleCreateSubscription(db, userId, {
@@ -270,7 +270,7 @@ describe('handleCreateSubscription', () => {
 
 describe('handleUpdateSubscription', () => {
   it('updates subscription price', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 18000,
@@ -282,11 +282,11 @@ describe('handleUpdateSubscription', () => {
     const result = await handleUpdateSubscription(db, userId, sub.id, { price: 20000 })
     expect(result.success).toBe(true)
 
-    const updated = db
+    const [updated] = await db
       .select()
       .from(schema.subscriptions)
       .where(eq(schema.subscriptions.id, sub.id))
-      .get()
+      
     expect(updated!.price).toBe(20000)
   })
 
@@ -308,7 +308,7 @@ describe('handleUpdateSubscription', () => {
 
 describe('handleDeleteSubscription', () => {
   it('hard deletes when no unpaid bills', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     const sub = await createSubscription(db, {
       name: 'Spotify',
       price: 1500,
@@ -320,11 +320,11 @@ describe('handleDeleteSubscription', () => {
     const result = await handleDeleteSubscription(db, userId, sub.id)
     expect(result.success).toBe(true)
 
-    const found = db
+    const [found] = await db
       .select()
       .from(schema.subscriptions)
       .where(eq(schema.subscriptions.id, sub.id))
-      .get()
+      
     expect(found).toBeUndefined()
   })
 
@@ -347,11 +347,11 @@ describe('handleDeleteSubscription', () => {
     const result = await handleDeleteSubscription(db, userA, sub.id)
     expect(result.success).toBe(true)
 
-    const found = db
+    const [found] = await db
       .select()
       .from(schema.subscriptions)
       .where(eq(schema.subscriptions.id, sub.id))
-      .get()
+      
     expect(found).toBeDefined()
     expect(found!.inactive).toBe(1)
   })
@@ -380,11 +380,11 @@ describe('handleMarkPaid', () => {
     const result = await handleMarkPaid(db, userB, bills[0].id)
     expect(result.success).toBe(true)
 
-    const updated = db
+    const [updated] = await db
       .select()
       .from(schema.billingRecords)
       .where(eq(schema.billingRecords.id, bills[0].id))
-      .get()
+      
     expect(updated!.isPaid).toBe(1)
   })
 

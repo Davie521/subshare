@@ -19,7 +19,7 @@ import { backfillFromGroups } from '@/db/migrate'
  *    their own subscription_members row for personal subs.
  */
 
-function legacyDb(): Database.Database {
+async function legacyDb(): Database.Database {
   const sqlite = new Database(':memory:')
   sqlite.pragma('foreign_keys = ON')
   await migrate(sqlite)
@@ -68,8 +68,8 @@ function legacyDb(): Database.Database {
 
 describe('T15 backfillFromGroups', () => {
   it('populates subscription_members from group_members for shared subs', async () => {
-    const sqlite = legacyDb()
-    const inserted = await backfillFromGroups(sqlite)
+    const sqlite = await legacyDb()
+    const inserted = await backfillFromGroups(db)
 
     const rows = await sqlite.prepare(
         `SELECT subscription_id, user_id, added_at, added_by, left_at
@@ -102,8 +102,8 @@ describe('T15 backfillFromGroups', () => {
   })
 
   it('populates subscription_members for personal subs (owner as sole member)', async () => {
-    const sqlite = legacyDb()
-    await backfillFromGroups(sqlite)
+    const sqlite = await legacyDb()
+    await backfillFromGroups(db)
 
     const rows = await sqlite.prepare(
         `SELECT user_id FROM subscription_members WHERE subscription_id = 11`
@@ -113,8 +113,8 @@ describe('T15 backfillFromGroups', () => {
   })
 
   it('creates friendships between group creator and each other member', async () => {
-    const sqlite = legacyDb()
-    await backfillFromGroups(sqlite)
+    const sqlite = await legacyDb()
+    await backfillFromGroups(db)
 
     const rows = await sqlite.prepare(
         `SELECT user_a_id, user_b_id FROM friendships`
@@ -126,8 +126,8 @@ describe('T15 backfillFromGroups', () => {
   })
 
   it('does NOT create friendship for self (creator is their own group member)', async () => {
-    const sqlite = legacyDb()
-    await backfillFromGroups(sqlite)
+    const sqlite = await legacyDb()
+    await backfillFromGroups(db)
 
     const selfRows = await sqlite.prepare(
         `SELECT COUNT(*) AS n FROM friendships WHERE user_a_id = user_b_id`
@@ -137,9 +137,9 @@ describe('T15 backfillFromGroups', () => {
   })
 
   it('is idempotent — running twice does not duplicate', async () => {
-    const sqlite = legacyDb()
-    await backfillFromGroups(sqlite)
-    await backfillFromGroups(sqlite)
+    const sqlite = await legacyDb()
+    await backfillFromGroups(db)
+    await backfillFromGroups(db)
 
     const subMembers = await sqlite.prepare('SELECT COUNT(*) AS n FROM subscription_members')
       .get() as { n: number }
@@ -151,7 +151,7 @@ describe('T15 backfillFromGroups', () => {
   })
 
   it('no-op on already-migrated data (subscription_members already populated)', async () => {
-    const sqlite = legacyDb()
+    const sqlite = await legacyDb()
 
     // Pre-populate subscription_members from somewhere else.
     await sqlite.prepare(
@@ -160,7 +160,7 @@ describe('T15 backfillFromGroups', () => {
       )
       .run()
 
-    await backfillFromGroups(sqlite)
+    await backfillFromGroups(db)
 
     // User 1's row was already there from pre-population: original added_at preserved.
     const row = await sqlite.prepare(

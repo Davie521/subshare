@@ -55,7 +55,7 @@ describe('T14 removed_from_sub notification', () => {
       actorId: b, // self
     })
 
-    const kicks = await listNotifications(db, b).filter(
+    const kicks = (await listNotifications(db, b)).filter(
       (n) => n.type === 'removed_from_sub'
     )
     expect(kicks).toHaveLength(0)
@@ -90,7 +90,7 @@ describe('T14 removed_from_sub notification', () => {
       leftAt: '2026-04-20',
     })
 
-    const kicks = await listNotifications(db, b).filter(
+    const kicks = (await listNotifications(db, b)).filter(
       (n) => n.type === 'removed_from_sub'
     )
     expect(kicks).toHaveLength(0)
@@ -121,13 +121,12 @@ describe('T14 removed_from_sub notification', () => {
   it('cannot kick the payer (same guard as self-leave)', async () => {
     const { a, b, sub } = await setup2()
 
-    expect(() =>
-      await leaveSubscription(db, {
+    await expect(leaveSubscription(db, {
         subscriptionId: sub.id,
         userId: a, // payer
         leftAt: '2026-04-20',
         actorId: b,
       })
-    ).toThrow(/payer/i)
+    ).rejects.toThrow(/payer/i)
   })
 })

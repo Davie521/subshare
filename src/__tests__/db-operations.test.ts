@@ -25,7 +25,7 @@ beforeEach(async () => {
 
 describe('createSubscription', () => {
   it('creates a personal subscription', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     const sub = await createSubscription(db, {
       name: 'Spotify',
       price: 1500,
@@ -40,7 +40,7 @@ describe('createSubscription', () => {
   })
 
   it('creates a shared subscription in a group', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     const group = await createGroup(db, { createdBy: userId })
 
     const sub = await createSubscription(db, {
@@ -58,7 +58,7 @@ describe('createSubscription', () => {
 
 describe('getSubscriptionsForUser', () => {
   it('returns personal subscriptions', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     await createSubscription(db, {
       name: 'Spotify',
       price: 1500,
@@ -157,11 +157,11 @@ describe('generateAndSaveBillingRecords', () => {
     const count = await generateAndSaveBillingRecords(db, sub.id)
     expect(count).toBe(2) // B and C
 
-    const bills = db
+    const bills = await db
       .select()
       .from(schema.billingRecords)
       .where(eq(schema.billingRecords.subscriptionId, sub.id))
-      .all()
+      
 
     expect(bills).toHaveLength(2)
     expect(bills.every((b) => b.amount === 6000)).toBe(true) // 18000/3
@@ -186,11 +186,11 @@ describe('generateAndSaveBillingRecords', () => {
     await generateAndSaveBillingRecords(db, sub.id)
     await generateAndSaveBillingRecords(db, sub.id) // second call
 
-    const bills = db
+    const bills = await db
       .select()
       .from(schema.billingRecords)
       .where(eq(schema.billingRecords.subscriptionId, sub.id))
-      .all()
+      
 
     expect(bills).toHaveLength(1) // no duplicates
   })
@@ -264,10 +264,10 @@ describe('getPendingBills', () => {
     await generateAndSaveBillingRecords(db, sub.id)
 
     // Mark as paid
-    const allBills = db
+    const allBills = await db
       .select()
       .from(schema.billingRecords)
-      .all()
+      
     await markBillPaid(db, allBills[0].id)
 
     const pending = await getPendingBills(db, userB)
@@ -296,11 +296,11 @@ describe('markBillPaid', () => {
     const bills = db.select().from(schema.billingRecords).all()
     await markBillPaid(db, bills[0].id)
 
-    const updated = db
+    const [updated] = await db
       .select()
       .from(schema.billingRecords)
       .where(eq(schema.billingRecords.id, bills[0].id))
-      .get()
+      
 
     expect(updated!.isPaid).toBe(1)
     expect(updated!.paidAt).toBeDefined()
@@ -352,11 +352,11 @@ describe('canLeaveGroup and removeGroupMember', () => {
 
     await removeGroupMember(db, group.id, userB)
 
-    const members = db
+    const members = await db
       .select()
       .from(schema.groupMembers)
       .where(eq(schema.groupMembers.groupId, group.id))
-      .all()
+      
 
     expect(members).toHaveLength(1) // only creator left
   })
