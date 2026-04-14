@@ -63,28 +63,31 @@ describe('T6 getActiveMembersAt', () => {
 
   it('excludes members whose leftAt <= atDate', async () => {
     const { a, b, c, sub } = await setup3()
-    // B leaves April 20; on April 21, only A and C should remain.
+    // B joined 4/1 so R2 minimum = 4/30. Leave 5/10 is past minimum
+    // (passes through unchanged). On 5/11, only A and C remain.
     await leaveSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-05-10',
     })
-    const members = await getActiveMembersAt(db, sub.id, '2026-04-21')
+    const members = await getActiveMembersAt(db, sub.id, '2026-05-11')
     const ids = members.map((m) => m.userId).sort()
     expect(ids).toEqual([a, c].sort())
   })
 
-  it('includes a member on their leftAt date (last active day)', async () => {
+  it('excludes a member on their leftAt date (half-open interval)', async () => {
     const { a, b, c, sub } = await setup3()
     await leaveSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-05-10',
     })
-    // B is "active" on April 20 — their last billable day.
-    const members = await getActiveMembersAt(db, sub.id, '2026-04-20')
+    // Half-open [addedAt, leftAt): B is gone at May 10 per spec R1
+    // (left_at > atDate required to be active). Matches cron-on-the-1st
+    // semantics where a kick on M_start must not produce an R1 bill.
+    const members = await getActiveMembersAt(db, sub.id, '2026-05-10')
     const ids = members.map((m) => m.userId).sort()
-    expect(ids).toEqual([a, b, c].sort())
+    expect(ids).toEqual([a, c].sort())
   })
 
   it('excludes members whose addedAt is AFTER atDate', async () => {

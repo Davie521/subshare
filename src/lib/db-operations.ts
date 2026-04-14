@@ -1,4 +1,4 @@
-import { eq, and, sql, inArray, isNull, or, gte, lte } from 'drizzle-orm'
+import { eq, and, sql, inArray, isNull, or, gt, gte, lte } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import { calculateShares, calculateJoinProRata } from './billing'
@@ -338,10 +338,11 @@ export async function leaveSubscription(
 
 /**
  * Active membership at a specific date. A member is active iff:
- *   addedAt <= atDate  AND  (leftAt IS NULL OR leftAt >= atDate)
+ *   addedAt <= atDate  AND  (leftAt IS NULL OR leftAt > atDate)
  *
- * The "leftAt >= atDate" convention treats the leave day as still-billable
- * (last active day) — pre-paid model, member used the service that day.
+ * leftAt is the first day the member is no longer on the service, so a
+ * member whose leftAt equals atDate is NOT active that day. Using strict
+ * > here prevents R1 from billing someone kicked on the 1st.
  */
 export async function getActiveMembersAt(
   db: DB,
@@ -367,11 +368,10 @@ export async function getActiveMembersAt(
         lte(schema.subscriptionMembers.addedAt, atDate),
         or(
           isNull(schema.subscriptionMembers.leftAt),
-          gte(schema.subscriptionMembers.leftAt, atDate)
+          gt(schema.subscriptionMembers.leftAt, atDate)
         )
       )
     )
-    
 }
 
 export async function getMembersOfSubscription(
