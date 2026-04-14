@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
-import { Users, Plus, X, Search, ArrowLeft, Pencil } from "lucide-react";
+import { Users, Plus, Search, ArrowLeft, Pencil } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { BrandIcon } from "@/components/brand-icon";
@@ -208,35 +208,40 @@ function SubscriptionForm({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // Group selection
-  const [mode, setMode] = useState<"personal" | "group">(
-    presetGroupId ? "group" : "personal"
+  // Sharing mode + member selection
+  const [mode, setMode] = useState<"personal" | "shared">(
+    presetGroupId ? "shared" : "personal"
   );
-  const [groups, setGroups] = useState<Array<{ id: number; name: string }>>([]);
-  const [selectedGroupId, setSelectedGroupId] = useState(presetGroupId || 0);
-
-  // Inline group creation
-  const [creatingGroup, setCreatingGroup] = useState(false);
-  const [newGroupName, setNewGroupName] = useState("");
+  const [friends, setFriends] = useState<Array<{ userId: number; displayName: string }>>([]);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<number[]>([]);
+  const [selfId, setSelfId] = useState<number | null>(null);
+  const [payerId, setPayerId] = useState<number | null>(null);
 
   useEffect(() => {
-    api.getGroups().then((res) => {
-      if (res.data) setGroups(res.data);
+    void api.me().then((r) => {
+      if (r.data) {
+        setSelfId(r.data.id);
+        setPayerId(r.data.id);
+      }
+    });
+    void api.friends().then((r) => {
+      if (r.data) {
+        setFriends(
+          r.data.map((f) => ({
+            userId: f.userId,
+            displayName: f.displayName,
+          }))
+        );
+      }
     });
   }, []);
 
-  async function handleCreateGroupInline() {
-    if (!newGroupName.trim()) return;
-    const res = await api.createGroup(newGroupName.trim());
-    if (res.error) return;
-    const groupsRes = await api.getGroups();
-    if (groupsRes.data) {
-      setGroups(groupsRes.data);
-      const newest = groupsRes.data[groupsRes.data.length - 1];
-      if (newest) setSelectedGroupId(newest.id);
-    }
-    setCreatingGroup(false);
-    setNewGroupName("");
+  function toggleMember(userId: number) {
+    setSelectedMemberIds((prev) =>
+      prev.includes(userId) ? prev.filter((x) => x !== userId) : [...prev, userId]
+    );
+    // If removing current payer, reset payer to self.
+    if (payerId === userId) setPayerId(selfId);
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -246,8 +251,8 @@ function SubscriptionForm({
       setError("Please fill in name and a valid price");
       return;
     }
-    if (mode === "group" && !selectedGroupId) {
-      setError("Please select or create a group");
+    if (mode === "shared" && selectedMemberIds.length === 0) {
+      setError("Pick at least one friend to share with");
       return;
     }
 
@@ -259,7 +264,12 @@ function SubscriptionForm({
       price,
       currency: form.currency,
       nextPayment: form.nextPayment,
-      groupId: mode === "group" ? selectedGroupId : undefined,
+      ...(mode === "shared"
+        ? {
+            members: selectedMemberIds,
+            payerId: payerId ?? undefined,
+          }
+        : {}),
     });
 
     if (res.error) {
@@ -268,9 +278,7 @@ function SubscriptionForm({
       return;
     }
 
-    router.push(
-      mode === "group" ? `/groups/${selectedGroupId}` : "/subscriptions"
-    );
+    router.push("/subscriptions");
   }
 
   return (
@@ -372,10 +380,10 @@ function SubscriptionForm({
               </button>
               <button
                 type="button"
-                onClick={() => setMode("group")}
+                onClick={() => setMode("shared")}
                 className={cn(
                   "flex flex-col items-center gap-1.5 p-4 rounded-lg border-2 cursor-pointer transition-all duration-150",
-                  mode === "group"
+                  mode === "shared"
                     ? "border-foreground bg-foreground/5"
                     : "border-transparent bg-muted hover:bg-muted/80"
                 )}
@@ -386,40 +394,92 @@ function SubscriptionForm({
               </button>
             </div>
 
-            {mode === "group" && (
-              <div className="space-y-3 pt-2">
+            {mode === "shared" && (
+              <div className="space-y-4 pt-2">
                 <Separator />
-                <Label>Group</Label>
-                {groups.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {groups.map((g) => (
-                      <button key={g.id} type="button" onClick={() => setSelectedGroupId(g.id)} className="cursor-pointer">
-                        <Badge variant={selectedGroupId === g.id ? "default" : "secondary"} className="cursor-pointer px-3 py-1.5 text-sm">
-                          {g.name}
-                        </Badge>
-                      </button>
-                    ))}
+
+                {/* Friends picker */}
+                <div className="space-y-2">
+                  <Label>Share with</Label>
+                  {friends.length === 0 ? (
+                    <p className="text-[13px] text-muted-foreground">
+                      No friends yet — add someone to your first shared
+                      subscription from an existing one. (Email invites
+                      coming soon.)
+                    </p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {friends.map((f) => {
+                        const selected = selectedMemberIds.includes(f.userId);
+                        return (
+                          <button
+                            key={f.userId}
+                            type="button"
+                            onClick={() => toggleMember(f.userId)}
+                            className={cn(
+                              "cursor-pointer px-3 py-1.5 rounded-full text-[13px] font-medium border transition-colors",
+                              selected
+                                ? "border-transparent text-white"
+                                : "border-input bg-transparent text-muted-foreground hover:text-foreground hover:bg-foreground/[0.04]"
+                            )}
+                            style={
+                              selected
+                                ? { backgroundColor: "var(--brand)" }
+                                : undefined
+                            }
+                          >
+                            {f.displayName}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Payer picker — only makes sense when at least one member */}
+                {selectedMemberIds.length > 0 && selfId !== null && (
+                  <div className="space-y-2">
+                    <Label htmlFor="payer">Payer</Label>
+                    <select
+                      id="payer"
+                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm cursor-pointer"
+                      value={payerId ?? selfId}
+                      onChange={(e) => setPayerId(Number(e.target.value))}
+                    >
+                      <option value={selfId}>You</option>
+                      {friends
+                        .filter((f) => selectedMemberIds.includes(f.userId))
+                        .map((f) => (
+                          <option key={f.userId} value={f.userId}>
+                            {f.displayName}
+                          </option>
+                        ))}
+                    </select>
+                    <p className="text-[12px] text-muted-foreground">
+                      The payer&apos;s card is charged; everyone else owes
+                      their share.
+                    </p>
                   </div>
                 )}
-                {creatingGroup ? (
-                  <div className="flex gap-2">
-                    <Input
-                      placeholder="Group name"
-                      value={newGroupName}
-                      onChange={(e) => setNewGroupName(e.target.value)}
-                      onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleCreateGroupInline(); } }}
-                      autoFocus
-                    />
-                    <Button type="button" size="sm" className="cursor-pointer" onClick={handleCreateGroupInline} disabled={!newGroupName.trim()}>Add</Button>
-                    <Button type="button" size="icon" variant="ghost" className="cursor-pointer flex-shrink-0" onClick={() => { setCreatingGroup(false); setNewGroupName(""); }}>
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ) : (
-                  <Button type="button" variant="outline" size="sm" className="cursor-pointer" onClick={() => setCreatingGroup(true)}>
-                    <Plus className="h-3.5 w-3.5 mr-1" /> New group
-                  </Button>
-                )}
+
+                {/* Preview */}
+                {selectedMemberIds.length > 0 &&
+                  form.price &&
+                  !isNaN(parseFloat(form.price)) && (
+                    <div className="rounded-md bg-muted/50 px-3 py-2 text-[12px] text-muted-foreground">
+                      Per person:{" "}
+                      <span className="font-semibold text-foreground tabular-nums">
+                        {formatMoney(
+                          Math.floor(
+                            (parseFloat(form.price) * 100) /
+                              (selectedMemberIds.length + 1)
+                          ),
+                          form.currency
+                        )}
+                      </span>{" "}
+                      / month
+                    </div>
+                  )}
               </div>
             )}
           </CardContent>

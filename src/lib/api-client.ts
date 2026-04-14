@@ -54,8 +54,19 @@ export const api = {
   // Subscriptions
   getSubscriptions: () =>
     request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; groupId: number | null; memberCount: number; inactive: number }>>("/api/subscriptions"),
-  createSubscription: (body: { name: string; price: number; currency: string; nextPayment: string; groupId?: number }) =>
-    request("/api/subscriptions", { method: "POST", body: JSON.stringify(body) }),
+  createSubscription: (body: {
+    name: string;
+    price: number;
+    currency: string;
+    nextPayment: string;
+    groupId?: number;
+    members?: number[];
+    payerId?: number;
+  }) =>
+    request<{ id: number; name: string; groupId: number | null }>(
+      "/api/subscriptions",
+      { method: "POST", body: JSON.stringify(body) }
+    ),
   getSubscription: (id: number) =>
     request<{
       id: number;
