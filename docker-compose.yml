@@ -1,12 +1,30 @@
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: subshare
+      POSTGRES_PASSWORD: subshare
+      POSTGRES_DB: subshare
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U subshare -d subshare"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
   subshare:
     build: .
     environment:
       - SESSION_SECRET=${SESSION_SECRET:-change-me-to-a-random-32-char-string}
-      - DATABASE_URL=/app/data/subshare.db
+      - DATABASE_URL=postgres://subshare:subshare@postgres:5432/subshare
       - NODE_ENV=production
-    volumes:
-      - subshare-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
 
   caddy:
@@ -23,6 +41,6 @@ services:
     restart: unless-stopped
 
 volumes:
-  subshare-data:
+  postgres-data:
   caddy-data:
   caddy-config:
