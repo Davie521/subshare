@@ -465,7 +465,7 @@ export async function handleUpdateSubscription(
     name?: string
     price?: number
     nextPayment?: string
-    inactive?: number
+    inactive?: boolean
   }
 ): Promise<Result> {
   const [sub] = await db

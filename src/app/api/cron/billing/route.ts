@@ -81,14 +81,18 @@ async function fetchRequiredRates(
 ): Promise<Record<string, number>> {
   if (subs.length === 0) return {}
 
+  const subIds = subs.map((s) => s.id)
   const memberCurrencies = await db
     .select({
       subscriptionId: schema.subscriptionMembers.subscriptionId,
       preferredCurrency: schema.users.preferredCurrency,
     })
-    .from(schema.groupMembers)
-    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
-    .where(inArray(schema.groupMembers.groupId, groupIds))
+    .from(schema.subscriptionMembers)
+    .innerJoin(
+      schema.users,
+      eq(schema.subscriptionMembers.userId, schema.users.id)
+    )
+    .where(inArray(schema.subscriptionMembers.subscriptionId, subIds))
 
   const bySub = new Map<number, Set<string>>()
   for (const row of memberCurrencies) {
