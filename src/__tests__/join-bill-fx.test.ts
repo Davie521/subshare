@@ -23,8 +23,8 @@ beforeEach(async () => {
 
 async function billFor(userId: number) {
   return await sqlite.prepare(
-      `SELECT amount, currency, local_amount AS localAmount,
-              local_currency AS localCurrency, exchange_rate AS exchangeRate
+      `SELECT amount, currency, local_amount AS "localAmount",
+              local_currency AS "localCurrency", exchange_rate AS "exchangeRate"
        FROM billing_records WHERE user_id = ?`
     )
     .get(userId) as {

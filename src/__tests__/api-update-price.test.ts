@@ -36,9 +36,9 @@ describe('A5 handleUpdateSubscription emits price_changed', () => {
     expect(res.success).toBe(true)
 
     const priceNotifs = async (uid: number) => (await listNotifications(db, uid)).filter((n) => n.type === 'price_changed')
-    expect(priceNotifs(a)).toHaveLength(0)
-    expect(priceNotifs(b)).toHaveLength(1)
-    expect(priceNotifs(c)).toHaveLength(1)
+    expect(await priceNotifs(a)).toHaveLength(0)
+    expect(await priceNotifs(b)).toHaveLength(1)
+    expect(await priceNotifs(c)).toHaveLength(1)
 
     const row = await sqlite.prepare('SELECT price FROM subscriptions WHERE id = ?')
       .get(created.data!.id) as { price: number }

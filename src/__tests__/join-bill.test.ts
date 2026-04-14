@@ -24,7 +24,7 @@ beforeEach(async () => {
   sqlite = setup.sqlite
 })
 
-function allBills(): Array<{
+async function allBills(): Promise<Array<{
   subscriptionId: number
   userId: number
   amount: number
@@ -32,14 +32,13 @@ function allBills(): Array<{
   billingDate: string
   localAmount: number
   localCurrency: string
-}> {
-  return await sqlite.prepare(
-      `SELECT subscription_id as subscriptionId, user_id as userId,
-              amount, currency, billing_date as billingDate,
-              local_amount as localAmount, local_currency as localCurrency
-       FROM billing_records ORDER BY user_id`
-    )
-    .all() as never
+}>> {
+  return (await sqlite.prepare(
+    `SELECT subscription_id as "subscriptionId", user_id as "userId",
+            amount, currency, billing_date as "billingDate",
+            local_amount as "localAmount", local_currency as "localCurrency"
+     FROM billing_records ORDER BY user_id`
+  ).all()) as never
 }
 
 describe('T9 generateJoinBill on addMember (R2)', () => {
@@ -64,7 +63,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       addedAt: '2026-04-20',
     })
 
-    const bills = allBills()
+    const bills = await allBills()
     expect(bills).toHaveLength(1)
     expect(bills[0].userId).toBe(b)
     expect(bills[0].amount).toBe(1980)
@@ -93,7 +92,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       addedAt: '2026-04-01',
     })
 
-    const bills = allBills()
+    const bills = await allBills()
     expect(bills).toHaveLength(1)
     expect(bills[0].amount).toBe(5400) // floor(10800/2)
   })
@@ -119,7 +118,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       addedAt: '2026-04-30',
     })
 
-    expect(allBills()[0].amount).toBe(180)
+    expect((await allBills())[0].amount).toBe(180)
   })
 
   it('share uses member count AFTER insertion', async () => {
@@ -154,7 +153,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       addedAt: '2026-04-20',
     })
 
-    const bills = allBills()
+    const bills = await allBills()
     // Two bills: one for B (full share on April 1), one for C (pro-rata).
     expect(bills).toHaveLength(2)
     const cBill = bills.find((x) => x.userId === c)!
@@ -174,7 +173,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       ownerId: a,
     })
 
-    expect(allBills()).toHaveLength(0)
+    expect(await allBills()).toHaveLength(0)
   })
 
   it('bill is payable to the payer (currency = sub.currency)', async () => {
@@ -196,7 +195,7 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       addedAt: '2026-04-15',
     })
 
-    const bills = allBills()
+    const bills = await allBills()
     expect(bills[0].currency).toBe('CNY')
     // subscription.payer_id determines who receives the money — via the
     // payer_id column on subscriptions (checked elsewhere). Here we assert
@@ -229,6 +228,6 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
       addedAt: '2026-04-20',
     })
 
-    expect(allBills()).toHaveLength(1)
+    expect(await allBills()).toHaveLength(1)
   })
 })

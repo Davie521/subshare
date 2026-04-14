@@ -60,20 +60,20 @@ describe('T13 transferPayer', () => {
 
     const payerNotifs = async (uid: number) => (await listNotifications(db, uid)).filter((n) => n.type === 'payer_changed')
 
-    expect(payerNotifs(a)).toHaveLength(1) // old payer gets told
-    expect(payerNotifs(b)).toHaveLength(1) // new payer gets told
-    expect(payerNotifs(c)).toHaveLength(1) // member gets told
+    expect(await payerNotifs(a)).toHaveLength(1) // old payer gets told
+    expect(await payerNotifs(b)).toHaveLength(1) // new payer gets told
+    expect(await payerNotifs(c)).toHaveLength(1) // member gets told
   })
 
   it('notification payload has both old and new payer names', async () => {
     const { b, c, sub } = await setup3()
     await transferPayer(db, { subscriptionId: sub.id, newPayerId: b })
 
-    const n = listNotifications<{
+    const n = (await listNotifications<{
       sub_name: string
       old_payer_name: string
       new_payer_name: string
-    }>(db, c).find((x) => x.type === 'payer_changed')!
+    }>(db, c)).find((x) => x.type === 'payer_changed')!
 
     expect(n.payload.sub_name).toBe('Netflix')
     expect(n.payload.old_payer_name).toBeDefined()
@@ -104,7 +104,7 @@ describe('T13 transferPayer', () => {
 
     const ids = (
       await sqlite.prepare(
-          "SELECT user_id AS userId FROM billing_records WHERE billing_date = '2026-05-01'"
+          `SELECT user_id AS "userId" FROM billing_records WHERE billing_date = '2026-05-01'`
         )
         .all() as { userId: number }[]
     ).map((r) => r.userId)
