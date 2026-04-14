@@ -266,36 +266,24 @@ function FriendCard({ friend }: { friend: Friend }) {
           </div>
         )}
 
-        {/* Shared subs */}
-        <div className="space-y-1.5 flex-1">
+        {/* Shared subs — chips (no price; price isn't the point here) */}
+        <div className="space-y-2 flex-1">
           <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/80">
             Shared ({friend.sharedSubs.length})
           </p>
           {friend.sharedSubs.length > 0 ? (
-            <ul className="space-y-0.5">
+            <div className="flex flex-wrap gap-1.5">
               {friend.sharedSubs.map((s) => (
-                <li key={s.id}>
-                  <Link
-                    href={`/subscriptions/${s.id}`}
-                    className="group flex items-center justify-between gap-3 py-1.5 px-1 rounded-md hover:bg-foreground/[0.03] dark:hover:bg-white/[0.03] transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <BrandIcon name={s.name} size={20} />
-                      <p className="text-sm font-medium truncate">{s.name}</p>
-                      <Badge variant="secondary" className="text-[10px] px-1.5">
-                        {s.memberCount}
-                      </Badge>
-                    </div>
-                    <p className="text-[13px] font-medium tabular-nums whitespace-nowrap text-muted-foreground group-hover:text-foreground">
-                      {formatMoney(s.myShare, s.currency)}
-                      <span className="text-muted-foreground/70 font-normal text-xs ml-0.5">
-                        /mo
-                      </span>
-                    </p>
-                  </Link>
-                </li>
+                <Link
+                  key={s.id}
+                  href={`/subscriptions/${s.id}`}
+                  className="group inline-flex items-center gap-1.5 rounded-full border bg-background pl-1 pr-2.5 py-1 text-[12px] font-medium hover:border-[var(--brand)]/40 hover:bg-foreground/[0.02] dark:hover:bg-white/[0.03] transition-colors cursor-pointer"
+                >
+                  <BrandIcon name={s.name} size={18} />
+                  <span className="truncate max-w-[14ch]">{s.name}</span>
+                </Link>
               ))}
-            </ul>
+            </div>
           ) : (
             <p className="text-[13px] text-muted-foreground">
               No active shared subscriptions.

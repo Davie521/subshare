@@ -25,6 +25,7 @@ type View = "unpaid" | "paid";
 export default function SettlementPage() {
   const [view, setView] = useState<View>("unpaid");
   const [rows, setRows] = useState<SettlementRow[] | null>(null);
+  const [me, setMe] = useState<string>("You");
   const [settlingKey, setSettlingKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
@@ -40,6 +41,12 @@ export default function SettlementPage() {
       setLoadError(res.error || "Failed to load");
     }
   }
+
+  useEffect(() => {
+    void api.me().then((r) => {
+      if (r.data) setMe(r.data.displayName || r.data.name || "You");
+    });
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
@@ -59,17 +66,12 @@ export default function SettlementPage() {
 
   const totals = useMemo(() => {
     if (!rows) return null;
-    const perCurrency = new Map<
-      string,
-      { owe: number; due: number; pairs: number }
-    >();
+    const perCurrency = new Map<string, { owe: number; due: number }>();
     for (const r of rows) {
-      const entry =
-        perCurrency.get(r.currency) ?? { owe: 0, due: 0, pairs: 0 };
-      if (r.net < 0) entry.owe += Math.abs(r.net);
-      else if (r.net > 0) entry.due += r.net;
-      entry.pairs += 1;
-      perCurrency.set(r.currency, entry);
+      const e = perCurrency.get(r.currency) ?? { owe: 0, due: 0 };
+      if (r.net < 0) e.owe += Math.abs(r.net);
+      else if (r.net > 0) e.due += r.net;
+      perCurrency.set(r.currency, e);
     }
     return Array.from(perCurrency.entries()).map(([currency, v]) => ({
       currency,
@@ -111,48 +113,45 @@ export default function SettlementPage() {
         />
       </header>
 
-      {/* Summary strip: per-currency totals */}
+      {/* Summary totals */}
       {!showingPaid && totals && totals.length > 0 && (
         <div
           className={cn(
             "grid gap-4",
-            totals.length === 1
-              ? "md:grid-cols-2"
-              : "md:grid-cols-2 lg:grid-cols-3"
+            totals.length === 1 ? "md:grid-cols-2" : "md:grid-cols-2 lg:grid-cols-3"
           )}
         >
           {totals.flatMap((t) => {
-            const items: Array<{
-              key: string;
-              label: string;
-              amount: number;
-              tone: "owe" | "due";
-            }> = [];
+            const items: React.ReactNode[] = [];
             if (t.owe > 0)
-              items.push({
-                key: `${t.currency}-owe`,
-                label: `You owe · ${t.currency}`,
-                amount: t.owe,
-                tone: "owe",
-              });
+              items.push(
+                <TotalCard
+                  key={`${t.currency}-owe`}
+                  label={`You owe · ${t.currency}`}
+                  amount={t.owe}
+                  currency={t.currency}
+                  tone="owe"
+                />
+              );
             if (t.due > 0)
-              items.push({
-                key: `${t.currency}-due`,
-                label: `Owed to you · ${t.currency}`,
-                amount: t.due,
-                tone: "due",
-              });
-            return items.map(({ key, label, amount, tone }) => (
-              <TotalCard key={key} label={label} amount={amount} tone={tone} />
-            ));
+              items.push(
+                <TotalCard
+                  key={`${t.currency}-due`}
+                  label={`Owed to you · ${t.currency}`}
+                  amount={t.due}
+                  currency={t.currency}
+                  tone="due"
+                />
+              );
+            return items;
           })}
         </div>
       )}
 
       {rows === null ? (
-        <div className="grid gap-3 md:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-40 bg-muted rounded-xl animate-pulse" />
+        <div className="space-y-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="h-24 bg-muted rounded-xl animate-pulse" />
           ))}
         </div>
       ) : rows.length === 0 ? (
@@ -164,7 +163,7 @@ export default function SettlementPage() {
             <p className="text-sm font-medium">
               {showingPaid ? "No history yet" : "All settled"}
             </p>
-            <p className="text-[13px] text-muted-foreground max-w-[28ch]">
+            <p className="text-[13px] text-muted-foreground max-w-[30ch]">
               {showingPaid
                 ? "Once you mark balances as settled they'll appear here."
                 : "No outstanding balances with anyone. New bills will show up here."}
@@ -172,125 +171,20 @@ export default function SettlementPage() {
           </CardContent>
         </Card>
       ) : (
-        <ul className="grid gap-3 md:grid-cols-2">
-          {rows.map((row) => {
-            const key = `${row.counterpartyUserId}-${row.currency}`;
-            const netAbs = Math.abs(row.net);
-            const iOwe = row.net < 0;
-            const even = row.net === 0;
-            const settling = settlingKey === key;
-
-            return (
-              <li key={key} className="h-full">
-                <Card
-                  className={cn(
-                    "h-full transition-all",
-                    !showingPaid && iOwe &&
-                      "ring-[var(--brand)]/25 dark:ring-[var(--brand)]/35",
-                    showingPaid && "opacity-95"
-                  )}
-                >
-                  <CardContent className="h-full flex flex-col gap-4">
-                    {/* Headline */}
-                    <div className="flex items-start gap-3">
-                      <UserAvatar name={row.counterpartyName} size="lg" />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-semibold truncate">
-                            {row.counterpartyName}
-                          </p>
-                          {showingPaid && (
-                            <Badge
-                              variant="secondary"
-                              className="text-[10px] gap-1 pl-1 pr-1.5"
-                            >
-                              <History className="size-2.5" />
-                              Settled
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="mt-0.5 flex items-baseline gap-1.5">
-                          <span className="text-[13px] text-muted-foreground">
-                            {even
-                              ? "Even — nothing to transfer"
-                              : iOwe
-                              ? showingPaid
-                                ? "You paid"
-                                : "You owe"
-                              : showingPaid
-                              ? "They paid you"
-                              : "They owe you"}
-                          </span>
-                          <Badge
-                            variant="secondary"
-                            className="text-[10px] tracking-wide"
-                          >
-                            {row.currency}
-                          </Badge>
-                        </div>
-                      </div>
-                      <p
-                        className={cn(
-                          "text-[22px] font-bold tabular-nums shrink-0 tracking-[-0.018em]",
-                          even && "text-muted-foreground",
-                          !even &&
-                            !showingPaid &&
-                            iOwe &&
-                            "text-[var(--brand)]",
-                          !even &&
-                            !showingPaid &&
-                            !iOwe &&
-                            "text-[#0d8a2d] dark:text-[#22c55e]",
-                          !even && showingPaid && "text-muted-foreground"
-                        )}
-                      >
-                        {even ? "—" : formatMoney(netAbs, row.currency)}
-                      </p>
-                    </div>
-
-                    {/* Breakdown — only when truly bidirectional */}
-                    {!even && row.owedByMe > 0 && row.owedToMe > 0 && (
-                      <div className="rounded-md bg-muted/50 px-3 py-2 text-[12px] text-muted-foreground space-y-0.5 tabular-nums">
-                        <div className="flex items-center justify-between">
-                          <span>You → {row.counterpartyName}</span>
-                          <span>{formatMoney(row.owedByMe, row.currency)}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>{row.counterpartyName} → You</span>
-                          <span>{formatMoney(row.owedToMe, row.currency)}</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Action pushed to bottom */}
-                    {!showingPaid && !even && (
-                      <div className="mt-auto flex items-center justify-between gap-3 pt-1">
-                        <p className="text-[12px] text-muted-foreground">
-                          After transferring off-app →
-                        </p>
-                        <Button
-                          size="sm"
-                          variant={iOwe ? "default" : "outline"}
-                          disabled={settling}
-                          onClick={() => onSettle(row)}
-                          className="cursor-pointer gap-1.5"
-                        >
-                          {settling ? (
-                            "Settling…"
-                          ) : (
-                            <>
-                              <Check className="size-3.5" />
-                              Mark settled
-                            </>
-                          )}
-                        </Button>
-                      </div>
-                    )}
-                  </CardContent>
-                </Card>
-              </li>
-            );
-          })}
+        <ul className="space-y-3">
+          {rows.map((row) => (
+            <li key={`${row.counterpartyUserId}-${row.currency}`}>
+              <FlowRow
+                row={row}
+                meName={me}
+                showingPaid={showingPaid}
+                settling={
+                  settlingKey === `${row.counterpartyUserId}-${row.currency}`
+                }
+                onSettle={() => onSettle(row)}
+              />
+            </li>
+          ))}
         </ul>
       )}
 
@@ -310,16 +204,259 @@ export default function SettlementPage() {
   );
 }
 
+/* ---------------- Flow row (single-pair, single-row) ---------------- */
+
+function FlowRow({
+  row,
+  meName,
+  showingPaid,
+  settling,
+  onSettle,
+}: {
+  row: SettlementRow;
+  meName: string;
+  showingPaid: boolean;
+  settling: boolean;
+  onSettle: () => void;
+}) {
+  const iOwe = row.net < 0;
+  const even = row.net === 0;
+  const netAbs = Math.abs(row.net);
+  const hasBothSides = row.owedByMe > 0 && row.owedToMe > 0;
+
+  // Visual direction: source → destination (money flow)
+  const source = iOwe
+    ? { name: meName, label: "You" }
+    : { name: row.counterpartyName, label: row.counterpartyName };
+  const dest = iOwe
+    ? { name: row.counterpartyName, label: row.counterpartyName }
+    : { name: meName, label: "You" };
+
+  return (
+    <Card
+      className={cn(
+        "transition-all overflow-hidden",
+        !showingPaid && iOwe &&
+          "ring-[var(--brand)]/25 dark:ring-[var(--brand)]/35",
+        showingPaid && "opacity-95"
+      )}
+    >
+      <CardContent className="p-0">
+        <div className="flex items-center gap-4 md:gap-6 px-4 md:px-6 py-5">
+          {/* LEFT — source */}
+          <div className="flex flex-col items-center gap-1.5 shrink-0 w-[72px]">
+            <UserAvatar
+              name={source.name}
+              size="lg"
+              tone={!showingPaid && iOwe ? "brand" : "neutral"}
+            />
+            <p className="text-[12px] font-medium truncate max-w-full text-center">
+              {source.label}
+            </p>
+          </div>
+
+          {/* CENTER — flow */}
+          <div className="flex-1 min-w-0 flex flex-col items-center">
+            {even ? (
+              <>
+                <div className="flex items-center gap-2 w-full">
+                  <DashedLine />
+                  <p className="text-[13px] font-medium text-muted-foreground whitespace-nowrap">
+                    Even
+                  </p>
+                  <DashedLine />
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  Nothing to transfer
+                </p>
+              </>
+            ) : (
+              <>
+                <p
+                  className={cn(
+                    "text-[26px] md:text-[30px] font-bold tabular-nums tracking-[-0.018em] leading-none",
+                    !showingPaid && iOwe && "text-[var(--brand)]",
+                    !showingPaid && !iOwe &&
+                      "text-[#0d8a2d] dark:text-[#22c55e]",
+                    showingPaid && "text-muted-foreground"
+                  )}
+                >
+                  {formatMoney(netAbs, row.currency)}
+                </p>
+                <FlowArrow
+                  tone={
+                    showingPaid
+                      ? "muted"
+                      : iOwe
+                      ? "brand"
+                      : "green"
+                  }
+                />
+                <div className="flex items-center gap-1.5 mt-1">
+                  <Badge
+                    variant="secondary"
+                    className="text-[10px] tracking-wide"
+                  >
+                    {row.currency}
+                  </Badge>
+                  {showingPaid && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] gap-1 pl-1 pr-1.5"
+                    >
+                      <History className="size-2.5" />
+                      Settled
+                    </Badge>
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* RIGHT — destination */}
+          <div className="flex flex-col items-center gap-1.5 shrink-0 w-[72px]">
+            <UserAvatar
+              name={dest.name}
+              size="lg"
+              tone={!showingPaid && !iOwe && !even ? "brand" : "neutral"}
+            />
+            <p className="text-[12px] font-medium truncate max-w-full text-center">
+              {dest.label}
+            </p>
+          </div>
+
+          {/* ACTION */}
+          {!showingPaid && !even && (
+            <div className="shrink-0 hidden sm:block">
+              <Button
+                size="sm"
+                variant={iOwe ? "default" : "outline"}
+                disabled={settling}
+                onClick={onSettle}
+                className="cursor-pointer gap-1.5"
+              >
+                {settling ? (
+                  "Settling…"
+                ) : (
+                  <>
+                    <Check className="size-3.5" />
+                    Mark settled
+                  </>
+                )}
+              </Button>
+            </div>
+          )}
+        </div>
+
+        {/* Mobile action bar (stacks under flow on small screens) */}
+        {!showingPaid && !even && (
+          <div className="sm:hidden border-t bg-muted/20 px-4 py-2.5 flex items-center justify-between">
+            <p className="text-[12px] text-muted-foreground">
+              After transferring off-app
+            </p>
+            <Button
+              size="sm"
+              variant={iOwe ? "default" : "outline"}
+              disabled={settling}
+              onClick={onSettle}
+              className="cursor-pointer gap-1.5"
+            >
+              {settling ? (
+                "Settling…"
+              ) : (
+                <>
+                  <Check className="size-3.5" />
+                  Mark settled
+                </>
+              )}
+            </Button>
+          </div>
+        )}
+
+        {/* Bidirectional breakdown — small, subtle strip */}
+        {!even && hasBothSides && (
+          <div className="border-t bg-muted/20 px-4 md:px-6 py-2 flex items-center justify-center gap-4 md:gap-6 text-[11px] text-muted-foreground tabular-nums flex-wrap">
+            <span>
+              You → {row.counterpartyName}:{" "}
+              <span className="text-foreground font-medium">
+                {formatMoney(row.owedByMe, row.currency)}
+              </span>
+            </span>
+            <span className="text-muted-foreground/50">·</span>
+            <span>
+              {row.counterpartyName} → You:{" "}
+              <span className="text-foreground font-medium">
+                {formatMoney(row.owedToMe, row.currency)}
+              </span>
+            </span>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+function DashedLine() {
+  return (
+    <div
+      aria-hidden
+      className="flex-1 h-0 border-t-2 border-dashed border-border"
+    />
+  );
+}
+
+function FlowArrow({ tone }: { tone: "brand" | "green" | "muted" }) {
+  const stroke =
+    tone === "brand"
+      ? "var(--brand)"
+      : tone === "green"
+      ? "currentColor"
+      : "currentColor";
+  const color =
+    tone === "green"
+      ? "text-[#0d8a2d] dark:text-[#22c55e]"
+      : tone === "muted"
+      ? "text-muted-foreground/50"
+      : "text-[var(--brand)]";
+  return (
+    <svg
+      aria-hidden
+      viewBox="0 0 200 14"
+      className={cn("w-full max-w-[220px] mt-2", color)}
+      preserveAspectRatio="none"
+    >
+      <line
+        x1="0"
+        y1="7"
+        x2="188"
+        y2="7"
+        stroke={stroke}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
+      <polyline
+        points="182,2 192,7 182,12"
+        fill="none"
+        stroke={stroke}
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function TotalCard({
   label,
   amount,
+  currency,
   tone,
 }: {
   label: string;
   amount: number;
+  currency: string;
   tone: "owe" | "due";
 }) {
-  const currency = label.split("·")[1]?.trim() ?? "";
   return (
     <Card
       className={cn(
