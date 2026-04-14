@@ -114,6 +114,15 @@ export const api = {
         displayName: string;
         email?: string;
         since: string;
+        sharedSubs: Array<{
+          id: number;
+          name: string;
+          price: number;
+          currency: string;
+          memberCount: number;
+          myShare: number;
+        }>;
+        nets: Array<{ currency: string; net: number }>;
       }>
     >("/api/friends"),
 
