@@ -13,6 +13,7 @@ import {
   addMemberToSubscription,
   leaveSubscription,
   transferPayer,
+  changeSubscriptionPrice,
 } from './db-operations'
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
@@ -427,9 +428,13 @@ export function handleUpdateSubscription(
   if (sub.ownerId !== userId)
     return { success: false, error: 'Only the owner can update this subscription' }
 
+  // Price changes go through changeSubscriptionPrice so R5 notifications fire.
+  if (input.price !== undefined && input.price !== sub.price) {
+    changeSubscriptionPrice(db, { subscriptionId: subId, newPrice: input.price })
+  }
+
   const updates: Record<string, unknown> = {}
   if (input.name !== undefined) updates.name = input.name
-  if (input.price !== undefined) updates.price = input.price
   if (input.nextPayment !== undefined) updates.nextPayment = input.nextPayment
   if (input.inactive !== undefined) updates.inactive = input.inactive
 
