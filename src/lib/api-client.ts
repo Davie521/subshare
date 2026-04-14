@@ -45,17 +45,16 @@ export const api = {
 
   // Subscriptions
   getSubscriptions: () =>
-    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; groupId: number | null; memberCount: number; inactive: number }>>("/api/subscriptions"),
+    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: number }>>("/api/subscriptions"),
   createSubscription: (body: {
     name: string;
     price: number;
     currency: string;
     nextPayment: string;
-    groupId?: number;
     members?: number[];
     payerId?: number;
   }) =>
-    request<{ id: number; name: string; groupId: number | null }>(
+    request<{ id: number; name: string }>(
       "/api/subscriptions",
       { method: "POST", body: JSON.stringify(body) }
     ),
@@ -68,7 +67,6 @@ export const api = {
       nextPayment: string;
       ownerId: number;
       payerId: number;
-      groupId: number | null;
       logo: string | null;
       url: string | null;
       notes: string | null;

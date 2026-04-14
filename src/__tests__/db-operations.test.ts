@@ -2,18 +2,15 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type Database from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { setupTestDb, createUser, createGroup, addMember, addSubMember } from './helpers'
+import { setupTestDb, createUser, addSubMember } from './helpers'
 import * as schema from '@/db/schema'
 import {
   createSubscription,
   getSubscriptionsForUser,
-  getGroupWithMembers,
   generateAndSaveBillingRecords,
   getPendingBills,
   markBillPaid,
   getMonthlySpendingData,
-  canLeaveGroup,
-  removeGroupMember,
 } from '@/lib/db-operations'
 
 let db: BetterSQLite3Database<typeof schema>
@@ -38,23 +35,6 @@ describe('createSubscription', () => {
 
     expect(sub.id).toBeDefined()
     expect(sub.name).toBe('Spotify')
-    expect(sub.groupId).toBeNull()
-  })
-
-  it('creates a shared subscription in a group', () => {
-    const userId = createUser(sqlite)
-    const group = createGroup(sqlite, { createdBy: userId })
-
-    const sub = createSubscription(db, {
-      name: 'Netflix',
-      price: 18000,
-      currency: 'CNY',
-      nextPayment: '2026-06-01',
-      ownerId: userId,
-      groupId: group.id,
-    })
-
-    expect(sub.groupId).toBe(group.id)
   })
 })
 
@@ -112,27 +92,6 @@ describe('getSubscriptionsForUser', () => {
 
     const subsB = getSubscriptionsForUser(db, userB)
     expect(subsB).toHaveLength(0)
-  })
-})
-
-describe('getGroupWithMembers', () => {
-  it('returns group info with member list', () => {
-    const userA = createUser(sqlite, { name: 'Alice', email: 'a@test.com' })
-    const userB = createUser(sqlite, { name: 'Bob', email: 'b@test.com' })
-    const group = createGroup(sqlite, { name: 'Roommates', createdBy: userA })
-    addMember(sqlite, group.id, userB)
-
-    const result = getGroupWithMembers(db, group.id)
-    expect(result).not.toBeNull()
-    expect(result!.name).toBe('Roommates')
-    expect(result!.members).toHaveLength(2)
-    expect(result!.members.map((m) => m.name)).toContain('Alice')
-    expect(result!.members.map((m) => m.name)).toContain('Bob')
-  })
-
-  it('returns null for non-existent group', () => {
-    const result = getGroupWithMembers(db, 999)
-    expect(result).toBeNull()
   })
 })
 
@@ -292,62 +251,6 @@ describe('markBillPaid', () => {
 
     expect(updated!.isPaid).toBe(1)
     expect(updated!.paidAt).toBeDefined()
-  })
-})
-
-describe('canLeaveGroup and removeGroupMember', () => {
-  it('allows member to leave when no unpaid bills', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-
-    expect(canLeaveGroup(db, group.id, userB)).toBe(true)
-  })
-
-  it('prevents member from leaving with unpaid bills', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-
-    const sub = createSubscription(db, {
-      name: 'Netflix',
-      price: 18000,
-      currency: 'CNY',
-      nextPayment: '2026-06-01',
-      ownerId: userA,
-      groupId: group.id,
-    })
-    addSubMember(sqlite, sub.id, userB) // bootstrap subscription_members too
-
-    generateAndSaveBillingRecords(db, sub.id)
-
-    expect(canLeaveGroup(db, group.id, userB)).toBe(false)
-  })
-
-  it('prevents creator from leaving', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-
-    expect(canLeaveGroup(db, group.id, userA)).toBe(false)
-  })
-
-  it('removes member from group', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-
-    removeGroupMember(db, group.id, userB)
-
-    const members = db
-      .select()
-      .from(schema.groupMembers)
-      .where(eq(schema.groupMembers.groupId, group.id))
-      .all()
-
-    expect(members).toHaveLength(1) // only creator left
   })
 })
 

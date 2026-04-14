@@ -15,14 +15,13 @@ export function createSubscription(
     nextPayment: string
     ownerId: number
     payerId?: number
-    groupId?: number
     logo?: string
     url?: string
     notes?: string
     categoryId?: number
     startDate?: string // defaults to today; owner's addedAt matches this
   }
-): { id: number; name: string; groupId: number | null } {
+): { id: number; name: string } {
   const today = new Date().toISOString().slice(0, 10)
   const startDate = input.startDate ?? today
 
@@ -36,7 +35,6 @@ export function createSubscription(
       startDate,
       ownerId: input.ownerId,
       payerId: input.payerId ?? input.ownerId,
-      groupId: input.groupId ?? null,
       logo: input.logo ?? null,
       url: input.url ?? null,
       notes: input.notes ?? null,
@@ -56,7 +54,7 @@ export function createSubscription(
     .onConflictDoNothing()
     .run()
 
-  return { id: result.id, name: result.name, groupId: result.groupId }
+  return { id: result.id, name: result.name }
 }
 
 export function addMemberToSubscription(
@@ -379,7 +377,6 @@ export function getSubscriptionsForUser(
   price: number
   currency: string
   nextPayment: string
-  groupId: number | null
   memberCount: number
   inactive: number
 }> {
@@ -407,7 +404,6 @@ export function getSubscriptionsForUser(
       price: schema.subscriptions.price,
       currency: schema.subscriptions.currency,
       nextPayment: schema.subscriptions.nextPayment,
-      groupId: schema.subscriptions.groupId,
       inactive: schema.subscriptions.inactive,
       memberCount: sql<number>`(
         SELECT count(*) FROM subscription_members
@@ -418,43 +414,6 @@ export function getSubscriptionsForUser(
     .from(schema.subscriptions)
     .where(inArray(schema.subscriptions.id, subIds))
     .all()
-}
-
-export function getGroupWithMembers(
-  db: DB,
-  groupId: number
-): {
-  id: number
-  name: string
-  publicId: string
-  createdBy: number
-  members: Array<{ userId: number; name: string }>
-} | null {
-  const group = db
-    .select()
-    .from(schema.groups)
-    .where(eq(schema.groups.id, groupId))
-    .get()
-
-  if (!group) return null
-
-  const members = db
-    .select({
-      userId: schema.groupMembers.userId,
-      name: schema.users.name,
-    })
-    .from(schema.groupMembers)
-    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
-    .where(eq(schema.groupMembers.groupId, groupId))
-    .all()
-
-  return {
-    id: group.id,
-    name: group.name,
-    publicId: group.publicId,
-    createdBy: group.createdBy,
-    members,
-  }
 }
 
 /**
@@ -890,52 +849,3 @@ export function getMonthlySpendingData(
     }))
 }
 
-export function canLeaveGroup(
-  db: DB,
-  groupId: number,
-  userId: number
-): boolean {
-  // Creator cannot leave
-  const group = db
-    .select()
-    .from(schema.groups)
-    .where(eq(schema.groups.id, groupId))
-    .get()
-
-  if (!group || group.createdBy === userId) return false
-
-  // Check for unpaid bills in any subscription of this group
-  const unpaid = db
-    .select({ id: schema.billingRecords.id })
-    .from(schema.billingRecords)
-    .innerJoin(
-      schema.subscriptions,
-      eq(schema.billingRecords.subscriptionId, schema.subscriptions.id)
-    )
-    .where(
-      and(
-        eq(schema.subscriptions.groupId, groupId),
-        eq(schema.billingRecords.userId, userId),
-        eq(schema.billingRecords.isPaid, 0)
-      )
-    )
-    .limit(1)
-    .all()
-
-  return unpaid.length === 0
-}
-
-export function removeGroupMember(
-  db: DB,
-  groupId: number,
-  userId: number
-): void {
-  db.delete(schema.groupMembers)
-    .where(
-      and(
-        eq(schema.groupMembers.groupId, groupId),
-        eq(schema.groupMembers.userId, userId)
-      )
-    )
-    .run()
-}

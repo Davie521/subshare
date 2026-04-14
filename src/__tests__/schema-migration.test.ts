@@ -133,10 +133,10 @@ describe('T3 schema migration', () => {
     expect(indexExists(sqlite, 'notif_user_unread')).toBe(true)
   })
 
-  it('keeps legacy groups and group_members tables intact', () => {
+  it('does not create legacy groups tables on fresh DB', () => {
     const sqlite = freshDb()
-    expect(tableExists(sqlite, 'groups')).toBe(true)
-    expect(tableExists(sqlite, 'group_members')).toBe(true)
+    expect(tableExists(sqlite, 'groups')).toBe(false)
+    expect(tableExists(sqlite, 'group_members')).toBe(false)
   })
 
   it('migration is idempotent (running twice does not error)', () => {

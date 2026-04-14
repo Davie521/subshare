@@ -31,43 +31,6 @@ export function createUser(
   return Number(result.lastInsertRowid)
 }
 
-/** Insert a test group and return its id + publicId */
-export function createGroup(
-  sqlite: Database.Database,
-  opts: { name?: string; createdBy: number; publicId?: string; currency?: string }
-) {
-  const name = opts.name || 'Test Group'
-  const publicId = opts.publicId || `test-${Date.now()}`
-  const currency = opts.currency || 'CNY'
-
-  const result = sqlite
-    .prepare(
-      'INSERT INTO groups (name, public_id, created_by, default_currency) VALUES (?, ?, ?, ?)'
-    )
-    .run(name, publicId, opts.createdBy, currency)
-
-  // Auto-add creator as member
-  sqlite
-    .prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)')
-    .run(Number(result.lastInsertRowid), opts.createdBy)
-
-  return {
-    id: Number(result.lastInsertRowid),
-    publicId,
-  }
-}
-
-/** Add a member to a group */
-export function addMember(
-  sqlite: Database.Database,
-  groupId: number,
-  userId: number
-) {
-  sqlite
-    .prepare('INSERT INTO group_members (group_id, user_id) VALUES (?, ?)')
-    .run(groupId, userId)
-}
-
 /**
  * Direct-insert a subscription member via SQL — bypasses
  * addMemberToSubscription's auto-pro-rata side effect. Use this when

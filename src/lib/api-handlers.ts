@@ -3,7 +3,6 @@ import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from '@/db/schema'
 import {
   createSubscription,
-  generateAndSaveBillingRecords,
   getPendingBills,
   markBillPaid,
   getMonthlySpendingData,
@@ -42,7 +41,6 @@ export async function handleCreateSubscription(
     price: number
     currency: string
     nextPayment: string
-    groupId?: number
     members?: number[]
     payerId?: number
     logo?: string
@@ -50,23 +48,7 @@ export async function handleCreateSubscription(
     notes?: string
     categoryId?: number
   }
-): Promise<Result<{ id: number; name: string; groupId: number | null }>> {
-  if (input.groupId) {
-    const membership = db
-      .select()
-      .from(schema.groupMembers)
-      .where(
-        and(
-          eq(schema.groupMembers.groupId, input.groupId),
-          eq(schema.groupMembers.userId, userId)
-        )
-      )
-      .get()
-
-    if (!membership)
-      return { success: false, error: 'You are not a member of this group' }
-  }
-
+): Promise<Result<{ id: number; name: string }>> {
   const invitees = (input.members ?? []).filter((id) => id !== userId)
   const payerId = input.payerId ?? userId
 
@@ -102,14 +84,6 @@ export async function handleCreateSubscription(
     }
   }
 
-  if (sub.groupId) {
-    void fetchRatesForGroup(db, sub.groupId, input.currency)
-      .then((rates) => generateAndSaveBillingRecords(db, sub.id, rates))
-      .catch((err) =>
-        console.error('[billing] initial generation failed for sub', sub.id, err)
-      )
-  }
-
   return { success: true, data: sub }
 }
 
@@ -126,33 +100,6 @@ async function fetchRatesForUsers(
     .all()
   const targets = new Set(
     rows.map((r) => r.preferredCurrency).filter((c) => c !== subCurrency)
-  )
-  const rates: Record<string, number> = {}
-  await Promise.all(
-    Array.from(targets).map(async (to) => {
-      const rate = await getRate(subCurrency, to)
-      if (rate !== null) rates[`${subCurrency}_${to}`] = rate
-    })
-  )
-  return rates
-}
-
-async function fetchRatesForGroup(
-  db: DB,
-  groupId: number,
-  subCurrency: string
-): Promise<Record<string, number>> {
-  const memberCurrencies = db
-    .select({ preferredCurrency: schema.users.preferredCurrency })
-    .from(schema.groupMembers)
-    .innerJoin(schema.users, eq(schema.groupMembers.userId, schema.users.id))
-    .where(eq(schema.groupMembers.groupId, groupId))
-    .all()
-
-  const targets = new Set(
-    memberCurrencies
-      .map((m) => m.preferredCurrency)
-      .filter((c) => c !== subCurrency)
   )
   const rates: Record<string, number> = {}
   await Promise.all(

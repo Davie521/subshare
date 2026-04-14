@@ -20,33 +20,6 @@ export const users = sqliteTable('users', {
   createdAt: text('created_at').notNull().default("(datetime('now'))"),
 })
 
-export const groups = sqliteTable('groups', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
-  name: text('name').notNull(),
-  publicId: text('public_id').notNull().unique(),
-  createdBy: integer('created_by')
-    .notNull()
-    .references(() => users.id),
-  defaultCurrency: text('default_currency').notNull().default('CNY'),
-  createdAt: text('created_at').notNull().default("(datetime('now'))"),
-})
-
-export const groupMembers = sqliteTable(
-  'group_members',
-  {
-    groupId: integer('group_id')
-      .notNull()
-      .references(() => groups.id, { onDelete: 'cascade' }),
-    userId: integer('user_id')
-      .notNull()
-      .references(() => users.id),
-    joinedAt: text('joined_at').notNull().default("(datetime('now'))"),
-  },
-  (table) => [
-    uniqueIndex('group_members_pk').on(table.groupId, table.userId),
-  ]
-)
-
 export const subscriptions = sqliteTable('subscriptions', {
   id: integer('id').primaryKey({ autoIncrement: true }),
   name: text('name').notNull(),
@@ -66,9 +39,6 @@ export const subscriptions = sqliteTable('subscriptions', {
   payerId: integer('payer_id')
     .notNull()
     .references(() => users.id),
-  groupId: integer('group_id').references(() => groups.id, {
-    onDelete: 'cascade',
-  }),
   notify: integer('notify').notNull().default(1),
   notifyDaysBefore: integer('notify_days_before').notNull().default(3),
   createdAt: text('created_at').notNull().default("(datetime('now'))"),

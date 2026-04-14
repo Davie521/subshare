@@ -20,7 +20,6 @@ export const createSubscriptionSchema = z.object({
   price: z.number().int().positive().max(100_000_000),
   currency: z.enum(CURRENCIES),
   nextPayment: z.string().regex(DATE_REGEX, 'Must be YYYY-MM-DD'),
-  groupId: z.number().int().positive().optional(),
   members: z.array(z.number().int().positive()).max(50).optional(),
   payerId: z.number().int().positive().optional(),
   logo: z

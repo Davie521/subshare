@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, Suspense, useMemo } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,8 +26,6 @@ export default function NewSubscriptionPage() {
 type Step = "pick" | "form";
 
 function NewSubscriptionFlow() {
-  const searchParams = useSearchParams();
-  const presetGroupId = searchParams.get("groupId");
   const [step, setStep] = useState<Step>("pick");
   const [selected, setSelected] = useState<ServiceTemplate | null>(null);
   const [customName, setCustomName] = useState("");
@@ -52,7 +50,6 @@ function NewSubscriptionFlow() {
     <SubscriptionForm
       service={selected}
       initialName={customName}
-      presetGroupId={presetGroupId ? Number(presetGroupId) : undefined}
       onBack={() => setStep("pick")}
     />
   );
@@ -190,12 +187,10 @@ function ServicePicker({
 function SubscriptionForm({
   service,
   initialName,
-  presetGroupId,
   onBack,
 }: {
   service: ServiceTemplate | null;
   initialName?: string;
-  presetGroupId?: number;
   onBack: () => void;
 }) {
   const router = useRouter();
@@ -209,9 +204,7 @@ function SubscriptionForm({
   const [error, setError] = useState("");
 
   // Sharing mode + member selection
-  const [mode, setMode] = useState<"personal" | "shared">(
-    presetGroupId ? "shared" : "personal"
-  );
+  const [mode, setMode] = useState<"personal" | "shared">("personal");
   const [friends, setFriends] = useState<Array<{ userId: number; displayName: string }>>([]);
   const [selectedMemberIds, setSelectedMemberIds] = useState<number[]>([]);
   const [selfId, setSelfId] = useState<number | null>(null);

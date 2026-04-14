@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import type Database from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { setupTestDb, createUser, createGroup, addMember, addSubMember } from './helpers'
+import { setupTestDb, createUser, addSubMember } from './helpers'
 import * as schema from '@/db/schema'
 import { registerUser, loginUser } from '@/lib/auth'
 import { createSubscription, generateAndSaveBillingRecords } from '@/lib/db-operations'
@@ -81,37 +81,28 @@ describe('handleCreateSubscription', () => {
       nextPayment: '2026-06-01',
     })
     assertSuccess(result)
-    expect(result.data!.groupId).toBeNull()
+    expect(result.data!.name).toBe('Spotify')
   })
 
-  it('creates shared subscription in a group', async () => {
-    const userId = createUser(sqlite)
-    const group = createGroup(sqlite, { createdBy: userId })
-
-    const result = await handleCreateSubscription(db, userId, {
-      name: 'Netflix',
-      price: 18000,
-      currency: 'CNY',
-      nextPayment: '2026-06-01',
-      groupId: group.id,
-    })
-    assertSuccess(result)
-    expect(result.data!.groupId).toBe(group.id)
-  })
-
-  it('rejects adding to group user is not member of', async () => {
+  it('creates shared subscription with members[]', async () => {
     const userA = createUser(sqlite, { email: 'a@test.com' })
     const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
 
-    const result = await handleCreateSubscription(db, userB, {
+    const result = await handleCreateSubscription(db, userA, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
-      groupId: group.id,
+      members: [userB],
     })
-    expect(result.success).toBe(false)
+    assertSuccess(result)
+
+    const members = db
+      .select()
+      .from(schema.subscriptionMembers)
+      .where(eq(schema.subscriptionMembers.subscriptionId, result.data!.id))
+      .all()
+    expect(members).toHaveLength(2) // owner + invitee
   })
 })
 
