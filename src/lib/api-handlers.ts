@@ -12,6 +12,7 @@ import {
   removeGroupMember,
   addMemberToSubscription,
   leaveSubscription,
+  transferPayer,
 } from './db-operations'
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
@@ -369,6 +370,37 @@ export function handleRemoveMember(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to remove member',
+    }
+  }
+  return { success: true }
+}
+
+export function handleTransferPayer(
+  db: DB,
+  actorId: number,
+  subId: number,
+  newPayerId: number
+): Result {
+  const sub = db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subId))
+    .get()
+  if (!sub) return { success: false, error: 'Subscription not found' }
+
+  if (sub.ownerId !== actorId && sub.payerId !== actorId) {
+    return {
+      success: false,
+      error: 'Only the owner or current payer can transfer payer',
+    }
+  }
+
+  try {
+    transferPayer(db, { subscriptionId: subId, newPayerId })
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Failed to transfer payer',
     }
   }
   return { success: true }
