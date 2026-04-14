@@ -4,6 +4,7 @@ import * as schema from '@/db/schema'
 import { calculateShares, calculateJoinProRata } from './billing'
 import { insertNotification } from './notifications'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
 
 /**

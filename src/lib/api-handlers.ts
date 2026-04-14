@@ -36,6 +36,7 @@ import {
   type CircleSummary,
 } from './circles'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
 type Result<T = unknown> =
   | { success: true; data?: T }
