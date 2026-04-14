@@ -1,4 +1,4 @@
-import { eq, and, inArray } from 'drizzle-orm'
+import { eq, and, inArray, or, desc } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from '@/db/schema'
@@ -381,6 +381,69 @@ export function handleRemoveMember(
     }
   }
   return { success: true }
+}
+
+export interface FriendRow {
+  userId: number
+  displayName: string
+  email?: string
+  since: string
+}
+
+export function handleListFriends(
+  db: DB,
+  userId: number
+): Result<FriendRow[]> {
+  const rows = db
+    .select({
+      userAId: schema.friendships.userAId,
+      userBId: schema.friendships.userBId,
+      since: schema.friendships.createdAt,
+    })
+    .from(schema.friendships)
+    .where(
+      or(
+        eq(schema.friendships.userAId, userId),
+        eq(schema.friendships.userBId, userId)
+      )
+    )
+    .orderBy(desc(schema.friendships.createdAt))
+    .all()
+
+  if (rows.length === 0) return { success: true, data: [] }
+
+  const otherIds = rows.map((r) =>
+    r.userAId === userId ? r.userBId : r.userAId
+  )
+  const users = db
+    .select({
+      id: schema.users.id,
+      name: schema.users.name,
+      displayName: schema.users.displayName,
+      email: schema.users.email,
+      showEmail: schema.users.showEmail,
+    })
+    .from(schema.users)
+    .where(inArray(schema.users.id, otherIds))
+    .all()
+
+  const byId = new Map(users.map((u) => [u.id, u]))
+  const result: FriendRow[] = rows
+    .map((r) => {
+      const other = r.userAId === userId ? r.userBId : r.userAId
+      const u = byId.get(other)
+      if (!u) return null
+      const out: FriendRow = {
+        userId: u.id,
+        displayName: u.displayName?.trim() || u.name,
+        since: r.since,
+      }
+      if (u.showEmail === 1) out.email = u.email
+      return out
+    })
+    .filter((x): x is FriendRow => x !== null)
+
+  return { success: true, data: result }
 }
 
 export function handleListNotifications(
