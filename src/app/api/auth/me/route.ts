@@ -1,5 +1,6 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { eq } from 'drizzle-orm'
+import { z } from 'zod'
 import { getDb } from '@/db'
 import { getSession } from '@/lib/session'
 import * as schema from '@/db/schema'
@@ -18,6 +19,8 @@ export async function GET() {
       email: schema.users.email,
       preferredCurrency: schema.users.preferredCurrency,
       monthlyBudget: schema.users.monthlyBudget,
+      displayName: schema.users.displayName,
+      showEmail: schema.users.showEmail,
     })
     .from(schema.users)
     .where(eq(schema.users.id, session.userId))
@@ -27,5 +30,47 @@ export async function GET() {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
   }
 
-  return NextResponse.json(user)
+  return NextResponse.json({
+    ...user,
+    displayName: user.displayName ?? '',
+    showEmail: Boolean(user.showEmail),
+  })
+}
+
+const updateProfileSchema = z.object({
+  displayName: z.string().trim().max(60).optional(),
+  showEmail: z.boolean().optional(),
+})
+
+export async function PUT(req: NextRequest) {
+  const session = await getSession()
+  if (!session) {
+    return NextResponse.json({ error: 'Not authenticated' }, { status: 401 })
+  }
+
+  const parsed = updateProfileSchema.safeParse(await req.json())
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: parsed.error.issues[0].message },
+      { status: 400 }
+    )
+  }
+
+  const updates: Record<string, unknown> = {}
+  if (parsed.data.displayName !== undefined) {
+    updates.displayName = parsed.data.displayName || null
+  }
+  if (parsed.data.showEmail !== undefined) {
+    updates.showEmail = parsed.data.showEmail ? 1 : 0
+  }
+
+  if (Object.keys(updates).length > 0) {
+    const db = getDb()
+    db.update(schema.users)
+      .set(updates)
+      .where(eq(schema.users.id, session.userId))
+      .run()
+  }
+
+  return NextResponse.json({ ok: true })
 }

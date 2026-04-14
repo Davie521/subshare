@@ -30,7 +30,9 @@ export const api = {
     request("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
   login: (body: { email: string; password: string }) =>
     request("/api/auth/login", { method: "POST", body: JSON.stringify(body) }),
-  me: () => request<{ id: number; name: string; email: string; preferredCurrency: string; monthlyBudget: number | null }>("/api/auth/me"),
+  me: () => request<{ id: number; name: string; email: string; preferredCurrency: string; monthlyBudget: number | null; displayName: string; showEmail: boolean }>("/api/auth/me"),
+  updateProfile: (body: { displayName?: string; showEmail?: boolean }) =>
+    request("/api/auth/me", { method: "PUT", body: JSON.stringify(body) }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
 
   // Dashboard
