@@ -129,6 +129,9 @@ export async function addMemberToSubscription(
     
 
   if (!sub || sub.payerId === input.userId) return
+  // Inactive subs: add to member list (for record-keeping / friendship),
+  // but skip R2 — no charges are incurring for the dormant service.
+  if (sub.inactive) return
 
   // Use the CANONICAL addedAt from the DB (first successful insert wins,
   // re-adds are no-ops) so billing_date is stable across re-adds.
