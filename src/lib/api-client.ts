@@ -56,6 +56,30 @@ export const api = {
     request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; groupId: number | null; memberCount: number; inactive: number }>>("/api/subscriptions"),
   createSubscription: (body: { name: string; price: number; currency: string; nextPayment: string; groupId?: number }) =>
     request("/api/subscriptions", { method: "POST", body: JSON.stringify(body) }),
+  getSubscription: (id: number) =>
+    request<{
+      id: number;
+      name: string;
+      price: number;
+      currency: string;
+      nextPayment: string;
+      ownerId: number;
+      payerId: number;
+      groupId: number | null;
+      logo: string | null;
+      url: string | null;
+      notes: string | null;
+      inactive: number;
+      members: Array<{
+        userId: number;
+        displayName: string;
+        email?: string;
+        addedAt: string;
+        isPayer: boolean;
+        isOwner: boolean;
+        isSelf: boolean;
+      }>;
+    }>(`/api/subscriptions/${id}`),
   updateSubscription: (id: number, body: Record<string, unknown>) =>
     request(`/api/subscriptions/${id}`, { method: "PUT", body: JSON.stringify(body) }),
   deleteSubscription: (id: number) => request(`/api/subscriptions/${id}`, { method: "DELETE" }),

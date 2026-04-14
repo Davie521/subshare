@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, parseId } from '@/lib/api-utils'
 import { handleUpdateSubscription, handleDeleteSubscription } from '@/lib/api-handlers'
 import { updateSubscriptionSchema } from '@/lib/validators'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, inArray, isNull } from 'drizzle-orm'
 import * as schema from '@/db/schema'
 
 export async function GET(
@@ -24,18 +24,86 @@ export async function GET(
 
   if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Authorization: owner or group member
-  if (sub.ownerId !== userId) {
-    if (!sub.groupId) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-    const membership = db
+  // Authorization: owner, payer, or active subscription_members / legacy group_members
+  let allowed = sub.ownerId === userId || sub.payerId === userId
+  if (!allowed) {
+    const subMembership = db
+      .select()
+      .from(schema.subscriptionMembers)
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, numId),
+          eq(schema.subscriptionMembers.userId, userId)
+        )
+      )
+      .get()
+    if (subMembership) allowed = true
+  }
+  if (!allowed && sub.groupId) {
+    const legacy = db
       .select()
       .from(schema.groupMembers)
-      .where(and(eq(schema.groupMembers.groupId, sub.groupId), eq(schema.groupMembers.userId, userId)))
+      .where(
+        and(
+          eq(schema.groupMembers.groupId, sub.groupId),
+          eq(schema.groupMembers.userId, userId)
+        )
+      )
       .get()
-    if (!membership) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    if (legacy) allowed = true
+  }
+  if (!allowed) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  return NextResponse.json(sub)
+  // Enriched members list (active only).
+  const memberRows = db
+    .select({
+      userId: schema.subscriptionMembers.userId,
+      addedAt: schema.subscriptionMembers.addedAt,
+      addedBy: schema.subscriptionMembers.addedBy,
+      leftAt: schema.subscriptionMembers.leftAt,
+    })
+    .from(schema.subscriptionMembers)
+    .where(
+      and(
+        eq(schema.subscriptionMembers.subscriptionId, numId),
+        isNull(schema.subscriptionMembers.leftAt)
+      )
+    )
+    .all()
+
+  const memberIds = memberRows.map((m) => m.userId)
+  const users =
+    memberIds.length > 0
+      ? db
+          .select({
+            id: schema.users.id,
+            name: schema.users.name,
+            displayName: schema.users.displayName,
+            email: schema.users.email,
+            showEmail: schema.users.showEmail,
+          })
+          .from(schema.users)
+          .where(inArray(schema.users.id, memberIds))
+          .all()
+      : []
+  const byId = new Map(users.map((u) => [u.id, u]))
+
+  const members = memberRows.map((m) => {
+    const u = byId.get(m.userId)
+    return {
+      userId: m.userId,
+      displayName: (u?.displayName?.trim() || u?.name) ?? `User #${m.userId}`,
+      email: u?.showEmail === 1 ? u?.email : undefined,
+      addedAt: m.addedAt,
+      isPayer: m.userId === sub.payerId,
+      isOwner: m.userId === sub.ownerId,
+      isSelf: m.userId === userId,
+    }
+  })
+
+  return NextResponse.json({ ...sub, members })
 }
 
 export async function PUT(
