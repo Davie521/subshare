@@ -8,6 +8,8 @@
     "predev": "tsx scripts/fetch-icons.ts",
     "build": "next build",
     "fetch-icons": "tsx scripts/fetch-icons.ts",
+    "seed": "tsx scripts/seed-dummy.ts",
+    "seed:reset": "tsx scripts/seed-dummy.ts --reset",
     "start": "next start",
     "lint": "eslint",
     "test": "vitest run",
