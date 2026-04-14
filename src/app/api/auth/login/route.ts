@@ -17,7 +17,7 @@ export async function POST(req: NextRequest) {
   }
 
   const db = getDb()
-  const result = loginUser(db, parsed.data)
+  const result = await loginUser(db, parsed.data)
 
   if ('error' in result) {
     return NextResponse.json({ error: result.error }, { status: 401 })

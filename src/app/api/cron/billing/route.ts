@@ -26,27 +26,24 @@ export async function POST(req: NextRequest) {
   const db = getDb()
   const today = new Date().toISOString().split('T')[0]
 
-  // All active auto-renew subs whose next_payment has arrived.
-  // Personal subs (1 member) are no-ops in generateAndSaveBillingRecords
-  // but still get next_payment advanced for correct display.
-  const dueSubs = db
+  // Find shared subscriptions where next_payment <= today
+  const dueSubs = await db
     .select()
     .from(schema.subscriptions)
     .where(
       and(
         sql`${schema.subscriptions.nextPayment} <= ${today}`,
-        eq(schema.subscriptions.inactive, 0),
-        eq(schema.subscriptions.autoRenew, 1)
+        eq(schema.subscriptions.inactive, false),
+        eq(schema.subscriptions.autoRenew, true)
       )
     )
-    .all()
 
   const rates = await fetchRequiredRates(db, dueSubs)
 
   let totalGenerated = 0
 
   for (const sub of dueSubs) {
-    const count = generateAndSaveBillingRecords(db, sub.id, rates)
+    const count = await generateAndSaveBillingRecords(db, sub.id, rates)
     totalGenerated += count
 
     // Advance next_payment by one month
@@ -57,10 +54,10 @@ export async function POST(req: NextRequest) {
     const clampedDay = Math.min(d, maxDay)
     const newNextPayment = `${nextYear}-${String(nextMonth).padStart(2, '0')}-${String(clampedDay).padStart(2, '0')}`
 
-    db.update(schema.subscriptions)
+    await db
+      .update(schema.subscriptions)
       .set({ nextPayment: newNextPayment })
       .where(eq(schema.subscriptions.id, sub.id))
-      .run()
   }
 
   // A10 — monthly R1 pass. Runs the new subscription-centric cron on
@@ -85,12 +82,7 @@ async function fetchRequiredRates(
   if (subs.length === 0) return {}
 
   const subIds = subs.map((s) => s.id)
-  const today = new Date().toISOString().slice(0, 10)
-
-  // For each due sub, collect its active members' preferred currencies via
-  // subscription_members (authoritative). Legacy group_members is no longer
-  // consulted — migrated data must also live in subscription_members.
-  const memberCurrencies = db
+  const memberCurrencies = await db
     .select({
       subscriptionId: schema.subscriptionMembers.subscriptionId,
       preferredCurrency: schema.users.preferredCurrency,
@@ -100,16 +92,7 @@ async function fetchRequiredRates(
       schema.users,
       eq(schema.subscriptionMembers.userId, schema.users.id)
     )
-    .where(
-      and(
-        inArray(schema.subscriptionMembers.subscriptionId, subIds),
-        or(
-          isNull(schema.subscriptionMembers.leftAt),
-          gte(schema.subscriptionMembers.leftAt, today)
-        )
-      )
-    )
-    .all()
+    .where(inArray(schema.subscriptionMembers.subscriptionId, subIds))
 
   const bySub = new Map<number, Set<string>>()
   for (const row of memberCurrencies) {

@@ -17,7 +17,7 @@ RUN npm run build
 FROM base AS runner
 WORKDIR /app
 
-RUN apk add --no-cache dumb-init su-exec wget
+RUN apk add --no-cache dumb-init wget
 
 ENV NODE_ENV=production
 ENV HOSTNAME=0.0.0.0
@@ -29,15 +29,12 @@ COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 
-RUN mkdir -p /app/data && chown nextjs:nodejs /app/data
-
-COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
-RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+USER nextjs
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD wget -qO- "http://127.0.0.1:${PORT:-3000}/api/health" || exit 1
 
-ENTRYPOINT ["dumb-init", "--", "docker-entrypoint.sh"]
+ENTRYPOINT ["dumb-init", "--"]
 CMD ["node", "server.js"]

@@ -1,10 +1,11 @@
 import { eq, and, sql, inArray, isNull, or, gte, lte } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import { calculateShares, calculateJoinProRata } from './billing'
 import { insertNotification } from './notifications'
 
-type DB = BetterSQLite3Database<typeof schema>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
 
 /**
  * R2 minimum-cycle commitment: the earliest date a member may leave
@@ -24,7 +25,7 @@ function maxDate(a: string, b: string): string {
   return a >= b ? a : b
 }
 
-export function createSubscription(
+export async function createSubscription(
   db: DB,
   input: {
     name: string
@@ -39,11 +40,11 @@ export function createSubscription(
     categoryId?: number
     startDate?: string // defaults to today; owner's addedAt matches this
   }
-): { id: number; name: string } {
+): Promise<{ id: number; name: string }> {
   const today = new Date().toISOString().slice(0, 10)
   const startDate = input.startDate ?? today
 
-  const result = db
+  const [result] = await db
     .insert(schema.subscriptions)
     .values({
       name: input.name,
@@ -59,10 +60,10 @@ export function createSubscription(
       categoryId: input.categoryId ?? null,
     })
     .returning()
-    .get()
+    
 
   // Owner is automatically the first member (and payer by default).
-  db.insert(schema.subscriptionMembers)
+  await db.insert(schema.subscriptionMembers)
     .values({
       subscriptionId: result.id,
       userId: input.ownerId,
@@ -70,12 +71,12 @@ export function createSubscription(
       addedAt: startDate,
     })
     .onConflictDoNothing()
-    .run()
+    
 
   return { id: result.id, name: result.name }
 }
 
-export function addMemberToSubscription(
+export async function addMemberToSubscription(
   db: DB,
   input: {
     subscriptionId: number
@@ -84,9 +85,9 @@ export function addMemberToSubscription(
     addedAt: string // ISO date YYYY-MM-DD
   },
   rates: Record<string, number> = {}
-): void {
+): Promise<void> {
   // Detect whether this is a genuine new insert vs. a no-op re-add.
-  const existingMember = db
+  const existingMember = await db
     .select({ userId: schema.subscriptionMembers.userId })
     .from(schema.subscriptionMembers)
     .where(
@@ -95,10 +96,10 @@ export function addMemberToSubscription(
         eq(schema.subscriptionMembers.userId, input.userId)
       )
     )
-    .get()
+    
   const isNewMember = !existingMember
 
-  db.insert(schema.subscriptionMembers)
+  await db.insert(schema.subscriptionMembers)
     .values({
       subscriptionId: input.subscriptionId,
       userId: input.userId,
@@ -106,7 +107,7 @@ export function addMemberToSubscription(
       addedAt: input.addedAt,
     })
     .onConflictDoNothing()
-    .run()
+    
 
   // Auto-create friendship between inviter and invitee (T7).
   // Self-adds (owner-insert) produce no friendship.
@@ -115,24 +116,24 @@ export function addMemberToSubscription(
       input.addedBy < input.userId
         ? [input.addedBy, input.userId]
         : [input.userId, input.addedBy]
-    db.insert(schema.friendships)
+    await db.insert(schema.friendships)
       .values({ userAId: lo, userBId: hi })
       .onConflictDoNothing()
-      .run()
+      
   }
 
   // R2 — immediate pro-rata bill for the joiner (except when joiner is payer).
-  const sub = db
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, input.subscriptionId))
-    .get()
+    
 
   if (!sub || sub.payerId === input.userId) return
 
   // Use the CANONICAL addedAt from the DB (first successful insert wins,
   // re-adds are no-ops) so billing_date is stable across re-adds.
-  const memberRow = db
+  const [memberRow] = await db
     .select({ addedAt: schema.subscriptionMembers.addedAt })
     .from(schema.subscriptionMembers)
     .where(
@@ -141,11 +142,11 @@ export function addMemberToSubscription(
         eq(schema.subscriptionMembers.userId, input.userId)
       )
     )
-    .get()
+    
   if (!memberRow) return
   const canonicalAddedAt = memberRow.addedAt
 
-  const members = getActiveMembersAt(
+  const members = await getActiveMembersAt(
     db,
     input.subscriptionId,
     canonicalAddedAt
@@ -158,11 +159,11 @@ export function addMemberToSubscription(
   const amount = calculateJoinProRata(share, day, daysInMonth)
   if (amount <= 0) return
 
-  const user = db
+  const [user] = await db
     .select({ preferredCurrency: schema.users.preferredCurrency })
     .from(schema.users)
     .where(eq(schema.users.id, input.userId))
-    .get()
+    
   if (!user) return
 
   const rate =
@@ -177,7 +178,7 @@ export function addMemberToSubscription(
   const localAmount = Math.floor(amount * rate)
 
   // Idempotent: skip if a bill already exists for this sub/user/canonicalDate.
-  const existing = db
+  const existing = await db
     .select({ id: schema.billingRecords.id })
     .from(schema.billingRecords)
     .where(
@@ -187,10 +188,10 @@ export function addMemberToSubscription(
         eq(schema.billingRecords.billingDate, canonicalAddedAt)
       )
     )
-    .get()
+    
   if (existing) return
 
-  db.insert(schema.billingRecords)
+  await db.insert(schema.billingRecords)
     .values({
       subscriptionId: input.subscriptionId,
       userId: input.userId,
@@ -201,26 +202,26 @@ export function addMemberToSubscription(
       exchangeRate: Math.round(rate * 1_000_000),
       billingDate: canonicalAddedAt,
     })
-    .run()
+    
 
   // T11 — added_to_sub notification (only on first-time insert).
   if (isNewMember) {
-    const inviter = db
+    const [inviter] = await db
       .select({
         name: schema.users.name,
         displayName: schema.users.displayName,
       })
       .from(schema.users)
       .where(eq(schema.users.id, input.addedBy))
-      .get()
-    const payer = db
+
+    const [payer] = await db
       .select({
         name: schema.users.name,
         displayName: schema.users.displayName,
       })
       .from(schema.users)
       .where(eq(schema.users.id, sub.payerId))
-      .get()
+      
 
     const [yy, mm] = canonicalAddedAt.split('-').map(Number)
     const nextBillingDate =
@@ -228,7 +229,7 @@ export function addMemberToSubscription(
         ? `${yy + 1}-01-01`
         : `${yy}-${String(mm + 1).padStart(2, '0')}-01`
 
-    insertNotification(db, {
+    await insertNotification(db, {
       userId: input.userId,
       type: 'added_to_sub',
       subscriptionId: input.subscriptionId,
@@ -252,7 +253,7 @@ export function addMemberToSubscription(
  * Idempotent: re-calling on an already-left member is a no-op (keeps
  * the original leftAt so accounting history is stable).
  */
-export function leaveSubscription(
+export async function leaveSubscription(
   db: DB,
   input: {
     subscriptionId: number
@@ -260,18 +261,18 @@ export function leaveSubscription(
     leftAt: string // ISO date YYYY-MM-DD
     actorId?: number // defaults to userId (self-leave)
   }
-): void {
+): Promise<void> {
   const actorId = input.actorId ?? input.userId
   const isKick = actorId !== input.userId
 
-  const sub = db
+  const [sub] = await db
     .select({
       name: schema.subscriptions.name,
       payerId: schema.subscriptions.payerId,
     })
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, input.subscriptionId))
-    .get()
+    
 
   if (!sub) throw new Error('Subscription not found')
 
@@ -281,7 +282,7 @@ export function leaveSubscription(
     )
   }
 
-  const row = db
+  const [row] = await db
     .select({
       leftAt: schema.subscriptionMembers.leftAt,
       addedAt: schema.subscriptionMembers.addedAt,
@@ -293,7 +294,7 @@ export function leaveSubscription(
         eq(schema.subscriptionMembers.userId, input.userId)
       )
     )
-    .get()
+    
 
   if (!row) throw new Error('User is not a member of this subscription')
 
@@ -306,7 +307,7 @@ export function leaveSubscription(
     ? input.leftAt
     : maxDate(input.leftAt, computeMinimumCycleEnd(row.addedAt))
 
-  db.update(schema.subscriptionMembers)
+  await db.update(schema.subscriptionMembers)
     .set({ leftAt: effectiveLeftAt })
     .where(
       and(
@@ -314,18 +315,18 @@ export function leaveSubscription(
         eq(schema.subscriptionMembers.userId, input.userId)
       )
     )
-    .run()
+    
 
   if (isKick) {
-    const actor = db
+    const [actor] = await db
       .select({
         name: schema.users.name,
         displayName: schema.users.displayName,
       })
       .from(schema.users)
       .where(eq(schema.users.id, actorId))
-      .get()
-    insertNotification(db, {
+      
+    await insertNotification(db, {
       userId: input.userId,
       type: 'removed_from_sub',
       subscriptionId: input.subscriptionId,
@@ -344,16 +345,16 @@ export function leaveSubscription(
  * The "leftAt >= atDate" convention treats the leave day as still-billable
  * (last active day) — pre-paid model, member used the service that day.
  */
-export function getActiveMembersAt(
+export async function getActiveMembersAt(
   db: DB,
   subscriptionId: number,
   atDate: string
-): Array<{
+): Promise<Array<{
   userId: number
   addedAt: string
   addedBy: number
   leftAt: string | null
-}> {
+}>> {
   return db
     .select({
       userId: schema.subscriptionMembers.userId,
@@ -372,18 +373,18 @@ export function getActiveMembersAt(
         )
       )
     )
-    .all()
+    
 }
 
-export function getMembersOfSubscription(
+export async function getMembersOfSubscription(
   db: DB,
   subscriptionId: number
-): Array<{
+): Promise<Array<{
   userId: number
   addedAt: string
   addedBy: number
   leftAt: string | null
-}> {
+}>> {
   return db
     .select({
       userId: schema.subscriptionMembers.userId,
@@ -393,25 +394,25 @@ export function getMembersOfSubscription(
     })
     .from(schema.subscriptionMembers)
     .where(eq(schema.subscriptionMembers.subscriptionId, subscriptionId))
-    .all()
+    
 }
 
-export function getSubscriptionsForUser(
+export async function getSubscriptionsForUser(
   db: DB,
   userId: number
-): Array<{
+): Promise<Array<{
   id: number
   name: string
   price: number
   currency: string
   nextPayment: string
   memberCount: number
-  inactive: number
-}> {
+  inactive: boolean
+}>> {
   // All subs the user is an active member of (subscription_members is
   // authoritative). Covers both owned personal subs (owner auto-added on
   // create) and shared subs where the user was added later.
-  const subIds = db
+  const subIds = (await db
     .select({ subscriptionId: schema.subscriptionMembers.subscriptionId })
     .from(schema.subscriptionMembers)
     .where(
@@ -420,8 +421,8 @@ export function getSubscriptionsForUser(
         isNull(schema.subscriptionMembers.leftAt)
       )
     )
-    .all()
-    .map((r) => r.subscriptionId)
+    
+    )  .map((r) => r.subscriptionId)
 
   if (subIds.length === 0) return []
 
@@ -441,7 +442,7 @@ export function getSubscriptionsForUser(
     })
     .from(schema.subscriptions)
     .where(inArray(schema.subscriptions.id, subIds))
-    .all()
+    
 }
 
 /**
@@ -450,7 +451,7 @@ export function getSubscriptionsForUser(
  *
  * A "shared" sub is any non-inactive sub that has more than one active member.
  * Skips personal subs (no co-members) and inactive subs.
- * Active members = getActiveMembersAt(sub.id, '<YYYY-MM>-01').
+ * Active members = await getActiveMembersAt(sub.id, '<YYYY-MM>-01').
  * Share = floor(price / activeMemberCount).
  * Idempotent via UNIQUE(subscription_id, user_id, billing_date).
  *
@@ -469,15 +470,15 @@ export function getSubscriptionsForUser(
  * Existing billing_records are unchanged; next monthly cron will exclude
  * the new payer and include the former payer (if they're still a member).
  */
-export function transferPayer(
+export async function transferPayer(
   db: DB,
   input: { subscriptionId: number; newPayerId: number }
-): void {
-  const sub = db
+): Promise<void> {
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, input.subscriptionId))
-    .get()
+    
   if (!sub) throw new Error('Subscription not found')
 
   if (sub.payerId === input.newPayerId) {
@@ -485,39 +486,39 @@ export function transferPayer(
   }
 
   const today = new Date().toISOString().slice(0, 10)
-  const members = getActiveMembersAt(db, input.subscriptionId, today)
+  const members = await getActiveMembersAt(db, input.subscriptionId, today)
   const isMember = members.some((m) => m.userId === input.newPayerId)
   if (!isMember) {
     throw new Error('New payer must be an active member of the subscription')
   }
 
-  const oldPayer = db
+  const [oldPayer] = await db
     .select({
       name: schema.users.name,
       displayName: schema.users.displayName,
     })
     .from(schema.users)
     .where(eq(schema.users.id, sub.payerId))
-    .get()
-  const newPayer = db
+    
+  const [newPayer] = await db
     .select({
       name: schema.users.name,
       displayName: schema.users.displayName,
     })
     .from(schema.users)
     .where(eq(schema.users.id, input.newPayerId))
-    .get()
+    
 
-  db.update(schema.subscriptions)
+  await db.update(schema.subscriptions)
     .set({ payerId: input.newPayerId })
     .where(eq(schema.subscriptions.id, input.subscriptionId))
-    .run()
+    
 
   const oldPayerName = oldPayer?.displayName || oldPayer?.name || 'Previous'
   const newPayerName = newPayer?.displayName || newPayer?.name || 'New'
 
   for (const m of members) {
-    insertNotification(db, {
+    await insertNotification(db, {
       userId: m.userId,
       type: 'payer_changed',
       subscriptionId: input.subscriptionId,
@@ -546,10 +547,10 @@ export function transferPayer(
  * Emits one price_changed notification per active non-payer member with
  * effective_from = current month's 1st.
  */
-export function changeSubscriptionPrice(
+export async function changeSubscriptionPrice(
   db: DB,
   input: { subscriptionId: number; newPrice: number }
-): void {
+): Promise<void> {
   if (
     typeof input.newPrice !== 'number' ||
     !Number.isFinite(input.newPrice) ||
@@ -558,23 +559,22 @@ export function changeSubscriptionPrice(
     throw new Error('newPrice must be a non-negative number')
   }
 
-  const sub = db
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, input.subscriptionId))
-    .get()
+    
   if (!sub) throw new Error('Subscription not found')
 
   const oldPrice = sub.price
   if (oldPrice === input.newPrice) return
 
-  db.update(schema.subscriptions)
+  await db.update(schema.subscriptions)
     .set({ price: input.newPrice })
     .where(eq(schema.subscriptions.id, input.subscriptionId))
-    .run()
 
   const today = new Date().toISOString().slice(0, 10)
-  const members = getActiveMembersAt(db, input.subscriptionId, today)
+  const members = await getActiveMembersAt(db, input.subscriptionId, today)
   const nonPayers = members.filter((m) => m.userId !== sub.payerId)
 
   const n = members.length
@@ -586,18 +586,18 @@ export function changeSubscriptionPrice(
   const daysInMonth = new Date(yy, mm, 0).getDate()
   const monthEnd = `${yy}-${String(mm).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
 
-  const currentMonthBills = db
+  const currentMonthBills = await db
     .select()
     .from(schema.billingRecords)
     .where(
       and(
         eq(schema.billingRecords.subscriptionId, input.subscriptionId),
-        eq(schema.billingRecords.isPaid, 0),
+        eq(schema.billingRecords.isPaid, false),
         gte(schema.billingRecords.billingDate, monthStart),
         lte(schema.billingRecords.billingDate, monthEnd)
       )
     )
-    .all()
+    
 
   for (const bill of currentMonthBills) {
     let newAmount: number
@@ -611,16 +611,16 @@ export function changeSubscriptionPrice(
     const newLocalAmount = Math.floor(
       (newAmount * bill.exchangeRate) / 1_000_000
     )
-    db.update(schema.billingRecords)
+    await db.update(schema.billingRecords)
       .set({ amount: newAmount, localAmount: newLocalAmount })
       .where(eq(schema.billingRecords.id, bill.id))
-      .run()
+      
   }
 
   if (nonPayers.length === 0) return
 
   for (const m of nonPayers) {
-    insertNotification(db, {
+    await insertNotification(db, {
       userId: m.userId,
       type: 'price_changed',
       subscriptionId: input.subscriptionId,
@@ -638,23 +638,23 @@ export function changeSubscriptionPrice(
   }
 }
 
-export function generateMonthlyBills(
+export async function generateMonthlyBills(
   db: DB,
   yearMonth: string,
   rates: Record<string, number> = {}
-): number {
+): Promise<number> {
   const billingDate = `${yearMonth}-01`
 
-  const subs = db
+  const subs = await db
     .select()
     .from(schema.subscriptions)
-    .where(eq(schema.subscriptions.inactive, 0))
-    .all()
+    .where(eq(schema.subscriptions.inactive, false))
+    
 
   let inserted = 0
 
   for (const sub of subs) {
-    const members = getActiveMembersAt(db, sub.id, billingDate)
+    const members = await getActiveMembersAt(db, sub.id, billingDate)
     if (members.length < 2) continue // personal or empty
 
     const nonPayers = members.filter((m) => m.userId !== sub.payerId)
@@ -662,14 +662,14 @@ export function generateMonthlyBills(
 
     const share = Math.floor(sub.price / members.length)
 
-    inserted += db.transaction((tx) => {
+    inserted += await db.transaction(async (tx) => {
       let count = 0
       for (const member of nonPayers) {
-        const user = tx
+        const [user] = await tx
           .select({ preferredCurrency: schema.users.preferredCurrency })
           .from(schema.users)
           .where(eq(schema.users.id, member.userId))
-          .get()
+          
         if (!user) continue
 
         const rate =
@@ -684,7 +684,7 @@ export function generateMonthlyBills(
 
         const localAmount = Math.floor(share * rate)
 
-        const existing = tx
+        const existing = await tx
           .select({ id: schema.billingRecords.id })
           .from(schema.billingRecords)
           .where(
@@ -694,10 +694,10 @@ export function generateMonthlyBills(
               eq(schema.billingRecords.billingDate, billingDate)
             )
           )
-          .get()
+          
         if (existing) continue
 
-        tx.insert(schema.billingRecords)
+        await tx.insert(schema.billingRecords)
           .values({
             subscriptionId: sub.id,
             userId: member.userId,
@@ -708,7 +708,7 @@ export function generateMonthlyBills(
             exchangeRate: Math.round(rate * 1000000),
             billingDate,
           })
-          .run()
+          
         count++
       }
       return count
@@ -718,31 +718,31 @@ export function generateMonthlyBills(
   return inserted
 }
 
-export function generateAndSaveBillingRecords(
+export async function generateAndSaveBillingRecords(
   db: DB,
   subscriptionId: number,
   rates?: Record<string, number>
-): number {
-  const sub = db
+): Promise<number> {
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subscriptionId))
-    .get()
+    
 
   if (!sub || sub.inactive) return 0
 
-  const memberRows = getActiveMembersAt(db, subscriptionId, sub.nextPayment)
+  const memberRows = await getActiveMembersAt(db, subscriptionId, sub.nextPayment)
   if (memberRows.length < 2) return 0 // personal sub — no bills to generate
 
   const memberIds = memberRows.map((m) => m.userId)
-  const users = db
+  const users = await db
     .select({
       id: schema.users.id,
       preferredCurrency: schema.users.preferredCurrency,
     })
     .from(schema.users)
     .where(inArray(schema.users.id, memberIds))
-    .all()
+    
   const prefByUser = new Map(
     users.map((u) => [u.id, u.preferredCurrency])
   )
@@ -758,11 +758,11 @@ export function generateAndSaveBillingRecords(
   const memberCount = members.length
   const share = calculateShares(sub.price, memberCount)
 
-  return db.transaction((tx) => {
+  return db.transaction(async (tx) => {
     let inserted = 0
 
     for (const member of nonPayerMembers) {
-      const existing = tx
+      const existing = await tx
         .select({ id: schema.billingRecords.id })
         .from(schema.billingRecords)
         .where(
@@ -772,7 +772,7 @@ export function generateAndSaveBillingRecords(
             eq(schema.billingRecords.billingDate, sub.nextPayment)
           )
         )
-        .get()
+        
 
       if (existing) continue
 
@@ -789,7 +789,7 @@ export function generateAndSaveBillingRecords(
       }
       const localAmount = Math.floor(share * rate)
 
-      tx.insert(schema.billingRecords)
+      await tx.insert(schema.billingRecords)
         .values({
           subscriptionId,
           userId: member.userId,
@@ -800,7 +800,7 @@ export function generateAndSaveBillingRecords(
           exchangeRate: rate * 1000000,
           billingDate: sub.nextPayment,
         })
-        .run()
+        
 
       inserted++
     }
@@ -809,10 +809,10 @@ export function generateAndSaveBillingRecords(
   })
 }
 
-export function getPendingBills(
+export async function getPendingBills(
   db: DB,
   userId: number
-): Array<{
+): Promise<Array<{
   id: number
   subscriptionName: string
   amount: number
@@ -820,8 +820,8 @@ export function getPendingBills(
   localAmount: number
   localCurrency: string
   billingDate: string
-  isPaid: number
-}> {
+  isPaid: boolean
+}>> {
   return db
     .select({
       id: schema.billingRecords.id,
@@ -841,32 +841,32 @@ export function getPendingBills(
     .where(
       and(
         eq(schema.billingRecords.userId, userId),
-        eq(schema.billingRecords.isPaid, 0)
+        eq(schema.billingRecords.isPaid, false)
       )
     )
-    .all()
+    
 }
 
-export function markBillPaid(db: DB, billId: number): void {
-  db.update(schema.billingRecords)
+export async function markBillPaid(db: DB, billId: number): Promise<void> {
+  await db.update(schema.billingRecords)
     .set({
-      isPaid: 1,
+      isPaid: true,
       paidAt: new Date().toISOString(),
     })
     .where(eq(schema.billingRecords.id, billId))
-    .run()
+    
 }
 
-export function getMonthlySpendingData(
+export async function getMonthlySpendingData(
   db: DB,
   userId: number
-): Array<{
+): Promise<Array<{
   name: string
   price: number
   currency: string
   memberCount: number
-}> {
-  const subs = getSubscriptionsForUser(db, userId)
+}>> {
+  const subs = await getSubscriptionsForUser(db, userId)
   return subs
     .filter((s) => !s.inactive)
     .map((s) => ({

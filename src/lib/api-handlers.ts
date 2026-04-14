@@ -1,5 +1,5 @@
 import { eq, and, inArray, or, desc } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import {
   createSubscription,
@@ -36,7 +36,8 @@ import {
   type CircleSummary,
 } from './circles'
 
-type DB = BetterSQLite3Database<typeof schema>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
 type Result<T = unknown> =
   | { success: true; data?: T }
   | { success: false; error: string }
@@ -68,7 +69,7 @@ export async function handleCreateSubscription(
     }
   }
 
-  const sub = createSubscription(db, {
+  const sub = await createSubscription(db, {
     ...input,
     ownerId: userId,
     payerId,
@@ -79,7 +80,7 @@ export async function handleCreateSubscription(
     const rates = await fetchRatesForUsers(db, invitees, input.currency)
     const today = new Date().toISOString().slice(0, 10)
     for (const uid of invitees) {
-      addMemberToSubscription(
+      await addMemberToSubscription(
         db,
         {
           subscriptionId: sub.id,
@@ -101,11 +102,11 @@ async function fetchRatesForUsers(
   subCurrency: string
 ): Promise<Record<string, number>> {
   if (userIds.length === 0) return {}
-  const rows = db
+  const rows = await db
     .select({ preferredCurrency: schema.users.preferredCurrency })
     .from(schema.users)
     .where(inArray(schema.users.id, userIds))
-    .all()
+    
   const targets = new Set(
     rows.map((r) => r.preferredCurrency).filter((c) => c !== subCurrency)
   )
@@ -125,11 +126,11 @@ export async function handleAddMembers(
   subId: number,
   memberIds: number[]
 ): Promise<Result<{ added: number }>> {
-  const sub = db
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
-    .get()
+    
   if (!sub) return { success: false, error: 'Subscription not found' }
 
   if (sub.ownerId !== actorId && sub.payerId !== actorId) {
@@ -146,7 +147,7 @@ export async function handleAddMembers(
   const today = new Date().toISOString().slice(0, 10)
   let added = 0
   for (const uid of invitees) {
-    const before = db
+    const before = await db
       .select({ userId: schema.subscriptionMembers.userId })
       .from(schema.subscriptionMembers)
       .where(
@@ -155,9 +156,9 @@ export async function handleAddMembers(
           eq(schema.subscriptionMembers.userId, uid)
         )
       )
-      .get()
+      
     if (before) continue
-    addMemberToSubscription(
+    await addMemberToSubscription(
       db,
       { subscriptionId: subId, userId: uid, addedBy: actorId, addedAt: today },
       rates
@@ -168,17 +169,17 @@ export async function handleAddMembers(
   return { success: true, data: { added } }
 }
 
-export function handleRemoveMember(
+export async function handleRemoveMember(
   db: DB,
   actorId: number,
   subId: number,
   targetUserId: number
-): Result {
-  const sub = db
+): Promise<Result> {
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
-    .get()
+    
   if (!sub) return { success: false, error: 'Subscription not found' }
 
   const isSelf = actorId === targetUserId
@@ -190,7 +191,7 @@ export function handleRemoveMember(
   }
 
   try {
-    leaveSubscription(db, {
+    await leaveSubscription(db, {
       subscriptionId: subId,
       userId: targetUserId,
       leftAt: new Date().toISOString().slice(0, 10),
@@ -223,7 +224,7 @@ export async function runBillingCron(
   const yearMonth = `${year}-${String(month).padStart(2, '0')}`
 
   // Pre-load rates for every (sub.currency, member.preferredCurrency) pair.
-  const pairs = db
+  const pairs = await db
     .select({
       subCurrency: schema.subscriptions.currency,
       memberCurrency: schema.users.preferredCurrency,
@@ -237,8 +238,8 @@ export async function runBillingCron(
       schema.users,
       eq(schema.subscriptionMembers.userId, schema.users.id)
     )
-    .where(eq(schema.subscriptions.inactive, 0))
-    .all()
+    .where(eq(schema.subscriptions.inactive, false))
+    
 
   const need = new Set<string>()
   for (const p of pairs) {
@@ -256,7 +257,7 @@ export async function runBillingCron(
     })
   )
 
-  const generated = generateMonthlyBills(db, yearMonth, rates)
+  const generated = await generateMonthlyBills(db, yearMonth, rates)
   return { success: true, data: { monthlyBillsGenerated: generated } }
 }
 
@@ -274,21 +275,21 @@ const CURRENCY_WHITELIST = new Set([
   'JPY',
 ])
 
-export function handleGetSettlement(
+export async function handleGetSettlement(
   db: DB,
   userId: number,
   opts: { view?: 'unpaid' | 'paid' } = {}
-): Result<EnrichedSettlementRow[]> {
+): Promise<Result<EnrichedSettlementRow[]>> {
   const rows =
     opts.view === 'paid'
-      ? getSettledHistory(db, userId)
-      : getSettlementSummary(db, userId)
+      ? await getSettledHistory(db, userId)
+      : await getSettlementSummary(db, userId)
   if (rows.length === 0) return { success: true, data: [] }
 
   const counterpartyIds = Array.from(
     new Set(rows.map((r) => r.counterpartyUserId))
   )
-  const users = db
+  const users = await db
     .select({
       id: schema.users.id,
       name: schema.users.name,
@@ -296,7 +297,7 @@ export function handleGetSettlement(
     })
     .from(schema.users)
     .where(inArray(schema.users.id, counterpartyIds))
-    .all()
+    
   const byId = new Map(users.map((u) => [u.id, u]))
 
   const enriched: EnrichedSettlementRow[] = rows.map((r) => {
@@ -307,19 +308,19 @@ export function handleGetSettlement(
   return { success: true, data: enriched }
 }
 
-export function handleMarkPairSettled(
+export async function handleMarkPairSettled(
   db: DB,
   userId: number,
   counterpartyUserId: number,
   currency: string
-): Result<{ marked: number }> {
+): Promise<Result<{ marked: number }>> {
   if (userId === counterpartyUserId) {
     return { success: false, error: 'Cannot settle with yourself' }
   }
   if (!CURRENCY_WHITELIST.has(currency)) {
     return { success: false, error: 'Unsupported currency' }
   }
-  const marked = markPairSettled(db, {
+  const marked = await markPairSettled(db, {
     userA: userId,
     userB: counterpartyUserId,
     currency,
@@ -334,11 +335,11 @@ export interface FriendRow {
   since: string
 }
 
-export function handleListFriends(
+export async function handleListFriends(
   db: DB,
   userId: number
-): Result<FriendRow[]> {
-  const rows = db
+): Promise<Result<FriendRow[]>> {
+  const rows = await db
     .select({
       userAId: schema.friendships.userAId,
       userBId: schema.friendships.userBId,
@@ -352,14 +353,14 @@ export function handleListFriends(
       )
     )
     .orderBy(desc(schema.friendships.createdAt))
-    .all()
+    
 
   if (rows.length === 0) return { success: true, data: [] }
 
   const otherIds = rows.map((r) =>
     r.userAId === userId ? r.userBId : r.userAId
   )
-  const users = db
+  const users = await db
     .select({
       id: schema.users.id,
       name: schema.users.name,
@@ -369,7 +370,7 @@ export function handleListFriends(
     })
     .from(schema.users)
     .where(inArray(schema.users.id, otherIds))
-    .all()
+    
 
   const byId = new Map(users.map((u) => [u.id, u]))
   const result: FriendRow[] = rows
@@ -382,7 +383,7 @@ export function handleListFriends(
         displayName: u.displayName?.trim() || u.name,
         since: r.since,
       }
-      if (u.showEmail === 1) out.email = u.email
+      if (u.showEmail) out.email = u.email
       return out
     })
     .filter((x): x is FriendRow => x !== null)
@@ -390,53 +391,53 @@ export function handleListFriends(
   return { success: true, data: result }
 }
 
-export function handleListNotifications(
+export async function handleListNotifications(
   db: DB,
   userId: number,
   limit = 50
-): Result<{ items: NotificationRecord[]; unreadCount: number }> {
-  const items = listNotifications(db, userId, limit)
-  const unreadCount = countUnreadNotifications(db, userId)
+): Promise<Result<{ items: NotificationRecord[]; unreadCount: number }>> {
+  const items = await listNotifications(db, userId, limit)
+  const unreadCount = await countUnreadNotifications(db, userId)
   return { success: true, data: { items, unreadCount } }
 }
 
-export function handleMarkNotificationRead(
+export async function handleMarkNotificationRead(
   db: DB,
   userId: number,
   notificationId: number
-): Result {
-  const row = db
+): Promise<Result> {
+  const [row] = await db
     .select({ userId: schema.notifications.userId })
     .from(schema.notifications)
     .where(eq(schema.notifications.id, notificationId))
-    .get()
+    
   if (!row) return { success: false, error: 'Notification not found' }
   if (row.userId !== userId) {
     return { success: false, error: 'Not your notification' }
   }
-  markNotificationRead(db, notificationId)
+  await markNotificationRead(db, notificationId)
   return { success: true }
 }
 
-export function handleMarkAllNotificationsRead(
+export async function handleMarkAllNotificationsRead(
   db: DB,
   userId: number
-): Result {
-  markAllNotificationsRead(db, userId)
+): Promise<Result> {
+  await markAllNotificationsRead(db, userId)
   return { success: true }
 }
 
-export function handleTransferPayer(
+export async function handleTransferPayer(
   db: DB,
   actorId: number,
   subId: number,
   newPayerId: number
-): Result {
-  const sub = db
+): Promise<Result> {
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
-    .get()
+    
   if (!sub) return { success: false, error: 'Subscription not found' }
 
   if (sub.ownerId !== actorId && sub.payerId !== actorId) {
@@ -447,7 +448,7 @@ export function handleTransferPayer(
   }
 
   try {
-    transferPayer(db, { subscriptionId: subId, newPayerId })
+    await transferPayer(db, { subscriptionId: subId, newPayerId })
   } catch (err) {
     return {
       success: false,
@@ -457,7 +458,7 @@ export function handleTransferPayer(
   return { success: true }
 }
 
-export function handleUpdateSubscription(
+export async function handleUpdateSubscription(
   db: DB,
   userId: number,
   subId: number,
@@ -465,14 +466,14 @@ export function handleUpdateSubscription(
     name?: string
     price?: number
     nextPayment?: string
-    inactive?: number
+    inactive?: boolean
   }
-): Result {
-  const sub = db
+): Promise<Result> {
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
-    .get()
+    
 
   if (!sub) return { success: false, error: 'Subscription not found' }
   if (sub.ownerId !== userId)
@@ -480,7 +481,7 @@ export function handleUpdateSubscription(
 
   // Price changes go through changeSubscriptionPrice so R5 notifications fire.
   if (input.price !== undefined && input.price !== sub.price) {
-    changeSubscriptionPrice(db, { subscriptionId: subId, newPrice: input.price })
+    await changeSubscriptionPrice(db, { subscriptionId: subId, newPrice: input.price })
   }
 
   const updates: Record<string, unknown> = {}
@@ -489,75 +490,75 @@ export function handleUpdateSubscription(
   if (input.inactive !== undefined) updates.inactive = input.inactive
 
   if (Object.keys(updates).length > 0) {
-    db.update(schema.subscriptions)
+    await db.update(schema.subscriptions)
       .set(updates)
       .where(eq(schema.subscriptions.id, subId))
-      .run()
+      
   }
 
   return { success: true }
 }
 
-export function handleDeleteSubscription(
+export async function handleDeleteSubscription(
   db: DB,
   userId: number,
   subId: number
-): Result {
-  const sub = db
+): Promise<Result> {
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
-    .get()
+    
 
   if (!sub) return { success: false, error: 'Subscription not found' }
   if (sub.ownerId !== userId)
     return { success: false, error: 'Only the owner can delete this subscription' }
 
   // Check for unpaid bills
-  const unpaid = db
+  const unpaid = await db
     .select({ id: schema.billingRecords.id })
     .from(schema.billingRecords)
     .where(
       and(
         eq(schema.billingRecords.subscriptionId, subId),
-        eq(schema.billingRecords.isPaid, 0)
+        eq(schema.billingRecords.isPaid, false)
       )
     )
     .limit(1)
-    .all()
+    
 
   if (unpaid.length > 0) {
     // Soft delete
-    db.update(schema.subscriptions)
-      .set({ inactive: 1 })
+    await db.update(schema.subscriptions)
+      .set({ inactive: true })
       .where(eq(schema.subscriptions.id, subId))
-      .run()
+      
   } else {
     // Hard delete
-    db.delete(schema.subscriptions)
+    await db.delete(schema.subscriptions)
       .where(eq(schema.subscriptions.id, subId))
-      .run()
+      
   }
 
   return { success: true }
 }
 
-export function handleMarkPaid(
+export async function handleMarkPaid(
   db: DB,
   userId: number,
   billId: number
-): Result {
-  const bill = db
+): Promise<Result> {
+  const [bill] = await db
     .select()
     .from(schema.billingRecords)
     .where(eq(schema.billingRecords.id, billId))
-    .get()
+    
 
   if (!bill) return { success: false, error: 'Bill not found' }
   if (bill.userId !== userId)
     return { success: false, error: 'This bill does not belong to you' }
 
-  markBillPaid(db, billId)
+  await markBillPaid(db, billId)
   return { success: true }
 }
 
@@ -579,13 +580,13 @@ export async function handleGetDashboard(
     memberCount: number
   }>
 }> {
-  const spendingData = getMonthlySpendingData(db, userId)
+  const spendingData = await getMonthlySpendingData(db, userId)
 
-  const user = db
+  const [user] = await db
     .select()
     .from(schema.users)
     .where(eq(schema.users.id, userId))
-    .get()
+    
 
   const preferredCurrency = user?.preferredCurrency ?? 'CNY'
 
@@ -610,7 +611,7 @@ export async function handleGetDashboard(
     rates
   )
 
-  const pendingBills = getPendingBills(db, userId).map((b) => ({
+  const pendingBills = (await getPendingBills(db, userId)).map((b) => ({
     id: b.id,
     subscriptionName: b.subscriptionName,
     amount: b.amount,
@@ -626,14 +627,14 @@ export async function handleGetDashboard(
 
 // --- Circles (member preset templates; UI label: "Group") ---
 
-export function handleListCircles(
+export async function handleListCircles(
   db: DB,
   userId: number
-): Result<CircleSummary[]> {
-  return { success: true, data: listCirclesForOwner(db, userId) }
+): Promise<Result<CircleSummary[]>> {
+  return { success: true, data: await listCirclesForOwner(db, userId) }
 }
 
-export function handleCreateCircle(
+export async function handleCreateCircle(
   db: DB,
   userId: number,
   input: {
@@ -641,9 +642,9 @@ export function handleCreateCircle(
     memberIds?: number[]
     defaultPayerId?: number | null
   }
-): Result<{ id: number }> {
+): Promise<Result<{ id: number }>> {
   try {
-    const result = createCircle(db, {
+    const result = await createCircle(db, {
       ownerUserId: userId,
       name: input.name,
       memberIds: input.memberIds,
@@ -658,17 +659,17 @@ export function handleCreateCircle(
   }
 }
 
-export function handleGetCircle(
+export async function handleGetCircle(
   db: DB,
   userId: number,
   circleId: number
-): Result<CircleSummary> {
-  const circle = getCircle(db, circleId, userId)
+): Promise<Result<CircleSummary>> {
+  const circle = await getCircle(db, circleId, userId)
   if (!circle) return { success: false, error: 'Not found' }
   return { success: true, data: circle }
 }
 
-export function handleUpdateCircle(
+export async function handleUpdateCircle(
   db: DB,
   userId: number,
   circleId: number,
@@ -677,9 +678,9 @@ export function handleUpdateCircle(
     memberIds?: number[]
     defaultPayerId?: number | null
   }
-): Result {
+): Promise<Result> {
   try {
-    const ok = updateCircle(db, circleId, userId, patch)
+    const ok = await updateCircle(db, circleId, userId, patch)
     if (!ok) return { success: false, error: 'Not found' }
     return { success: true }
   } catch (err) {
@@ -690,12 +691,12 @@ export function handleUpdateCircle(
   }
 }
 
-export function handleDeleteCircle(
+export async function handleDeleteCircle(
   db: DB,
   userId: number,
   circleId: number
-): Result {
-  const ok = deleteCircle(db, circleId, userId)
+): Promise<Result> {
+  const ok = await deleteCircle(db, circleId, userId)
   if (!ok) return { success: false, error: 'Not found' }
   return { success: true }
 }

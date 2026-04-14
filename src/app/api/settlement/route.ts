@@ -11,8 +11,7 @@ export async function GET(req: NextRequest) {
   if (auth instanceof NextResponse) return auth
   const { userId, db } = auth
 
-  const view = req.nextUrl.searchParams.get('view') === 'paid' ? 'paid' : 'unpaid'
-  const result = handleGetSettlement(db, userId, { view })
+  const result = await handleGetSettlement(db, userId)
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }
@@ -37,7 +36,7 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const result = handleMarkPairSettled(
+  const result = await handleMarkPairSettled(
     db,
     userId,
     parsed.data.counterpartyUserId,

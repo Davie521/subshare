@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -16,35 +14,35 @@ import {
 /**
  * T16 — debt netting per (userA, userB, currency) bucket.
  *
- * getSettlementSummary(userId) returns one row per counterparty per currency,
+ * await getSettlementSummary(userId) returns one row per counterparty per currency,
  * with owedByMe / owedToMe / net / billIds.
  *
- * markPairSettled(userA, userB, currency) flips is_paid on every unpaid
+ * await markPairSettled(userA, userB, currency) flips is_paid on every unpaid
  * bill between the pair in that currency. Idempotent.
  */
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 describe('T16 getSettlementSummary', () => {
-  it('returns empty when no unpaid bills exist', () => {
-    const a = createUser(sqlite)
-    expect(getSettlementSummary(db, a)).toEqual([])
+  it('returns empty when no unpaid bills exist', async () => {
+    const a = await createUser(db)
+    expect(await getSettlementSummary(db, a)).toEqual([])
   })
 
-  it('reports net when only I owe (one direction)', () => {
+  it('reports net when only I owe (one direction)', async () => {
     // A hosts Netflix, B owes A.
     // B joins May 1 (day 1, 31 days) → R2 generates a full-month bill
     // (5000). The May 1 monthly cron sees it exists and is a no-op.
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const sub = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10000,
       currency: 'CNY',
@@ -52,15 +50,15 @@ describe('T16 getSettlementSummary', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-05-01',
     })
-    generateMonthlyBills(db, '2026-05')
+    await generateMonthlyBills(db, '2026-05')
 
-    const summaryB = getSettlementSummary(db, b)
+    const summaryB = await getSettlementSummary(db, b)
     expect(summaryB).toHaveLength(1)
     expect(summaryB[0].counterpartyUserId).toBe(a)
     expect(summaryB[0].currency).toBe('CNY')
@@ -69,11 +67,11 @@ describe('T16 getSettlementSummary', () => {
     expect(summaryB[0].net).toBe(-5000) // negative = I owe
   })
 
-  it('reports nets to zero when both sides equal', () => {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
+  it('reports nets to zero when both sides equal', async () => {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
     // A hosts Netflix → B owes A 5000
-    const sub1 = createSubscription(db, {
+    const sub1 = await createSubscription(db, {
       name: 'Netflix',
       price: 10000,
       currency: 'CNY',
@@ -81,14 +79,14 @@ describe('T16 getSettlementSummary', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub1.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-05-01',
     })
     // B hosts Spotify → A owes B 5000
-    const sub2 = createSubscription(db, {
+    const sub2 = await createSubscription(db, {
       name: 'Spotify',
       price: 10000,
       currency: 'CNY',
@@ -96,24 +94,24 @@ describe('T16 getSettlementSummary', () => {
       startDate: '2026-03-01',
       ownerId: b,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub2.id,
       userId: a,
       addedBy: b,
       addedAt: '2026-05-01',
     })
-    generateMonthlyBills(db, '2026-05')
+    await generateMonthlyBills(db, '2026-05')
 
-    const aSum = getSettlementSummary(db, a)
+    const aSum = await getSettlementSummary(db, a)
     expect(aSum).toHaveLength(1)
     expect(aSum[0].net).toBe(0)
   })
 
-  it('nets reciprocal debts in the same currency', () => {
+  it('nets reciprocal debts in the same currency', async () => {
     // B owes A 6000 for Netflix, A owes B 2000 for Spotify → net A owes B -4000 (i.e. B owes A 4000)
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const sub1 = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const sub1 = await createSubscription(db, {
       name: 'Netflix',
       price: 12000,
       currency: 'CNY',
@@ -121,13 +119,13 @@ describe('T16 getSettlementSummary', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub1.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-05-01',
     })
-    const sub2 = createSubscription(db, {
+    const sub2 = await createSubscription(db, {
       name: 'Spotify',
       price: 4000,
       currency: 'CNY',
@@ -135,16 +133,16 @@ describe('T16 getSettlementSummary', () => {
       startDate: '2026-03-01',
       ownerId: b,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub2.id,
       userId: a,
       addedBy: b,
       addedAt: '2026-05-01',
     })
-    generateMonthlyBills(db, '2026-05')
+    await generateMonthlyBills(db, '2026-05')
 
     // B's perspective: owes 6000 (Netflix), is owed 2000 (Spotify) → net -4000
-    const bSum = getSettlementSummary(db, b)
+    const bSum = await getSettlementSummary(db, b)
     expect(bSum).toHaveLength(1)
     expect(bSum[0].counterpartyUserId).toBe(a)
     expect(bSum[0].owedByMe).toBe(6000)
@@ -152,11 +150,11 @@ describe('T16 getSettlementSummary', () => {
     expect(bSum[0].net).toBe(-4000)
   })
 
-  it('emits two rows when the pair has debts in different currencies', () => {
+  it('emits two rows when the pair has debts in different currencies', async () => {
     // A hosts Netflix in CNY (B owes CNY); B hosts Spotify in USD (A owes USD)
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'USD' })
-    const sub1 = createSubscription(db, {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'USD' })
+    const sub1 = await createSubscription(db, {
       name: 'Netflix',
       price: 10000,
       currency: 'CNY',
@@ -164,7 +162,7 @@ describe('T16 getSettlementSummary', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(
+    await addMemberToSubscription(
       db,
       {
         subscriptionId: sub1.id,
@@ -174,7 +172,7 @@ describe('T16 getSettlementSummary', () => {
       },
       { CNY_USD: 0.14 }
     )
-    const sub2 = createSubscription(db, {
+    const sub2 = await createSubscription(db, {
       name: 'Spotify',
       price: 2000,
       currency: 'USD',
@@ -182,7 +180,7 @@ describe('T16 getSettlementSummary', () => {
       startDate: '2026-03-01',
       ownerId: b,
     })
-    addMemberToSubscription(
+    await addMemberToSubscription(
       db,
       {
         subscriptionId: sub2.id,
@@ -192,9 +190,9 @@ describe('T16 getSettlementSummary', () => {
       },
       { USD_CNY: 7.2 }
     )
-    generateMonthlyBills(db, '2026-05', { CNY_USD: 0.14, USD_CNY: 7.2 })
+    await generateMonthlyBills(db, '2026-05', { CNY_USD: 0.14, USD_CNY: 7.2 })
 
-    const bSum = getSettlementSummary(db, b)
+    const bSum = await getSettlementSummary(db, b)
     // Two rows: CNY (B owes A) and USD (B collects from A)
     const currencies = bSum.map((r) => r.currency).sort()
     expect(currencies).toEqual(['CNY', 'USD'])
@@ -202,10 +200,10 @@ describe('T16 getSettlementSummary', () => {
 })
 
 describe('T16 markPairSettled', () => {
-  function pair() {
-    const a = createUser(sqlite, { email: 'a@t.com', currency: 'CNY' })
-    const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })
-    const sub1 = createSubscription(db, {
+  async function pair() {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const sub1 = await createSubscription(db, {
       name: 'Netflix',
       price: 12000,
       currency: 'CNY',
@@ -213,13 +211,13 @@ describe('T16 markPairSettled', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub1.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-05-01',
     })
-    const sub2 = createSubscription(db, {
+    const sub2 = await createSubscription(db, {
       name: 'Spotify',
       price: 4000,
       currency: 'CNY',
@@ -227,31 +225,30 @@ describe('T16 markPairSettled', () => {
       startDate: '2026-03-01',
       ownerId: b,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub2.id,
       userId: a,
       addedBy: b,
       addedAt: '2026-05-01',
     })
-    generateMonthlyBills(db, '2026-05')
+    await generateMonthlyBills(db, '2026-05')
     return { a, b }
   }
 
-  it('flips is_paid=1 on all unpaid bills between the pair in the given currency', () => {
-    const { a, b } = pair()
-    const n = markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
+  it('flips is_paid=1 on all unpaid bills between the pair in the given currency', async () => {
+    const { a, b } = await pair()
+    const n = await markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
     expect(n).toBeGreaterThanOrEqual(2)
 
-    const unpaid = sqlite
-      .prepare(`SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = 0`)
+    const unpaid = await sqlite.prepare(`SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false`)
       .get() as { n: number }
     expect(unpaid.n).toBe(0)
   })
 
-  it('is idempotent — second call marks 0 more rows', () => {
-    const { a, b } = pair()
-    markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
-    const second = markPairSettled(db, {
+  it('is idempotent — second call marks 0 more rows', async () => {
+    const { a, b } = await pair()
+    await markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
+    const second = await markPairSettled(db, {
       userA: a,
       userB: b,
       currency: 'CNY',
@@ -259,17 +256,16 @@ describe('T16 markPairSettled', () => {
     expect(second).toBe(0)
   })
 
-  it('direction-agnostic: userA/userB order does not matter', () => {
-    const { a, b } = pair()
-    const n = markPairSettled(db, { userA: b, userB: a, currency: 'CNY' })
+  it('direction-agnostic: userA/userB order does not matter', async () => {
+    const { a, b } = await pair()
+    const n = await markPairSettled(db, { userA: b, userB: a, currency: 'CNY' })
     expect(n).toBeGreaterThan(0)
   })
 
-  it('currency scoping — leaves other-currency bills untouched', () => {
-    const { a, b } = pair()
+  it('currency scoping — leaves other-currency bills untouched', async () => {
+    const { a, b } = await pair()
     // Add a USD bill between A and B manually on a different billing_date.
-    sqlite
-      .prepare(
+    await sqlite.prepare(
         `INSERT INTO billing_records
          (subscription_id, user_id, amount, currency, local_amount, local_currency, exchange_rate, billing_date)
          SELECT id, ?, 500, 'USD', 500, 'USD', 1000000, '2026-06-01'
@@ -277,20 +273,19 @@ describe('T16 markPairSettled', () => {
       )
       .run(b)
 
-    markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
+    await markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
 
-    const unpaidUsd = sqlite
-      .prepare(
-        `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = 0 AND currency = 'USD'`
+    const unpaidUsd = await sqlite.prepare(
+        `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false AND currency = 'USD'`
       )
       .get() as { n: number }
     expect(unpaidUsd.n).toBe(1) // USD bill remains unpaid
   })
 
-  it('does not touch bills involving a third party', () => {
-    const { a, b } = pair()
-    const c = createUser(sqlite, { email: 'c@t.com', currency: 'CNY' })
-    const sub3 = createSubscription(db, {
+  it('does not touch bills involving a third party', async () => {
+    const { a, b } = await pair()
+    const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
+    const sub3 = await createSubscription(db, {
       name: 'YT',
       price: 6000,
       currency: 'CNY',
@@ -298,19 +293,18 @@ describe('T16 markPairSettled', () => {
       startDate: '2026-03-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub3.id,
       userId: c,
       addedBy: a,
       addedAt: '2026-05-01', // day 1 of May → one full-month R2 bill, no R1 dup
     })
 
-    markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
+    await markPairSettled(db, { userA: a, userB: b, currency: 'CNY' })
 
     // C's one unpaid bill to A should remain unpaid.
-    const cUnpaid = sqlite
-      .prepare(
-        `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = 0 AND user_id = ?`
+    const cUnpaid = await sqlite.prepare(
+        `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false AND user_id = ?`
       )
       .get(c) as { n: number }
     expect(cUnpaid.n).toBe(1)

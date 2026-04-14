@@ -1,96 +1,35 @@
 import { describe, it, expect } from 'vitest'
-import Database from 'better-sqlite3'
+import { setupTestDb } from './helpers'
 import { migrate } from '@/db/migrate'
 
 /**
- * T17 / H1 — migration must refuse to leave subscriptions.payer_id NULL.
- *
- * Fresh DBs never hit this (CREATE TABLE enforces NOT NULL). The risk is in
- * the legacy-DB code path where ADD COLUMN is nullable; the backfill is
- * supposed to fill everything, but if a sub has a dangling group_id and
- * owner_id is somehow NULL, the row survives with payer_id NULL and every
- * downstream invariant (R7 payer guard, settlement netting) silently breaks.
+ * Post-Postgres-migration: the legacy SQLite path that simulated a pre-
+ * payer_id schema and ran ALTER TABLE backfill no longer exists. Fresh
+ * Postgres databases get payer_id as NOT NULL from day one, and the
+ * H1 guard in await migrate() runs an orphan check that we exercise here.
  */
 
-function legacyDbWithPrePayerSchema(): Database.Database {
-  // Simulate a DB created before the payer_id column existed.
-  const sqlite = new Database(':memory:')
-  sqlite.pragma('foreign_keys = ON')
-  sqlite.exec(`
-    CREATE TABLE users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      email TEXT NOT NULL UNIQUE,
-      password_hash TEXT NOT NULL
-    );
-    CREATE TABLE groups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      public_id TEXT NOT NULL UNIQUE,
-      created_by INTEGER NOT NULL REFERENCES users(id),
-      default_currency TEXT NOT NULL DEFAULT 'CNY'
-    );
-    CREATE TABLE subscriptions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      price INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'CNY',
-      next_payment TEXT NOT NULL,
-      start_date TEXT NOT NULL,
-      owner_id INTEGER NOT NULL REFERENCES users(id),
-      group_id INTEGER REFERENCES groups(id)
-    );
-  `)
-  sqlite
-    .prepare("INSERT INTO users (id, name, email, password_hash) VALUES (1, 'A', 'a@t', 'x')")
-    .run()
-  return sqlite
-}
-
 describe('T17 migration payer_id guard', () => {
-  it('backfills payer_id=owner_id for a personal sub (happy path)', () => {
-    const sqlite = legacyDbWithPrePayerSchema()
-    sqlite
-      .prepare(
-        `INSERT INTO subscriptions (id, name, price, next_payment, start_date, owner_id)
-         VALUES (10, 'Spotify', 1500, '2026-05-01', '2026-01-01', 1)`
-      )
-      .run()
-
-    expect(() => migrate(sqlite)).not.toThrow()
-
-    const row = sqlite
-      .prepare('SELECT payer_id FROM subscriptions WHERE id = 10')
-      .get() as { payer_id: number }
-    expect(row.payer_id).toBe(1)
+  it('guard passes on a freshly migrated DB with no orphan rows', async () => {
+    const { db } = await setupTestDb()
+    await expect(migrate(db)).resolves.not.toThrow()
   })
 
-  it('throws when a subscription has no resolvable payer after backfill', () => {
-    const sqlite = legacyDbWithPrePayerSchema()
-    // Directly insert a row that violates owner_id NOT NULL — impossible
-    // via the CREATE TABLE above. So instead, simulate the pathology with
-    // a NULL-allowed shadow column. We recreate the table without
-    // owner_id NOT NULL, insert NULL, then run migrate.
-    sqlite.exec(`
-      DROP TABLE subscriptions;
-      CREATE TABLE subscriptions (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        price INTEGER NOT NULL,
-        currency TEXT NOT NULL DEFAULT 'CNY',
-        next_payment TEXT NOT NULL,
-        start_date TEXT NOT NULL,
-        owner_id INTEGER REFERENCES users(id),
-        group_id INTEGER REFERENCES groups(id)
-      );
-    `)
-    sqlite
-      .prepare(
-        `INSERT INTO subscriptions (id, name, price, next_payment, start_date, owner_id)
-         VALUES (11, 'Orphan', 100, '2026-05-01', '2026-01-01', NULL)`
-      )
-      .run()
+  it('guard throws when a subscription has payer_id IS NULL', async () => {
+    const { db, sqlite } = await setupTestDb()
 
-    expect(() => migrate(sqlite)).toThrow(/payer_id/i)
+    await sqlite.exec(
+      'ALTER TABLE subscriptions ALTER COLUMN payer_id DROP NOT NULL'
+    )
+    await sqlite.prepare(
+      "INSERT INTO users (id, name, email, password_hash) VALUES (99, 'Z', 'z@t.com', 'x')"
+    ).run()
+    await sqlite.prepare(
+      `INSERT INTO subscriptions
+       (name, price, next_payment, start_date, owner_id, payer_id)
+       VALUES ('Broken', 100, '2026-01-01', '2026-01-01', 99, NULL)`
+    ).run()
+
+    await expect(migrate(db)).rejects.toThrow(/payer_id/i)
   })
 })

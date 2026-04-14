@@ -16,18 +16,17 @@ export async function GET(
   const numId = parseId(id)
   if (!numId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
-  const sub = db
+  const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, numId))
-    .get()
 
   if (!sub) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Authorization: owner, payer, or active subscription_members
   let allowed = sub.ownerId === userId || sub.payerId === userId
   if (!allowed) {
-    const subMembership = db
+    const [subMembership] = await db
       .select()
       .from(schema.subscriptionMembers)
       .where(
@@ -36,15 +35,26 @@ export async function GET(
           eq(schema.subscriptionMembers.userId, userId)
         )
       )
-      .get()
     if (subMembership) allowed = true
+  }
+  if (!allowed && sub.groupId) {
+    const [legacy] = await db
+      .select()
+      .from(schema.groupMembers)
+      .where(
+        and(
+          eq(schema.groupMembers.groupId, sub.groupId),
+          eq(schema.groupMembers.userId, userId)
+        )
+      )
+    if (legacy) allowed = true
   }
   if (!allowed) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
   // Enriched members list (active only).
-  const memberRows = db
+  const memberRows = await db
     .select({
       userId: schema.subscriptionMembers.userId,
       addedAt: schema.subscriptionMembers.addedAt,
@@ -58,12 +68,11 @@ export async function GET(
         isNull(schema.subscriptionMembers.leftAt)
       )
     )
-    .all()
 
   const memberIds = memberRows.map((m) => m.userId)
   const users =
     memberIds.length > 0
-      ? db
+      ? await db
           .select({
             id: schema.users.id,
             name: schema.users.name,
@@ -73,7 +82,6 @@ export async function GET(
           })
           .from(schema.users)
           .where(inArray(schema.users.id, memberIds))
-          .all()
       : []
   const byId = new Map(users.map((u) => [u.id, u]))
 
@@ -82,7 +90,7 @@ export async function GET(
     return {
       userId: m.userId,
       displayName: (u?.displayName?.trim() || u?.name) ?? `User #${m.userId}`,
-      email: u?.showEmail === 1 ? u?.email : undefined,
+      email: u?.showEmail ? u?.email : undefined,
       addedAt: m.addedAt,
       isPayer: m.userId === sub.payerId,
       isOwner: m.userId === sub.ownerId,
@@ -109,7 +117,7 @@ export async function PUT(
     return NextResponse.json({ error: parsed.error.issues[0].message }, { status: 400 })
   }
 
-  const result = handleUpdateSubscription(db, userId, numId, parsed.data)
+  const result = await handleUpdateSubscription(db, userId, numId, parsed.data)
   if (!result.success) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return NextResponse.json({ ok: true })
@@ -126,7 +134,7 @@ export async function DELETE(
   const numId = parseId(id)
   if (!numId) return NextResponse.json({ error: 'Invalid ID' }, { status: 400 })
 
-  const result = handleDeleteSubscription(db, userId, numId)
+  const result = await handleDeleteSubscription(db, userId, numId)
   if (!result.success) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return NextResponse.json({ ok: true })

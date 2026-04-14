@@ -10,7 +10,7 @@ export async function GET(req: NextRequest) {
   const limitRaw = req.nextUrl.searchParams.get('limit')
   const limit = Math.min(Math.max(Number(limitRaw) || 50, 1), 200)
 
-  const result = handleListNotifications(db, userId, limit)
+  const result = await handleListNotifications(db, userId, limit)
   if (!result.success) {
     return NextResponse.json({ error: result.error }, { status: 400 })
   }

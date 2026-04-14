@@ -12,7 +12,7 @@ export async function GET() {
   }
 
   const db = getDb()
-  const user = db
+  const [user] = await db
     .select({
       id: schema.users.id,
       name: schema.users.name,
@@ -24,7 +24,6 @@ export async function GET() {
     })
     .from(schema.users)
     .where(eq(schema.users.id, session.userId))
-    .get()
 
   if (!user) {
     return NextResponse.json({ error: 'User not found' }, { status: 404 })
@@ -33,7 +32,7 @@ export async function GET() {
   return NextResponse.json({
     ...user,
     displayName: user.displayName ?? '',
-    showEmail: Boolean(user.showEmail),
+    showEmail: user.showEmail,
   })
 }
 
@@ -61,15 +60,15 @@ export async function PUT(req: NextRequest) {
     updates.displayName = parsed.data.displayName || null
   }
   if (parsed.data.showEmail !== undefined) {
-    updates.showEmail = parsed.data.showEmail ? 1 : 0
+    updates.showEmail = parsed.data.showEmail
   }
 
   if (Object.keys(updates).length > 0) {
     const db = getDb()
-    db.update(schema.users)
+    await db
+      .update(schema.users)
       .set(updates)
       .where(eq(schema.users.id, session.userId))
-      .run()
   }
 
   return NextResponse.json({ ok: true })

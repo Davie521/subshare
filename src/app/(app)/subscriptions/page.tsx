@@ -17,7 +17,7 @@ type Sub = {
   currency: string;
   nextPayment: string;
   memberCount: number;
-  inactive: number;
+  inactive: boolean;
 };
 
 export default function SubscriptionsPage() {

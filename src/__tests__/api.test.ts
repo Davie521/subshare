@@ -1,8 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
 import { eq } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
-import { setupTestDb, createUser, addSubMember } from './helpers'
+import { setupTestDb, createUser, createGroup, addMember } from './helpers'
 import * as schema from '@/db/schema'
 import { registerUser, loginUser } from '@/lib/auth'
 import { createSubscription, generateAndSaveBillingRecords } from '@/lib/db-operations'
@@ -20,11 +18,15 @@ function assertSuccess<T>(r: Result<T>): asserts r is { success: true; data?: T 
   if (!r.success) throw new Error(`Expected success, got error: ${r.error}`)
 }
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+function assertFailure<T>(r: Result<T>): asserts r is { success: false; error: string } {
+  if (r.success) throw new Error('Expected failure, got success')
+}
 
-beforeEach(() => {
-  const setup = setupTestDb()
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
+
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
@@ -32,8 +34,8 @@ beforeEach(() => {
 // --- Auth ---
 
 describe('auth', () => {
-  it('registers a new user', () => {
-    const result = registerUser(db, {
+  it('registers a new user', async () => {
+    const result = await registerUser(db, {
       name: 'Alice',
       email: 'alice@test.com',
       password: 'pass123',
@@ -45,26 +47,26 @@ describe('auth', () => {
     }
   })
 
-  it('rejects duplicate email', () => {
-    registerUser(db, { name: 'A', email: 'dup@test.com', password: 'pass' })
-    const result = registerUser(db, { name: 'B', email: 'dup@test.com', password: 'pass' })
+  it('rejects duplicate email', async () => {
+    await registerUser(db, { name: 'A', email: 'dup@test.com', password: 'pass' })
+    const result = await registerUser(db, { name: 'B', email: 'dup@test.com', password: 'pass' })
     expect('error' in result).toBe(true)
   })
 
-  it('logs in with correct password', () => {
-    registerUser(db, { name: 'A', email: 'a@test.com', password: 'pass123' })
-    const result = loginUser(db, { email: 'a@test.com', password: 'pass123' })
+  it('logs in with correct password', async () => {
+    await registerUser(db, { name: 'A', email: 'a@test.com', password: 'pass123' })
+    const result = await loginUser(db, { email: 'a@test.com', password: 'pass123' })
     expect('id' in result).toBe(true)
   })
 
-  it('rejects wrong password', () => {
-    registerUser(db, { name: 'A', email: 'a@test.com', password: 'pass123' })
-    const result = loginUser(db, { email: 'a@test.com', password: 'wrong' })
+  it('rejects wrong password', async () => {
+    await registerUser(db, { name: 'A', email: 'a@test.com', password: 'pass123' })
+    const result = await loginUser(db, { email: 'a@test.com', password: 'wrong' })
     expect('error' in result).toBe(true)
   })
 
-  it('rejects non-existent email', () => {
-    const result = loginUser(db, { email: 'no@test.com', password: 'pass' })
+  it('rejects non-existent email', async () => {
+    const result = await loginUser(db, { email: 'no@test.com', password: 'pass' })
     expect('error' in result).toBe(true)
   })
 })
@@ -73,7 +75,7 @@ describe('auth', () => {
 
 describe('handleCreateSubscription', () => {
   it('creates personal subscription', async () => {
-    const userId = createUser(sqlite)
+    const userId = await createUser(db)
     const result = await handleCreateSubscription(db, userId, {
       name: 'Spotify',
       price: 1500,
@@ -84,9 +86,25 @@ describe('handleCreateSubscription', () => {
     expect(result.data!.name).toBe('Spotify')
   })
 
-  it('creates shared subscription with members[]', async () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
+  it('creates shared subscription in a group', async () => {
+    const userId = await createUser(db)
+    const group = await createGroup(db, { createdBy: userId })
+
+    const result = await handleCreateSubscription(db, userId, {
+      name: 'Netflix',
+      price: 18000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      groupId: group.id,
+    })
+    assertSuccess(result)
+    expect(result.data!.groupId).toBe(group.id)
+  })
+
+  it('rejects adding to group user is not member of', async () => {
+    const userA = await createUser(db, { email: 'a@test.com' })
+    const userB = await createUser(db, { email: 'b@test.com' })
+    const group = await createGroup(db, { createdBy: userA })
 
     const result = await handleCreateSubscription(db, userA, {
       name: 'Netflix',
@@ -97,19 +115,19 @@ describe('handleCreateSubscription', () => {
     })
     assertSuccess(result)
 
-    const members = db
+    const members = await db
       .select()
       .from(schema.subscriptionMembers)
       .where(eq(schema.subscriptionMembers.subscriptionId, result.data!.id))
-      .all()
+      
     expect(members).toHaveLength(2) // owner + invitee
   })
 })
 
 describe('handleUpdateSubscription', () => {
-  it('updates subscription price', () => {
-    const userId = createUser(sqlite)
-    const sub = createSubscription(db, {
+  it('updates subscription price', async () => {
+    const userId = await createUser(db)
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
@@ -117,21 +135,21 @@ describe('handleUpdateSubscription', () => {
       ownerId: userId,
     })
 
-    const result = handleUpdateSubscription(db, userId, sub.id, { price: 20000 })
+    const result = await handleUpdateSubscription(db, userId, sub.id, { price: 20000 })
     expect(result.success).toBe(true)
 
-    const updated = db
+    const [updated] = await db
       .select()
       .from(schema.subscriptions)
       .where(eq(schema.subscriptions.id, sub.id))
-      .get()
+      
     expect(updated!.price).toBe(20000)
   })
 
-  it('rejects update by non-owner', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const sub = createSubscription(db, {
+  it('rejects update by non-owner', async () => {
+    const userA = await createUser(db, { email: 'a@test.com' })
+    const userB = await createUser(db, { email: 'b@test.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
@@ -139,15 +157,15 @@ describe('handleUpdateSubscription', () => {
       ownerId: userA,
     })
 
-    const result = handleUpdateSubscription(db, userB, sub.id, { price: 20000 })
+    const result = await handleUpdateSubscription(db, userB, sub.id, { price: 20000 })
     expect(result.success).toBe(false)
   })
 })
 
 describe('handleDeleteSubscription', () => {
-  it('hard deletes when no unpaid bills', () => {
-    const userId = createUser(sqlite)
-    const sub = createSubscription(db, {
+  it('hard deletes when no unpaid bills', async () => {
+    const userId = await createUser(db)
+    const sub = await createSubscription(db, {
       name: 'Spotify',
       price: 1500,
       currency: 'CNY',
@@ -155,90 +173,93 @@ describe('handleDeleteSubscription', () => {
       ownerId: userId,
     })
 
-    const result = handleDeleteSubscription(db, userId, sub.id)
+    const result = await handleDeleteSubscription(db, userId, sub.id)
     expect(result.success).toBe(true)
 
-    const found = db
+    const [found] = await db
       .select()
       .from(schema.subscriptions)
       .where(eq(schema.subscriptions.id, sub.id))
-      .get()
+      
     expect(found).toBeUndefined()
   })
 
-  it('soft deletes (marks inactive) when unpaid bills exist', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
+  it('soft deletes (marks inactive) when unpaid bills exist', async () => {
+    const userA = await createUser(db, { email: 'a@test.com' })
+    const userB = await createUser(db, { email: 'b@test.com' })
+    const group = await createGroup(db, { createdBy: userA })
+    await addMember(db, group.id, userB)
 
-    const sub = createSubscription(db, {
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
     })
-    addSubMember(sqlite, sub.id, userB)
-    generateAndSaveBillingRecords(db, sub.id)
+    await generateAndSaveBillingRecords(db, sub.id)
 
-    const result = handleDeleteSubscription(db, userA, sub.id)
+    const result = await handleDeleteSubscription(db, userA, sub.id)
     expect(result.success).toBe(true)
 
-    const found = db
+    const [found] = await db
       .select()
       .from(schema.subscriptions)
       .where(eq(schema.subscriptions.id, sub.id))
-      .get()
+      
     expect(found).toBeDefined()
-    expect(found!.inactive).toBe(1)
+    expect(found!.inactive).toBe(true)
   })
 })
 
 // --- Billing ---
 
 describe('handleMarkPaid', () => {
-  it('marks a bill as paid', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
+  it('marks a bill as paid', async () => {
+    const userA = await createUser(db, { email: 'a@test.com' })
+    const userB = await createUser(db, { email: 'b@test.com' })
+    const group = await createGroup(db, { createdBy: userA })
+    await addMember(db, group.id, userB)
 
-    const sub = createSubscription(db, {
+    await createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
     })
-    addSubMember(sqlite, sub.id, userB)
-    generateAndSaveBillingRecords(db, sub.id)
+    await generateAndSaveBillingRecords(db, 1)
 
-    const bills = db.select().from(schema.billingRecords).all()
-    const result = handleMarkPaid(db, userB, bills[0].id)
+    const bills = await db.select().from(schema.billingRecords)
+    const result = await handleMarkPaid(db, userB, bills[0].id)
     expect(result.success).toBe(true)
 
-    const updated = db
+    const [updated] = await db
       .select()
       .from(schema.billingRecords)
       .where(eq(schema.billingRecords.id, bills[0].id))
-      .get()
-    expect(updated!.isPaid).toBe(1)
+      
+    expect(updated!.isPaid).toBe(true)
   })
 
-  it('rejects marking someone else bill as paid', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const userC = createUser(sqlite, { email: 'c@test.com' })
+  it('rejects marking someone else bill as paid', async () => {
+    const userA = await createUser(db, { email: 'a@test.com' })
+    const userB = await createUser(db, { email: 'b@test.com' })
+    const userC = await createUser(db, { email: 'c@test.com' })
+    const group = await createGroup(db, { createdBy: userA })
+    await addMember(db, group.id, userB)
 
-    const sub = createSubscription(db, {
+    await createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
     })
-    addSubMember(sqlite, sub.id, userB)
-    generateAndSaveBillingRecords(db, sub.id)
+    await generateAndSaveBillingRecords(db, 1)
 
-    const bills = db.select().from(schema.billingRecords).all()
-    const result = handleMarkPaid(db, userC, bills[0].id)
+    const bills = await db.select().from(schema.billingRecords)
+    const result = await handleMarkPaid(db, userC, bills[0].id)
     expect(result.success).toBe(false)
   })
 })
@@ -247,11 +268,11 @@ describe('handleMarkPaid', () => {
 
 describe('handleGetDashboard', () => {
   it('returns spending summary and pending bills', async () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
+    const userA = await createUser(db, { email: 'a@test.com' })
+    const userB = await createUser(db, { email: 'b@test.com' })
 
     // Personal sub
-    createSubscription(db, {
+    await createSubscription(db, {
       name: 'Spotify',
       price: 1500,
       currency: 'CNY',
@@ -260,15 +281,16 @@ describe('handleGetDashboard', () => {
     })
 
     // Shared sub
-    const netflix = createSubscription(db, {
+    const group = await createGroup(db, { createdBy: userA })
+    await addMember(db, group.id, userB)
+    await createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
       ownerId: userA,
     })
-    addSubMember(sqlite, netflix.id, userB)
-    generateAndSaveBillingRecords(db, netflix.id)
+    await generateAndSaveBillingRecords(db, 2)
 
     const result = await handleGetDashboard(db, userB)
     expect(result.monthlyTotal).toBe(10500) // 1500 + 18000/2

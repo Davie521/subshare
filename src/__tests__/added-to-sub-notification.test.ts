@@ -1,6 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import type Database from 'better-sqlite3'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
@@ -19,20 +17,20 @@ import { listNotifications } from '@/lib/notifications'
  *   - next settlement date (YYYY-MM-01 of next month)
  */
 
-let db: BetterSQLite3Database<typeof schema>
-let sqlite: Database.Database
+let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
-beforeEach(() => {
-  const setup = setupTestDb()
+beforeEach(async () => {
+  const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
 })
 
 describe('T11 added_to_sub notification', () => {
-  it('inserts one notification for the invitee with enriched payload', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+  it('inserts one notification for the invitee with enriched payload', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10800,
       currency: 'CNY',
@@ -41,14 +39,14 @@ describe('T11 added_to_sub notification', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-20',
     })
 
-    const notifs = listNotifications<{
+    const notifs = await listNotifications<{
       sub_name: string
       actor_name: string
       share: number
@@ -72,9 +70,9 @@ describe('T11 added_to_sub notification', () => {
     expect(n.payload.next_billing_date).toBe('2026-05-01')
   })
 
-  it('no notification sent when owner is self-inserted on createSubscription', () => {
-    const a = createUser(sqlite)
-    createSubscription(db, {
+  it('no notification sent when owner is self-inserted on createSubscription', async () => {
+    const a = await createUser(db)
+    await createSubscription(db, {
       name: 'Spotify',
       price: 1000,
       currency: 'CNY',
@@ -83,14 +81,14 @@ describe('T11 added_to_sub notification', () => {
       ownerId: a,
     })
 
-    expect(listNotifications(db, a)).toHaveLength(0)
+    expect(await listNotifications(db, a)).toHaveLength(0)
   })
 
-  it('notification goes to the invitee only, not to the inviter or other members', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const c = createUser(sqlite, { email: 'c@t.com' })
-    const sub = createSubscription(db, {
+  it('notification goes to the invitee only, not to the inviter or other members', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const c = await createUser(db, { email: 'c@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10000,
       currency: 'CNY',
@@ -98,28 +96,28 @@ describe('T11 added_to_sub notification', () => {
       startDate: '2026-04-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-15',
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: c,
       addedBy: a,
       addedAt: '2026-04-16',
     })
 
-    expect(listNotifications(db, a)).toHaveLength(0)
-    expect(listNotifications(db, b)).toHaveLength(1)
-    expect(listNotifications(db, c)).toHaveLength(1)
+    expect(await listNotifications(db, a)).toHaveLength(0)
+    expect(await listNotifications(db, b)).toHaveLength(1)
+    expect(await listNotifications(db, c)).toHaveLength(1)
   })
 
-  it('idempotent re-add does not create a duplicate notification', () => {
-    const a = createUser(sqlite, { email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+  it('idempotent re-add does not create a duplicate notification', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10000,
       currency: 'CNY',
@@ -128,26 +126,26 @@ describe('T11 added_to_sub notification', () => {
       ownerId: a,
     })
 
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-15',
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-20',
     })
 
-    expect(listNotifications(db, b)).toHaveLength(1)
+    expect(await listNotifications(db, b)).toHaveLength(1)
   })
 
-  it('actor_name reflects the inviter displayName (or falls back to name)', () => {
-    const a = createUser(sqlite, { name: 'Alice', email: 'a@t.com' })
-    const b = createUser(sqlite, { email: 'b@t.com' })
-    const sub = createSubscription(db, {
+  it('actor_name reflects the inviter displayName (or falls back to name)', async () => {
+    const a = await createUser(db, { name: 'Alice', email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 10000,
       currency: 'CNY',
@@ -155,14 +153,14 @@ describe('T11 added_to_sub notification', () => {
       startDate: '2026-04-01',
       ownerId: a,
     })
-    addMemberToSubscription(db, {
+    await addMemberToSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       addedBy: a,
       addedAt: '2026-04-15',
     })
 
-    const notifs = listNotifications<{ actor_name: string; payer_name: string }>(
+    const notifs = await listNotifications<{ actor_name: string; payer_name: string }>(
       db,
       b
     )

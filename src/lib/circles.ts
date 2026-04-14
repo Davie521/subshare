@@ -1,8 +1,9 @@
 import { eq, and, inArray } from 'drizzle-orm'
-import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
+import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 
-type DB = BetterSQLite3Database<typeof schema>
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
 
 export interface CircleSummary {
   id: number
@@ -13,7 +14,7 @@ export interface CircleSummary {
   createdAt: string
 }
 
-export function createCircle(
+export async function createCircle(
   db: DB,
   input: {
     ownerUserId: number
@@ -21,11 +22,11 @@ export function createCircle(
     memberIds?: number[]
     defaultPayerId?: number | null
   }
-): { id: number } {
+): Promise<{ id: number }> {
   const name = input.name.trim()
   if (!name) throw new Error('Circle name cannot be empty')
 
-  const row = db
+  const [row] = await db
     .insert(schema.circles)
     .values({
       name,
@@ -33,38 +34,38 @@ export function createCircle(
       defaultPayerId: input.defaultPayerId ?? null,
     })
     .returning({ id: schema.circles.id })
-    .get()
+    
 
   // Owner is always a member; extra ids merged and deduped.
   const memberSet = new Set<number>([input.ownerUserId, ...(input.memberIds ?? [])])
   for (const userId of memberSet) {
-    db.insert(schema.circleMembers)
+    await db.insert(schema.circleMembers)
       .values({ circleId: row.id, userId })
       .onConflictDoNothing()
-      .run()
+      
   }
 
   return { id: row.id }
 }
 
-export function listCirclesForOwner(
+export async function listCirclesForOwner(
   db: DB,
   ownerUserId: number
-): CircleSummary[] {
-  const circles = db
+): Promise<CircleSummary[]> {
+  const circles = await db
     .select()
     .from(schema.circles)
     .where(eq(schema.circles.ownerUserId, ownerUserId))
-    .all()
+    
 
   if (circles.length === 0) return []
 
   const ids = circles.map((c) => c.id)
-  const memberRows = db
+  const memberRows = await db
     .select()
     .from(schema.circleMembers)
     .where(inArray(schema.circleMembers.circleId, ids))
-    .all()
+    
 
   const byCircle = new Map<number, number[]>()
   for (const m of memberRows) {
@@ -83,12 +84,12 @@ export function listCirclesForOwner(
   }))
 }
 
-export function getCircle(
+export async function getCircle(
   db: DB,
   circleId: number,
   viewerId: number
-): CircleSummary | null {
-  const row = db
+): Promise<CircleSummary | null> {
+  const [row] = await db
     .select()
     .from(schema.circles)
     .where(
@@ -97,14 +98,14 @@ export function getCircle(
         eq(schema.circles.ownerUserId, viewerId)
       )
     )
-    .get()
+    
   if (!row) return null
-  const memberIds = db
+  const memberIds = (await db
     .select({ userId: schema.circleMembers.userId })
     .from(schema.circleMembers)
     .where(eq(schema.circleMembers.circleId, circleId))
-    .all()
-    .map((r) => r.userId)
+
+    )  .map((r) => r.userId)
   return {
     id: row.id,
     name: row.name,
@@ -115,7 +116,7 @@ export function getCircle(
   }
 }
 
-export function updateCircle(
+export async function updateCircle(
   db: DB,
   circleId: number,
   ownerUserId: number,
@@ -124,8 +125,8 @@ export function updateCircle(
     memberIds?: number[]
     defaultPayerId?: number | null
   }
-): boolean {
-  const row = db
+): Promise<boolean> {
+  const row = await db
     .select()
     .from(schema.circles)
     .where(
@@ -134,7 +135,7 @@ export function updateCircle(
         eq(schema.circles.ownerUserId, ownerUserId)
       )
     )
-    .get()
+    
   if (!row) return false
 
   const updates: Record<string, unknown> = {}
@@ -147,35 +148,35 @@ export function updateCircle(
     updates.defaultPayerId = patch.defaultPayerId
   }
   if (Object.keys(updates).length > 0) {
-    db.update(schema.circles)
+    await db.update(schema.circles)
       .set(updates)
       .where(eq(schema.circles.id, circleId))
-      .run()
+      
   }
 
   if (patch.memberIds !== undefined) {
     const desired = new Set<number>([ownerUserId, ...patch.memberIds])
     // Replace full membership set.
-    db.delete(schema.circleMembers)
+    await db.delete(schema.circleMembers)
       .where(eq(schema.circleMembers.circleId, circleId))
-      .run()
+      
     for (const userId of desired) {
-      db.insert(schema.circleMembers)
+      await db.insert(schema.circleMembers)
         .values({ circleId, userId })
         .onConflictDoNothing()
-        .run()
+        
     }
   }
 
   return true
 }
 
-export function deleteCircle(
+export async function deleteCircle(
   db: DB,
   circleId: number,
   ownerUserId: number
-): boolean {
-  const result = db
+): Promise<boolean> {
+  const result = await db
     .delete(schema.circles)
     .where(
       and(
@@ -183,6 +184,7 @@ export function deleteCircle(
         eq(schema.circles.ownerUserId, ownerUserId)
       )
     )
-    .run()
-  return result.changes > 0
+    .returning({ id: schema.circles.id })
+
+  return result.length > 0
 }

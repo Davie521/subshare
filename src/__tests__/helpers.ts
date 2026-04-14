@@ -1,53 +1,133 @@
-import Database from 'better-sqlite3'
-import { drizzle } from 'drizzle-orm/better-sqlite3'
+import { PGlite } from '@electric-sql/pglite'
+import { drizzle } from 'drizzle-orm/pglite'
 import * as schema from '@/db/schema'
 import { migrate } from '@/db/migrate'
 import { hashSync } from 'bcryptjs'
 
-export function setupTestDb() {
-  const sqlite = new Database(':memory:')
-  sqlite.pragma('foreign_keys = ON')
-  migrate(sqlite)
-  const db = drizzle(sqlite, { schema })
-  return { db, sqlite }
+export type TestDb = ReturnType<typeof drizzle<typeof schema>>
+
+export interface SqliteShim {
+  pragma: (s: string) => void
+  exec: (s: string) => Promise<void>
+  prepare: (sql: string) => {
+    get: <T = unknown>(...args: unknown[]) => Promise<T | undefined>
+    all: <T = unknown>(...args: unknown[]) => Promise<T[]>
+    run: (
+      ...args: unknown[]
+    ) => Promise<{ changes: number; lastInsertRowid: number }>
+  }
 }
 
-/** Insert a test user and return their id */
-export function createUser(
-  sqlite: Database.Database,
+function sqliteToPg(sql: string): string {
+  let i = 0
+  return sql.replace(/\?/g, () => `$${++i}`)
+}
+
+function makeShim(pg: PGlite): SqliteShim {
+  return {
+    pragma: () => {
+      // no-op on Postgres
+    },
+    exec: async (s) => {
+      await pg.exec(s)
+    },
+    prepare: (sql: string) => {
+      const pgSql = sqliteToPg(sql)
+      return {
+        get: async <T = unknown>(...args: unknown[]) => {
+          const { rows } = await pg.query(pgSql, args)
+          return (rows[0] as T) ?? undefined
+        },
+        all: async <T = unknown>(...args: unknown[]) => {
+          const { rows } = await pg.query(pgSql, args)
+          return rows as T[]
+        },
+        run: async (...args: unknown[]) => {
+          const res = await pg.query(pgSql, args)
+          return {
+            changes: res.affectedRows ?? res.rows.length,
+            lastInsertRowid: 0,
+          }
+        },
+      }
+    },
+  }
+}
+
+export async function setupTestDb(): Promise<{
+  db: TestDb
+  pg: PGlite
+  sqlite: SqliteShim
+}> {
+  const pg = new PGlite()
+  const db = drizzle(pg, { schema })
+  await migrate(db)
+  return { db, pg, sqlite: makeShim(pg) }
+}
+
+/** Insert a test user and return their id. */
+export async function createUser(
+  db: TestDb,
   opts: { name?: string; email?: string; currency?: string } = {}
-) {
+): Promise<number> {
   const name = opts.name || 'Test User'
-  const email = opts.email || `user${Date.now()}@test.com`
+  const email =
+    opts.email ||
+    `user${Date.now()}.${Math.random().toString(36).slice(2, 7)}@test.com`
   const currency = opts.currency || 'CNY'
   const hash = hashSync('password123', 10)
 
-  const result = sqlite
-    .prepare(
-      'INSERT INTO users (name, email, password_hash, preferred_currency) VALUES (?, ?, ?, ?)'
-    )
-    .run(name, email, hash, currency)
+  const [row] = await db
+    .insert(schema.users)
+    .values({
+      name,
+      email,
+      passwordHash: hash,
+      preferredCurrency: currency,
+    })
+    .returning({ id: schema.users.id })
 
-  return Number(result.lastInsertRowid)
+  return row.id
 }
 
-/**
- * Direct-insert a subscription member via SQL — bypasses
- * addMemberToSubscription's auto-pro-rata side effect. Use this when
- * a test needs a member present before generateAndSaveBillingRecords
- * without any R2 pro-rata bill getting in the way.
- */
-export function addSubMember(
-  sqlite: Database.Database,
-  subscriptionId: number,
-  userId: number,
-  opts: { addedBy?: number; addedAt?: string } = {}
-) {
-  const addedBy = opts.addedBy ?? userId
-  const addedAt = opts.addedAt ?? '2026-01-01'
-  sqlite
-    .prepare(
-      'INSERT OR IGNORE INTO subscription_members (subscription_id, user_id, added_by, added_at) VALUES (?, ?, ?, ?)'
-    )
-    .run(subscriptionId, userId, addedBy, addedAt)
+/** Insert a test group and auto-add the creator as a member. */
+export async function createGroup(
+  db: TestDb,
+  opts: {
+    name?: string
+    createdBy: number
+    publicId?: string
+    currency?: string
+  }
+): Promise<{ id: number; publicId: string }> {
+  const name = opts.name || 'Test Group'
+  const publicId =
+    opts.publicId ||
+    `test-${Date.now()}.${Math.random().toString(36).slice(2, 7)}`
+  const currency = opts.currency || 'CNY'
+
+  const [row] = await db
+    .insert(schema.groups)
+    .values({
+      name,
+      publicId,
+      createdBy: opts.createdBy,
+      defaultCurrency: currency,
+    })
+    .returning({ id: schema.groups.id })
+
+  await db
+    .insert(schema.groupMembers)
+    .values({ groupId: row.id, userId: opts.createdBy })
+
+  return { id: row.id, publicId }
+}
+
+/** Add a member to a group. */
+export async function addMember(
+  db: TestDb,
+  groupId: number,
+  userId: number
+): Promise<void> {
+  await db.insert(schema.groupMembers).values({ groupId, userId })
 }

@@ -18,7 +18,7 @@ export async function POST(req: NextRequest) {
 
   const { name, email, password, preferredCurrency } = parsed.data
   const db = getDb()
-  const result = registerUser(db, { name, email, password, preferredCurrency })
+  const result = await registerUser(db, { name, email, password, preferredCurrency })
 
   if ('error' in result) {
     return NextResponse.json({ error: result.error }, { status: 409 })

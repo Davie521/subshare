@@ -28,7 +28,7 @@ export async function PUT(
     )
   }
 
-  const result = handleTransferPayer(db, userId, subId, parsed.data.newPayerId)
+  const result = await handleTransferPayer(db, userId, subId, parsed.data.newPayerId)
   if (!result.success) {
     const isPermission = /owner|payer|permission/i.test(result.error)
     return NextResponse.json(
