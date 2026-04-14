@@ -90,44 +90,24 @@ export async function createUser(
   return row.id
 }
 
-/** Insert a test group and auto-add the creator as a member. */
-export async function createGroup(
-  db: TestDb,
-  opts: {
-    name?: string
-    createdBy: number
-    publicId?: string
-    currency?: string
-  }
-): Promise<{ id: number; publicId: string }> {
-  const name = opts.name || 'Test Group'
-  const publicId =
-    opts.publicId ||
-    `test-${Date.now()}.${Math.random().toString(36).slice(2, 7)}`
-  const currency = opts.currency || 'CNY'
-
-  const [row] = await db
-    .insert(schema.groups)
-    .values({
-      name,
-      publicId,
-      createdBy: opts.createdBy,
-      defaultCurrency: currency,
-    })
-    .returning({ id: schema.groups.id })
-
-  await db
-    .insert(schema.groupMembers)
-    .values({ groupId: row.id, userId: opts.createdBy })
-
-  return { id: row.id, publicId }
-}
-
-/** Add a member to a group. */
-export async function addMember(
-  db: TestDb,
-  groupId: number,
-  userId: number
+/**
+ * Insert a subscription_members row directly (bypassing addMemberToSubscription
+ * so tests can exercise specific addedAt / leftAt states without triggering
+ * R2 bills or friendships).
+ */
+export async function addSubMember(
+  sqlite: SqliteShim,
+  subscriptionId: number,
+  userId: number,
+  opts: { addedAt?: string; addedBy?: number; leftAt?: string | null } = {}
 ): Promise<void> {
-  await db.insert(schema.groupMembers).values({ groupId, userId })
+  const addedAt = opts.addedAt ?? new Date().toISOString().slice(0, 10)
+  const addedBy = opts.addedBy ?? userId
+  const leftAt = opts.leftAt ?? null
+  await sqlite
+    .prepare(
+      `INSERT INTO subscription_members (subscription_id, user_id, added_at, added_by, left_at)
+       VALUES (?, ?, ?, ?, ?)`
+    )
+    .run(subscriptionId, userId, addedAt, addedBy, leftAt)
 }
