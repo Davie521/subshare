@@ -144,18 +144,23 @@ export default function DashboardPage() {
               : "No shared yet"
           }
         />
-        <StatCard
-          label="To transfer"
-          value={String(outgoingPairs.length)}
-          sub={
-            outgoingPairs.length === 0
-              ? "Nothing owed"
-              : outgoingPairs.length === 1
-              ? "1 person"
-              : `${outgoingPairs.length} people`
-          }
-          tone={outgoingPairs.length > 0 ? "warn" : "neutral"}
-        />
+        <Link
+          href="/settlement"
+          className="rounded-xl transition-transform hover:-translate-y-[1px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40"
+        >
+          <StatCard
+            label="To transfer"
+            value={String(outgoingPairs.length)}
+            sub={
+              outgoingPairs.length === 0
+                ? "Nothing owed"
+                : outgoingPairs.length === 1
+                ? "1 person · tap to settle"
+                : `${outgoingPairs.length} people · tap to settle`
+            }
+            tone={outgoingPairs.length > 0 ? "warn" : "neutral"}
+          />
+        </Link>
       </div>
 
       {/* Two-column layout on desktop */}

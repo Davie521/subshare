@@ -190,8 +190,8 @@ export default function SettlementPage() {
                       </p>
                     </div>
 
-                    {/* Breakdown */}
-                    {!even && (row.owedByMe > 0 || row.owedToMe > 0) && (
+                    {/* Breakdown — only when truly bidirectional (both sides > 0) */}
+                    {!even && row.owedByMe > 0 && row.owedToMe > 0 && (
                       <div className="rounded-md bg-muted/50 px-3 py-2 text-[12px] text-muted-foreground space-y-0.5 tabular-nums">
                         {row.owedByMe > 0 && (
                           <div className="flex items-center justify-between">
@@ -273,7 +273,7 @@ function ToggleSwitch({
       role="switch"
       aria-checked={on}
       onClick={() => onChange(!on)}
-      className="group shrink-0 flex items-center gap-2.5 cursor-pointer select-none"
+      className="group shrink-0 flex items-center gap-2.5 cursor-pointer select-none rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
       <span
         className={cn(
