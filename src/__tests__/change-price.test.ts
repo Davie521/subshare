@@ -8,6 +8,7 @@ import {
   addMemberToSubscription,
   generateMonthlyBills,
   changeSubscriptionPrice,
+  leaveSubscription,
 } from '@/lib/db-operations'
 import { listNotifications } from '@/lib/notifications'
 
@@ -308,6 +309,37 @@ describe('T19 changeSubscriptionPrice — R5 NEW (rewrite current-month unpaid)'
       listNotifications(db, uid).filter((n) => n.type === 'price_changed')
     expect(priceNotifsFor(a)).toHaveLength(0)
     expect(priceNotifsFor(b)).toHaveLength(0)
+  })
+
+  it('does NOT rewrite unpaid bills for members who already left', () => {
+    // Audit #12: a payer must not be able to inflate a departed member's
+    // outstanding debt by raising the price after they leave.
+    const { a, b, c, sub } = setup3()
+    generateMonthlyBills(db, '2026-05') // B and C each owe floor(15000/3) = 5000
+
+    // Payer kicks C (actorId != userId bypasses min-cycle guard).
+    leaveSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      leftAt: '2026-05-10',
+      actorId: a,
+    })
+
+    // Today is 2026-05-15 (fake timer). C is no longer active.
+    changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
+
+    const bills = sqlite
+      .prepare(
+        `SELECT user_id as userId, amount FROM billing_records
+         WHERE subscription_id = ? AND billing_date = '2026-05-01'`
+      )
+      .all(sub.id) as Array<{ userId: number; amount: number }>
+    const bAmount = bills.find((x) => x.userId === b)!.amount
+    const cAmount = bills.find((x) => x.userId === c)!.amount
+    // B is still active, so their bill rewrites using today's n=2 → 15000.
+    expect(bAmount).toBe(15000)
+    // C left before the price change — their bill must stay frozen at 5000.
+    expect(cAmount).toBe(5000)
   })
 
   it('rejects negative or non-numeric price', () => {

@@ -1,4 +1,4 @@
-import { eq, and, sql, inArray, isNull, or, gte, lte } from 'drizzle-orm'
+import { eq, and, sql, inArray, isNull, or, gt, gte, lte } from 'drizzle-orm'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from '@/db/schema'
 import { calculateShares, calculateJoinProRata } from './billing'
@@ -85,6 +85,10 @@ export function addMemberToSubscription(
   },
   rates: Record<string, number> = {}
 ): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.addedAt)) {
+    throw new Error('addedAt must be YYYY-MM-DD')
+  }
+
   // Detect whether this is a genuine new insert vs. a no-op re-add.
   const existingMember = db
     .select({ userId: schema.subscriptionMembers.userId })
@@ -128,7 +132,7 @@ export function addMemberToSubscription(
     .where(eq(schema.subscriptions.id, input.subscriptionId))
     .get()
 
-  if (!sub || sub.payerId === input.userId) return
+  if (!sub || sub.payerId === input.userId || sub.inactive) return
 
   // Use the CANONICAL addedAt from the DB (first successful insert wins,
   // re-adds are no-ops) so billing_date is stable across re-adds.
@@ -338,11 +342,11 @@ export function leaveSubscription(
 }
 
 /**
- * Active membership at a specific date. A member is active iff:
- *   addedAt <= atDate  AND  (leftAt IS NULL OR leftAt >= atDate)
+ * Active membership at a specific date. Half-open interval [addedAt, leftAt):
+ *   addedAt <= atDate  AND  (leftAt IS NULL OR leftAt > atDate)
  *
- * The "leftAt >= atDate" convention treats the leave day as still-billable
- * (last active day) — pre-paid model, member used the service that day.
+ * Matches spec R1: a member kicked on M_start (leftAt = M_start) is excluded
+ * from that month's R1 bill — they never "used" the new month.
  */
 export function getActiveMembersAt(
   db: DB,
@@ -368,7 +372,7 @@ export function getActiveMembersAt(
         lte(schema.subscriptionMembers.addedAt, atDate),
         or(
           isNull(schema.subscriptionMembers.leftAt),
-          gte(schema.subscriptionMembers.leftAt, atDate)
+          gt(schema.subscriptionMembers.leftAt, atDate)
         )
       )
     )
@@ -586,6 +590,11 @@ export function changeSubscriptionPrice(
   const daysInMonth = new Date(yy, mm, 0).getDate()
   const monthEnd = `${yy}-${String(mm).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
 
+  // Only rewrite bills owed by members who are still active today. A member
+  // who already left did not consent to the price change and their settled
+  // obligation is fixed at billing time — otherwise a payer could kick +
+  // raise to inflate someone's outstanding debt.
+  const activeUserIds = new Set(members.map((m) => m.userId))
   const currentMonthBills = db
     .select()
     .from(schema.billingRecords)
@@ -598,6 +607,7 @@ export function changeSubscriptionPrice(
       )
     )
     .all()
+    .filter((bill) => activeUserIds.has(bill.userId))
 
   for (const bill of currentMonthBills) {
     let newAmount: number
@@ -662,7 +672,12 @@ export function generateMonthlyBills(
 
     const share = Math.floor(sub.price / members.length)
 
-    inserted += db.transaction((tx) => {
+    // Isolate FX / insertion failures to a single sub so one bad rate
+    // does not abort the cron for the rest of the month's subscriptions.
+    // The transaction rolls this sub back atomically; other subs are
+    // unaffected because each runs in its own `db.transaction`.
+    try {
+      inserted += db.transaction((tx) => {
       let count = 0
       for (const member of nonPayers) {
         const user = tx
@@ -712,7 +727,12 @@ export function generateMonthlyBills(
         count++
       }
       return count
-    })
+      })
+    } catch {
+      // Per-sub best-effort. Swallowed errors (e.g. missing FX rate) skip
+      // this sub for the current cron run; the next run or a manual retry
+      // will pick it up once the upstream issue is resolved.
+    }
   }
 
   return inserted
@@ -797,7 +817,7 @@ export function generateAndSaveBillingRecords(
           currency: sub.currency,
           localAmount,
           localCurrency: member.preferredCurrency,
-          exchangeRate: rate * 1000000,
+          exchangeRate: Math.round(rate * 1_000_000),
           billingDate: sub.nextPayment,
         })
         .run()

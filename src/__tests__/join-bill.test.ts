@@ -207,6 +207,54 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
     expect(bills[0].subscriptionId).toBe(sub.id)
   })
 
+  it('audit #6 — inactive sub does not generate a pro-rata join bill', () => {
+    const a = createUser(sqlite, { email: 'a@t.com' })
+    const b = createUser(sqlite, { email: 'b@t.com' })
+    const sub = createSubscription(db, {
+      name: 'Old Plex',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2099-06-01',
+      startDate: '2026-04-01',
+      ownerId: a,
+    })
+    sqlite
+      .prepare('UPDATE subscriptions SET inactive = 1 WHERE id = ?')
+      .run(sub.id)
+
+    const today = new Date().toISOString().slice(0, 10)
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: today,
+    })
+
+    expect(allBills()).toHaveLength(0)
+  })
+
+  it('audit #7 — malformed addedAt is rejected', () => {
+    const a = createUser(sqlite, { email: 'a@t.com' })
+    const b = createUser(sqlite, { email: 'b@t.com' })
+    const sub = createSubscription(db, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2099-06-01',
+      startDate: '2026-04-01',
+      ownerId: a,
+    })
+
+    expect(() =>
+      addMemberToSubscription(db, {
+        subscriptionId: sub.id,
+        userId: b,
+        addedBy: a,
+        addedAt: '04/01/2026',
+      })
+    ).toThrow(/YYYY-MM-DD/)
+  })
+
   it('is idempotent — re-adding the same user does not create a second bill', () => {
     const a = createUser(sqlite, { email: 'a@t.com' })
     const b = createUser(sqlite, { email: 'b@t.com' })

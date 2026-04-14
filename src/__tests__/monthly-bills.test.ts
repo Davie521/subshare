@@ -232,6 +232,91 @@ describe('T8 generateMonthlyBills (R1)', () => {
     expect(billsForMonth('2026-05')).toHaveLength(0)
   })
 
+  it('one sub with a missing FX rate does not abort the whole month', () => {
+    // Audit #5: isolated per-sub failure. Sub A has its rate; sub B is
+    // missing its rate and must be skipped, but sub C (same currencies
+    // as members) must still bill.
+    const a = createUser(sqlite, { email: 'a@t.com', currency: 'USD' })
+    const aMember = createUser(sqlite, { email: 'am@t.com', currency: 'CNY' })
+    const b = createUser(sqlite, { email: 'b@t.com', currency: 'EUR' })
+    const bMember = createUser(sqlite, { email: 'bm@t.com', currency: 'JPY' })
+    const c = createUser(sqlite, { email: 'c@t.com' })
+    const cMember = createUser(sqlite, { email: 'cm@t.com' })
+
+    const subA = createSubscription(db, {
+      name: 'A', price: 1000, currency: 'USD',
+      nextPayment: '2026-06-01', startDate: '2026-03-01', ownerId: a,
+    })
+    addMemberToSubscription(
+      db,
+      { subscriptionId: subA.id, userId: aMember, addedBy: a, addedAt: '2026-03-01' },
+      { USD_CNY: 7 }
+    )
+    const subB = createSubscription(db, {
+      name: 'B', price: 2000, currency: 'EUR',
+      nextPayment: '2026-06-01', startDate: '2026-03-01', ownerId: b,
+    })
+    addMemberToSubscription(
+      db,
+      { subscriptionId: subB.id, userId: bMember, addedBy: b, addedAt: '2026-03-01' },
+      { EUR_JPY: 160 }
+    )
+    const subC = createSubscription(db, {
+      name: 'C', price: 3000, currency: 'CNY',
+      nextPayment: '2026-06-01', startDate: '2026-03-01', ownerId: c,
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: subC.id, userId: cMember, addedBy: c, addedAt: '2026-03-01',
+    })
+
+    // Deliberately omit EUR_JPY so sub B trips the FX guard mid-cron.
+    const count = generateMonthlyBills(db, '2026-05', { USD_CNY: 7 })
+
+    expect(count).toBe(2)
+    const billed = billsForMonth('2026-05').map((x) => x.userId).sort()
+    expect(billed).toEqual([aMember, cMember].sort())
+  })
+
+  it('excludes a member kicked exactly on M_start (R1 strict > leftAt)', () => {
+    const a = createUser(sqlite, { email: 'a@t.com' })
+    const b = createUser(sqlite, { email: 'b@t.com' })
+    const c = createUser(sqlite, { email: 'c@t.com' })
+    const sub = createSubscription(db, {
+      name: 'Netflix',
+      price: 15000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-03-15',
+    })
+    addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      addedBy: a,
+      addedAt: '2026-03-20',
+    })
+    // Payer kicks C exactly on May 1 (actorId != userId bypasses min-cycle).
+    leaveSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      leftAt: '2026-05-01',
+      actorId: a,
+    })
+
+    generateMonthlyBills(db, '2026-05')
+
+    const bills = billsForMonth('2026-05')
+    // C must not receive a bill for May; n=2 (A,B) → B owes floor(15000/2).
+    expect(bills.map((bill) => bill.userId)).toEqual([b])
+    expect(bills[0].amount).toBe(7500)
+  })
+
   it('stores local_amount in each member preferred currency', () => {
     const a = createUser(sqlite, { email: 'a@t.com', currency: 'USD' })
     const b = createUser(sqlite, { email: 'b@t.com', currency: 'CNY' })

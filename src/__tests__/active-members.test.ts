@@ -77,17 +77,19 @@ describe('T6 getActiveMembersAt', () => {
     expect(ids).toEqual([a, c].sort())
   })
 
-  it('includes a member on their leftAt date (last active day)', () => {
+  it('excludes a member on their leftAt date (half-open interval)', () => {
     const { a, b, c, sub } = setup3()
     leaveSubscription(db, {
       subscriptionId: sub.id,
       userId: b,
       leftAt: '2026-05-10',
     })
-    // B is "active" on May 10 — their last billable day.
+    // Half-open [addedAt, leftAt): B is gone at May 10 per spec R1
+    // (left_at > atDate required to be active). Matches cron-on-the-1st
+    // semantics where a kick on M_start must not produce an R1 bill.
     const members = getActiveMembersAt(db, sub.id, '2026-05-10')
     const ids = members.map((m) => m.userId).sort()
-    expect(ids).toEqual([a, b, c].sort())
+    expect(ids).toEqual([a, c].sort())
   })
 
   it('excludes members whose addedAt is AFTER atDate', () => {
