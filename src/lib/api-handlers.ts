@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm'
+import { eq, and, inArray } from 'drizzle-orm'
 import { nanoid } from 'nanoid'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from '@/db/schema'
@@ -10,6 +10,7 @@ import {
   getMonthlySpendingData,
   canLeaveGroup,
   removeGroupMember,
+  addMemberToSubscription,
 } from './db-operations'
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
@@ -165,6 +166,8 @@ export async function handleCreateSubscription(
     currency: string
     nextPayment: string
     groupId?: number
+    members?: number[]
+    payerId?: number
     logo?: string
     url?: string
     notes?: string
@@ -187,7 +190,40 @@ export async function handleCreateSubscription(
       return { success: false, error: 'You are not a member of this group' }
   }
 
-  const sub = createSubscription(db, { ...input, ownerId: userId })
+  const invitees = (input.members ?? []).filter((id) => id !== userId)
+  const payerId = input.payerId ?? userId
+
+  // payer must be the owner or one of the invitees.
+  if (payerId !== userId && !invitees.includes(payerId)) {
+    return {
+      success: false,
+      error: 'payerId must be the owner or one of the members',
+    }
+  }
+
+  const sub = createSubscription(db, {
+    ...input,
+    ownerId: userId,
+    payerId,
+  })
+
+  // Seed invitees. Rates are needed for cross-currency R2 bills.
+  if (invitees.length > 0) {
+    const rates = await fetchRatesForUsers(db, invitees, input.currency)
+    const today = new Date().toISOString().slice(0, 10)
+    for (const uid of invitees) {
+      addMemberToSubscription(
+        db,
+        {
+          subscriptionId: sub.id,
+          userId: uid,
+          addedBy: userId,
+          addedAt: today,
+        },
+        rates
+      )
+    }
+  }
 
   if (sub.groupId) {
     void fetchRatesForGroup(db, sub.groupId, input.currency)
@@ -198,6 +234,30 @@ export async function handleCreateSubscription(
   }
 
   return { success: true, data: sub }
+}
+
+async function fetchRatesForUsers(
+  db: DB,
+  userIds: number[],
+  subCurrency: string
+): Promise<Record<string, number>> {
+  if (userIds.length === 0) return {}
+  const rows = db
+    .select({ preferredCurrency: schema.users.preferredCurrency })
+    .from(schema.users)
+    .where(inArray(schema.users.id, userIds))
+    .all()
+  const targets = new Set(
+    rows.map((r) => r.preferredCurrency).filter((c) => c !== subCurrency)
+  )
+  const rates: Record<string, number> = {}
+  await Promise.all(
+    Array.from(targets).map(async (to) => {
+      const rate = await getRate(subCurrency, to)
+      if (rate !== null) rates[`${subCurrency}_${to}`] = rate
+    })
+  )
+  return rates
 }
 
 async function fetchRatesForGroup(
