@@ -1,4 +1,4 @@
-import { and, eq, inArray, or } from 'drizzle-orm'
+import { and, eq, or } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 
@@ -156,45 +156,31 @@ export async function markPairSettled(
   const { userA, userB, currency } = input
   if (userA === userB) return 0
 
-  // Unpaid bills where user_id ∈ {A,B} AND sub.payer_id ∈ {A,B} AND currency = given.
-  const rows = await db
-    .select({
-      id: schema.billingRecords.id,
-      userId: schema.billingRecords.userId,
-      payerId: schema.subscriptions.payerId,
-    })
-    .from(schema.billingRecords)
-    .innerJoin(
-      schema.subscriptions,
-      eq(schema.billingRecords.subscriptionId, schema.subscriptions.id)
-    )
+  // Single atomic UPDATE ... FROM ... WHERE — no select/update race window.
+  // Matches unpaid bills in the (A → payer=B) or (B → payer=A) direction only.
+  const paidAt = new Date().toISOString()
+  const updated = await db
+    .update(schema.billingRecords)
+    .set({ isPaid: true, paidAt })
+    .from(schema.subscriptions)
     .where(
       and(
+        eq(schema.billingRecords.subscriptionId, schema.subscriptions.id),
         eq(schema.billingRecords.isPaid, false),
         eq(schema.billingRecords.currency, currency),
         or(
-          eq(schema.billingRecords.userId, userA),
-          eq(schema.billingRecords.userId, userB)
+          and(
+            eq(schema.billingRecords.userId, userA),
+            eq(schema.subscriptions.payerId, userB)
+          ),
+          and(
+            eq(schema.billingRecords.userId, userB),
+            eq(schema.subscriptions.payerId, userA)
+          )
         )
       )
     )
-    
+    .returning({ id: schema.billingRecords.id })
 
-  const targetIds = rows
-    .filter(
-      (r) =>
-        (r.userId === userA && r.payerId === userB) ||
-        (r.userId === userB && r.payerId === userA)
-    )
-    .map((r) => r.id)
-
-  if (targetIds.length === 0) return 0
-
-  const paidAt = new Date().toISOString()
-  await db.update(schema.billingRecords)
-    .set({ isPaid: true, paidAt })
-    .where(inArray(schema.billingRecords.id, targetIds))
-    
-
-  return targetIds.length
+  return updated.length
 }
