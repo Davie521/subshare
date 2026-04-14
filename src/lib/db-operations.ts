@@ -861,6 +861,7 @@ export function getMonthlySpendingData(
   db: DB,
   userId: number
 ): Array<{
+  id: number
   name: string
   price: number
   currency: string
@@ -870,6 +871,7 @@ export function getMonthlySpendingData(
   return subs
     .filter((s) => !s.inactive)
     .map((s) => ({
+      id: s.id,
       name: s.name,
       price: s.price,
       currency: s.currency,
