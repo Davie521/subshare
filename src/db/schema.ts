@@ -1,14 +1,19 @@
 import {
-  sqliteTable,
+  pgTable,
   text,
   integer,
+  boolean,
   uniqueIndex,
   primaryKey,
   index,
-} from 'drizzle-orm/sqlite-core'
+  check,
+} from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
-export const users = sqliteTable('users', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+const isoNow = () => new Date().toISOString()
+
+export const users = pgTable('users', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
   passwordHash: text('password_hash').notNull(),
@@ -16,22 +21,22 @@ export const users = sqliteTable('users', {
   preferredCurrency: text('preferred_currency').notNull().default('CNY'),
   monthlyBudget: integer('monthly_budget'), // BigInt cents, nullable
   displayName: text('display_name'),
-  showEmail: integer('show_email').notNull().default(0),
-  createdAt: text('created_at').notNull().default("(datetime('now'))"),
+  showEmail: boolean('show_email').notNull().default(false),
+  createdAt: text('created_at').notNull().$defaultFn(isoNow),
 })
 
-export const groups = sqliteTable('groups', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const groups = pgTable('groups', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
   name: text('name').notNull(),
   publicId: text('public_id').notNull().unique(),
   createdBy: integer('created_by')
     .notNull()
     .references(() => users.id),
   defaultCurrency: text('default_currency').notNull().default('CNY'),
-  createdAt: text('created_at').notNull().default("(datetime('now'))"),
+  createdAt: text('created_at').notNull().$defaultFn(isoNow),
 })
 
-export const groupMembers = sqliteTable(
+export const groupMembers = pgTable(
   'group_members',
   {
     groupId: integer('group_id')
@@ -40,15 +45,15 @@ export const groupMembers = sqliteTable(
     userId: integer('user_id')
       .notNull()
       .references(() => users.id),
-    joinedAt: text('joined_at').notNull().default("(datetime('now'))"),
+    joinedAt: text('joined_at').notNull().$defaultFn(isoNow),
   },
   (table) => [
     uniqueIndex('group_members_pk').on(table.groupId, table.userId),
   ]
 )
 
-export const subscriptions = sqliteTable('subscriptions', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const subscriptions = pgTable('subscriptions', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
   name: text('name').notNull(),
   logo: text('logo'),
   url: text('url'),
@@ -57,8 +62,8 @@ export const subscriptions = sqliteTable('subscriptions', {
   currency: text('currency').notNull().default('CNY'),
   nextPayment: text('next_payment').notNull(), // ISO date
   startDate: text('start_date').notNull(), // ISO date
-  autoRenew: integer('auto_renew').notNull().default(1),
-  inactive: integer('inactive').notNull().default(0),
+  autoRenew: boolean('auto_renew').notNull().default(true),
+  inactive: boolean('inactive').notNull().default(false),
   categoryId: integer('category_id').references(() => categories.id),
   ownerId: integer('owner_id')
     .notNull()
@@ -69,12 +74,12 @@ export const subscriptions = sqliteTable('subscriptions', {
   groupId: integer('group_id').references(() => groups.id, {
     onDelete: 'cascade',
   }),
-  notify: integer('notify').notNull().default(1),
+  notify: boolean('notify').notNull().default(true),
   notifyDaysBefore: integer('notify_days_before').notNull().default(3),
-  createdAt: text('created_at').notNull().default("(datetime('now'))"),
+  createdAt: text('created_at').notNull().$defaultFn(isoNow),
 })
 
-export const subscriptionMembers = sqliteTable(
+export const subscriptionMembers = pgTable(
   'subscription_members',
   {
     subscriptionId: integer('subscription_id')
@@ -95,7 +100,7 @@ export const subscriptionMembers = sqliteTable(
   ]
 )
 
-export const friendships = sqliteTable(
+export const friendships = pgTable(
   'friendships',
   {
     userAId: integer('user_a_id')
@@ -104,15 +109,18 @@ export const friendships = sqliteTable(
     userBId: integer('user_b_id')
       .notNull()
       .references(() => users.id),
-    createdAt: text('created_at').notNull().default("(datetime('now'))"),
+    createdAt: text('created_at').notNull().$defaultFn(isoNow),
   },
-  (t) => [primaryKey({ columns: [t.userAId, t.userBId] })]
+  (t) => [
+    primaryKey({ columns: [t.userAId, t.userBId] }),
+    check('friendships_ordered', sql`${t.userAId} < ${t.userBId}`),
+  ]
 )
 
-export const notifications = sqliteTable(
+export const notifications = pgTable(
   'notifications',
   {
-    id: integer('id').primaryKey({ autoIncrement: true }),
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
     userId: integer('user_id')
       .notNull()
       .references(() => users.id),
@@ -122,16 +130,16 @@ export const notifications = sqliteTable(
       { onDelete: 'cascade' }
     ),
     payload: text('payload').notNull(),
-    createdAt: text('created_at').notNull().default("(datetime('now'))"),
+    createdAt: text('created_at').notNull().$defaultFn(isoNow),
     readAt: text('read_at'),
   },
   (t) => [index('notif_user_unread').on(t.userId, t.readAt)]
 )
 
-export const billingRecords = sqliteTable(
+export const billingRecords = pgTable(
   'billing_records',
   {
-    id: integer('id').primaryKey({ autoIncrement: true }),
+    id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
     subscriptionId: integer('subscription_id')
       .notNull()
       .references(() => subscriptions.id, { onDelete: 'cascade' }),
@@ -144,9 +152,9 @@ export const billingRecords = sqliteTable(
     localCurrency: text('local_currency').notNull(),
     exchangeRate: integer('exchange_rate').notNull(), // stored as rate × 1000000 for precision
     billingDate: text('billing_date').notNull(), // ISO date
-    isPaid: integer('is_paid').notNull().default(0),
+    isPaid: boolean('is_paid').notNull().default(false),
     paidAt: text('paid_at'),
-    createdAt: text('created_at').notNull().default("(datetime('now'))"),
+    createdAt: text('created_at').notNull().$defaultFn(isoNow),
   },
   (table) => [
     uniqueIndex('billing_unique').on(
@@ -157,8 +165,8 @@ export const billingRecords = sqliteTable(
   ]
 )
 
-export const categories = sqliteTable('categories', {
-  id: integer('id').primaryKey({ autoIncrement: true }),
+export const categories = pgTable('categories', {
+  id: integer('id').primaryKey().generatedAlwaysAsIdentity(),
   name: text('name').notNull(),
   icon: text('icon'),
   userId: integer('user_id').references(() => users.id), // null = global default

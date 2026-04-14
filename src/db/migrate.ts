@@ -1,10 +1,20 @@
-import Database from 'better-sqlite3'
+import type { PostgresJsDatabase } from 'drizzle-orm/postgres-js'
+import type { PgliteDatabase } from 'drizzle-orm/pglite'
+import { sql } from 'drizzle-orm'
+import * as schema from './schema'
 
-/** Run migrations on a SQLite database instance */
-export function migrate(sqlite: Database.Database) {
-  sqlite.exec(`
+type Db =
+  | PostgresJsDatabase<typeof schema>
+  | PgliteDatabase<typeof schema>
+
+/**
+ * Run migrations on a Postgres database. Idempotent: safe to call on every
+ * boot. Uses CREATE TABLE IF NOT EXISTS and ON CONFLICT DO NOTHING for seeds.
+ */
+export async function migrate(db: Db): Promise<void> {
+  await db.execute(sql`
     CREATE TABLE IF NOT EXISTS users (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE,
       password_hash TEXT NOT NULL,
@@ -12,35 +22,35 @@ export function migrate(sqlite: Database.Database) {
       preferred_currency TEXT NOT NULL DEFAULT 'CNY',
       monthly_budget INTEGER,
       display_name TEXT,
-      show_email INTEGER NOT NULL DEFAULT 0,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      show_email BOOLEAN NOT NULL DEFAULT FALSE,
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS categories (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       name TEXT NOT NULL,
       icon TEXT,
       user_id INTEGER REFERENCES users(id)
     );
 
     CREATE TABLE IF NOT EXISTS groups (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       name TEXT NOT NULL,
       public_id TEXT NOT NULL UNIQUE,
       created_by INTEGER NOT NULL REFERENCES users(id),
       default_currency TEXT NOT NULL DEFAULT 'CNY',
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS group_members (
       group_id INTEGER NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id),
-      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      joined_at TEXT NOT NULL,
       PRIMARY KEY (group_id, user_id)
     );
 
     CREATE TABLE IF NOT EXISTS subscriptions (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       name TEXT NOT NULL,
       logo TEXT,
       url TEXT,
@@ -49,30 +59,30 @@ export function migrate(sqlite: Database.Database) {
       currency TEXT NOT NULL DEFAULT 'CNY',
       next_payment TEXT NOT NULL,
       start_date TEXT NOT NULL,
-      auto_renew INTEGER NOT NULL DEFAULT 1,
-      inactive INTEGER NOT NULL DEFAULT 0,
+      auto_renew BOOLEAN NOT NULL DEFAULT TRUE,
+      inactive BOOLEAN NOT NULL DEFAULT FALSE,
       category_id INTEGER REFERENCES categories(id),
       owner_id INTEGER NOT NULL REFERENCES users(id),
       payer_id INTEGER NOT NULL REFERENCES users(id),
       group_id INTEGER REFERENCES groups(id) ON DELETE CASCADE,
-      notify INTEGER NOT NULL DEFAULT 1,
+      notify BOOLEAN NOT NULL DEFAULT TRUE,
       notify_days_before INTEGER NOT NULL DEFAULT 3,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      created_at TEXT NOT NULL
     );
 
     CREATE TABLE IF NOT EXISTS billing_records (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id),
       amount INTEGER NOT NULL,
       currency TEXT NOT NULL,
       local_amount INTEGER NOT NULL,
       local_currency TEXT NOT NULL,
-      exchange_rate REAL NOT NULL,
+      exchange_rate INTEGER NOT NULL,
       billing_date TEXT NOT NULL,
-      is_paid INTEGER NOT NULL DEFAULT 0,
+      is_paid BOOLEAN NOT NULL DEFAULT FALSE,
       paid_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL,
       UNIQUE(subscription_id, user_id, billing_date)
     );
 
@@ -91,26 +101,29 @@ export function migrate(sqlite: Database.Database) {
     CREATE TABLE IF NOT EXISTS friendships (
       user_a_id INTEGER NOT NULL REFERENCES users(id),
       user_b_id INTEGER NOT NULL REFERENCES users(id),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL,
       PRIMARY KEY (user_a_id, user_b_id),
-      CHECK (user_a_id < user_b_id)
+      CONSTRAINT friendships_ordered CHECK (user_a_id < user_b_id)
     );
 
     CREATE TABLE IF NOT EXISTS notifications (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      id INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
       user_id INTEGER NOT NULL REFERENCES users(id),
       type TEXT NOT NULL,
       subscription_id INTEGER REFERENCES subscriptions(id) ON DELETE CASCADE,
       payload TEXT NOT NULL,
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      created_at TEXT NOT NULL,
       read_at TEXT
     );
 
     CREATE INDEX IF NOT EXISTS notif_user_unread
       ON notifications(user_id, read_at);
+  `)
 
-    -- Seed default categories
-    INSERT OR IGNORE INTO categories (id, name, icon) VALUES
+  // Seed default categories — deterministic IDs via INSERT...ON CONFLICT.
+  // Use explicit IDs so downstream fixtures can rely on category IDs 1-8.
+  await db.execute(sql`
+    INSERT INTO categories (id, name, icon) VALUES
       (1, 'Entertainment', '🎬'),
       (2, 'Music', '🎵'),
       (3, 'Productivity', '⚡'),
@@ -118,52 +131,29 @@ export function migrate(sqlite: Database.Database) {
       (5, 'AI Tools', '🤖'),
       (6, 'Gaming', '🎮'),
       (7, 'Education', '📚'),
-      (8, 'Other', '📦');
+      (8, 'Other', '📦')
+    ON CONFLICT (id) DO NOTHING;
   `)
 
-  // Idempotent column additions for databases created before the
-  // subscription-centric redesign.
-  function hasColumn(table: string, column: string): boolean {
-    const rows = sqlite.prepare(`PRAGMA table_info(${table})`).all() as Array<{
-      name: string
-    }>
-    return rows.some((r) => r.name === column)
-  }
-
-  if (!hasColumn('users', 'display_name')) {
-    sqlite.exec(`ALTER TABLE users ADD COLUMN display_name TEXT`)
-  }
-  if (!hasColumn('users', 'show_email')) {
-    sqlite.exec(
-      `ALTER TABLE users ADD COLUMN show_email INTEGER NOT NULL DEFAULT 0`
-    )
-  }
-  if (!hasColumn('subscriptions', 'payer_id')) {
-    // pre-existing live DB path: add without NOT NULL, backfill, move on.
-    // Add as nullable first, backfill, then enforce via application layer.
-    // (SQLite cannot retroactively add NOT NULL without a default, and we
-    // don't want a placeholder user id polluting the data.)
-    sqlite.exec(`ALTER TABLE subscriptions ADD COLUMN payer_id INTEGER`)
-    sqlite.exec(`
-      UPDATE subscriptions
-      SET payer_id = COALESCE(
-        (SELECT created_by FROM groups WHERE groups.id = subscriptions.group_id),
-        owner_id
-      )
-      WHERE payer_id IS NULL
-    `)
-  }
+  // Bump the identity sequence past the seeded fixed IDs so future inserts
+  // don't collide with 1-8. Postgres GENERATED ALWAYS AS IDENTITY tracks a
+  // sequence; after INSERTs with explicit ids we must reset it.
+  await db.execute(sql`
+    SELECT setval(
+      pg_get_serial_sequence('categories', 'id'),
+      GREATEST((SELECT MAX(id) FROM categories), 1)
+    );
+  `)
 
   // H1 guard — refuse to leave payer_id NULL on any row. Downstream code
   // (R7 payer guard, settlement netting) treats sub.payer_id as a trusted
   // number; a leaked NULL silently breaks every invariant.
-  const orphans = sqlite
-    .prepare(
-      `SELECT id FROM subscriptions WHERE payer_id IS NULL LIMIT 5`
-    )
-    .all() as Array<{ id: number }>
-  if (orphans.length > 0) {
-    const ids = orphans.map((o) => o.id).join(', ')
+  const orphans = await db.execute<{ id: number }>(sql`
+    SELECT id FROM subscriptions WHERE payer_id IS NULL LIMIT 5
+  `)
+  const orphanRows = Array.from(orphans as unknown as Array<{ id: number }>)
+  if (orphanRows.length > 0) {
+    const ids = orphanRows.map((o) => o.id).join(', ')
     throw new Error(
       `Migration error: subscriptions with unresolved payer_id: ${ids}. ` +
         `Fix owner_id / group_id on these rows before restarting.`
@@ -184,83 +174,66 @@ export function migrate(sqlite: Database.Database) {
  *  - For each (group member != group.created_by) → friendship
  *    (min, max) between creator and member.
  *
- * Returns the number of subscription_members rows that were newly inserted
- * (useful for scripts that want to report progress).
+ * Returns the number of subscription_members rows that were newly inserted.
  */
-export function backfillFromGroups(sqlite: Database.Database): number {
-  let insertedMembers = 0
-
+export async function backfillFromGroups(db: Db): Promise<number> {
   const today = new Date().toISOString().slice(0, 10)
 
-  // Step 1 — shared subscriptions.
-  const sharedPairs = sqlite
-    .prepare(
-      `
-      SELECT s.id AS sub_id,
-             gm.user_id AS user_id,
-             COALESCE(gm.joined_at, ?) AS added_at,
-             g.created_by AS added_by
+  // Step 1 — shared subscriptions. Insert with ON CONFLICT DO NOTHING so
+  // the function is idempotent.
+  const sharedResult = await db.execute<{ count: number }>(sql`
+    WITH inserted AS (
+      INSERT INTO subscription_members
+        (subscription_id, user_id, added_at, added_by)
+      SELECT s.id,
+             gm.user_id,
+             COALESCE(gm.joined_at, ${today}),
+             g.created_by
       FROM subscriptions s
       INNER JOIN groups g ON g.id = s.group_id
       INNER JOIN group_members gm ON gm.group_id = g.id
-      `
+      ON CONFLICT (subscription_id, user_id) DO NOTHING
+      RETURNING 1
     )
-    .all(today) as Array<{
-    sub_id: number
-    user_id: number
-    added_at: string
-    added_by: number
-  }>
-
-  const insertMember = sqlite.prepare(
-    `INSERT OR IGNORE INTO subscription_members
-     (subscription_id, user_id, added_at, added_by) VALUES (?, ?, ?, ?)`
-  )
-
-  for (const p of sharedPairs) {
-    const res = insertMember.run(p.sub_id, p.user_id, p.added_at, p.added_by)
-    insertedMembers += Number(res.changes)
-  }
+    SELECT COUNT(*)::int AS count FROM inserted
+  `)
+  const sharedInserted =
+    (sharedResult as unknown as Array<{ count: number }>)[0]?.count ?? 0
 
   // Step 2 — personal subscriptions without a member row.
-  const orphans = sqlite
-    .prepare(
-      `
-      SELECT s.id AS sub_id, s.owner_id AS owner_id, COALESCE(s.start_date, ?) AS start
+  const orphanResult = await db.execute<{ count: number }>(sql`
+    WITH inserted AS (
+      INSERT INTO subscription_members
+        (subscription_id, user_id, added_at, added_by)
+      SELECT s.id,
+             s.owner_id,
+             COALESCE(s.start_date, ${today}),
+             s.owner_id
       FROM subscriptions s
       WHERE s.group_id IS NULL
         AND NOT EXISTS (
           SELECT 1 FROM subscription_members m WHERE m.subscription_id = s.id
         )
-      `
+      ON CONFLICT (subscription_id, user_id) DO NOTHING
+      RETURNING 1
     )
-    .all(today) as Array<{ sub_id: number; owner_id: number; start: string }>
-
-  for (const o of orphans) {
-    const res = insertMember.run(o.sub_id, o.owner_id, o.start, o.owner_id)
-    insertedMembers += Number(res.changes)
-  }
+    SELECT COUNT(*)::int AS count FROM inserted
+  `)
+  const orphanInserted =
+    (orphanResult as unknown as Array<{ count: number }>)[0]?.count ?? 0
 
   // Step 3 — friendships between group creator and each other member.
-  const pairs = sqlite
-    .prepare(
-      `
-      SELECT DISTINCT g.created_by AS creator, gm.user_id AS member
-      FROM groups g INNER JOIN group_members gm ON gm.group_id = g.id
-      WHERE gm.user_id != g.created_by
-      `
-    )
-    .all() as Array<{ creator: number; member: number }>
+  await db.execute(sql`
+    INSERT INTO friendships (user_a_id, user_b_id, created_at)
+    SELECT DISTINCT
+      LEAST(g.created_by, gm.user_id),
+      GREATEST(g.created_by, gm.user_id),
+      ${new Date().toISOString()}
+    FROM groups g
+    INNER JOIN group_members gm ON gm.group_id = g.id
+    WHERE gm.user_id <> g.created_by
+    ON CONFLICT (user_a_id, user_b_id) DO NOTHING
+  `)
 
-  const insertFriendship = sqlite.prepare(
-    `INSERT OR IGNORE INTO friendships (user_a_id, user_b_id) VALUES (?, ?)`
-  )
-
-  for (const p of pairs) {
-    const [lo, hi] =
-      p.creator < p.member ? [p.creator, p.member] : [p.member, p.creator]
-    insertFriendship.run(lo, hi)
-  }
-
-  return insertedMembers
+  return sharedInserted + orphanInserted
 }
