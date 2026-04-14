@@ -150,7 +150,6 @@ describe('T18 R2 join bill FX conversion', () => {
           addedBy: a,
           addedAt: '2026-04-01',
         },
-        // @ts-expect-error negative rate
         { USD_CNY: NaN }
       )
     ).toThrow()
