@@ -1,5 +1,4 @@
 import { eq, and, inArray, or, desc } from 'drizzle-orm'
-import { nanoid } from 'nanoid'
 import type { BetterSQLite3Database } from 'drizzle-orm/better-sqlite3'
 import * as schema from '@/db/schema'
 import {
@@ -8,8 +7,6 @@ import {
   getPendingBills,
   markBillPaid,
   getMonthlySpendingData,
-  canLeaveGroup,
-  removeGroupMember,
   addMemberToSubscription,
   leaveSubscription,
   transferPayer,
@@ -36,143 +33,6 @@ type DB = BetterSQLite3Database<typeof schema>
 type Result<T = unknown> =
   | { success: true; data?: T }
   | { success: false; error: string }
-
-export function handleCreateGroup(
-  db: DB,
-  userId: number,
-  input: { name: string }
-): Result<{ id: number; name: string; publicId: string }> {
-  const publicId = nanoid(10)
-
-  const group = db
-    .insert(schema.groups)
-    .values({
-      name: input.name,
-      publicId,
-      createdBy: userId,
-    })
-    .returning()
-    .get()
-
-  // Add creator as member
-  db.insert(schema.groupMembers)
-    .values({ groupId: group.id, userId })
-    .run()
-
-  return {
-    success: true,
-    data: { id: group.id, name: group.name, publicId: group.publicId },
-  }
-}
-
-export function handleJoinGroup(
-  db: DB,
-  userId: number,
-  publicId: string
-): Result {
-  const group = db
-    .select()
-    .from(schema.groups)
-    .where(eq(schema.groups.publicId, publicId))
-    .get()
-
-  if (!group) return { success: false, error: 'Group not found' }
-
-  // Check if already a member
-  const existing = db
-    .select()
-    .from(schema.groupMembers)
-    .where(
-      and(
-        eq(schema.groupMembers.groupId, group.id),
-        eq(schema.groupMembers.userId, userId)
-      )
-    )
-    .get()
-
-  if (existing) return { success: false, error: 'Already a member' }
-
-  const memberCount = db
-    .select({ userId: schema.groupMembers.userId })
-    .from(schema.groupMembers)
-    .where(eq(schema.groupMembers.groupId, group.id))
-    .all().length
-
-  if (memberCount >= MAX_GROUP_MEMBERS) {
-    return { success: false, error: 'Group is full' }
-  }
-
-  db.insert(schema.groupMembers)
-    .values({ groupId: group.id, userId })
-    .run()
-
-  return { success: true }
-}
-
-const MAX_GROUP_MEMBERS = 20
-
-export function handleLeaveGroup(
-  db: DB,
-  userId: number,
-  groupId: number
-): Result {
-  if (!canLeaveGroup(db, groupId, userId)) {
-    const group = db
-      .select()
-      .from(schema.groups)
-      .where(eq(schema.groups.id, groupId))
-      .get()
-
-    if (group && group.createdBy === userId) {
-      return { success: false, error: 'Creator cannot leave. Dissolve the group instead.' }
-    }
-    return { success: false, error: 'Cannot leave with unpaid bills' }
-  }
-
-  removeGroupMember(db, groupId, userId)
-  return { success: true }
-}
-
-export function handleDeleteGroup(
-  db: DB,
-  userId: number,
-  groupId: number
-): Result {
-  const group = db
-    .select()
-    .from(schema.groups)
-    .where(eq(schema.groups.id, groupId))
-    .get()
-
-  if (!group) return { success: false, error: 'Group not found' }
-  if (group.createdBy !== userId)
-    return { success: false, error: 'Only the creator can delete the group' }
-
-  // Check for unpaid bills
-  const unpaid = db
-    .select({ id: schema.billingRecords.id })
-    .from(schema.billingRecords)
-    .innerJoin(
-      schema.subscriptions,
-      eq(schema.billingRecords.subscriptionId, schema.subscriptions.id)
-    )
-    .where(
-      and(
-        eq(schema.subscriptions.groupId, groupId),
-        eq(schema.billingRecords.isPaid, 0)
-      )
-    )
-    .limit(1)
-    .all()
-
-  if (unpaid.length > 0)
-    return { success: false, error: 'Cannot delete group with unpaid bills' }
-
-  // Cascade delete: group → group_members, subscriptions → billing_records
-  db.delete(schema.groups).where(eq(schema.groups.id, groupId)).run()
-
-  return { success: true }
-}
 
 export async function handleCreateSubscription(
   db: DB,

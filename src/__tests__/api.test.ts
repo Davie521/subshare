@@ -7,10 +7,6 @@ import * as schema from '@/db/schema'
 import { registerUser, loginUser } from '@/lib/auth'
 import { createSubscription, generateAndSaveBillingRecords } from '@/lib/db-operations'
 import {
-  handleCreateGroup,
-  handleJoinGroup,
-  handleLeaveGroup,
-  handleDeleteGroup,
   handleCreateSubscription,
   handleUpdateSubscription,
   handleDeleteSubscription,
@@ -22,10 +18,6 @@ type Result<T> = { success: true; data?: T } | { success: false; error: string }
 
 function assertSuccess<T>(r: Result<T>): asserts r is { success: true; data?: T } {
   if (!r.success) throw new Error(`Expected success, got error: ${r.error}`)
-}
-
-function assertFailure<T>(r: Result<T>): asserts r is { success: false; error: string } {
-  if (r.success) throw new Error('Expected failure, got success')
 }
 
 let db: BetterSQLite3Database<typeof schema>
@@ -74,153 +66,6 @@ describe('auth', () => {
   it('rejects non-existent email', () => {
     const result = loginUser(db, { email: 'no@test.com', password: 'pass' })
     expect('error' in result).toBe(true)
-  })
-})
-
-// --- Groups ---
-
-describe('handleCreateGroup', () => {
-  it('creates a group and adds creator as member', () => {
-    const userId = createUser(sqlite)
-    const result = handleCreateGroup(db, userId, { name: 'Roommates' })
-
-    assertSuccess(result)
-    expect(result.data!.name).toBe('Roommates')
-    expect(result.data!.publicId).toBeDefined()
-    expect(result.data!.publicId.length).toBeGreaterThan(5)
-
-    const members = db
-      .select()
-      .from(schema.groupMembers)
-      .where(
-        eq(
-          schema.groupMembers.groupId,
-          result.data!.id
-        )
-      )
-      .all()
-    expect(members).toHaveLength(1)
-    expect(members[0].userId).toBe(userId)
-  })
-})
-
-describe('handleJoinGroup', () => {
-  it('joins a group via publicId', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-
-    const result = handleJoinGroup(db, userB, group.publicId)
-    expect(result.success).toBe(true)
-
-    const members = db
-      .select()
-      .from(schema.groupMembers)
-      .where(eq(schema.groupMembers.groupId, group.id))
-      .all()
-    expect(members).toHaveLength(2)
-  })
-
-  it('rejects invalid publicId', () => {
-    const userId = createUser(sqlite)
-    const result = handleJoinGroup(db, userId, 'nonexistent')
-    assertFailure(result)
-    expect(result.error).toBeDefined()
-  })
-
-  it('rejects if already a member', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-
-    const result = handleJoinGroup(db, userA, group.publicId)
-    expect(result.success).toBe(false)
-  })
-})
-
-describe('handleLeaveGroup', () => {
-  it('lets member leave when no unpaid bills', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-
-    const result = handleLeaveGroup(db, userB, group.id)
-    expect(result.success).toBe(true)
-  })
-
-  it('blocks creator from leaving', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-
-    const result = handleLeaveGroup(db, userA, group.id)
-    expect(result.success).toBe(false)
-  })
-
-  it('blocks leaving with unpaid bills', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-
-    createSubscription(db, {
-      name: 'Netflix',
-      price: 18000,
-      currency: 'CNY',
-      nextPayment: '2026-06-01',
-      ownerId: userA,
-      groupId: group.id,
-    })
-    generateAndSaveBillingRecords(db, 1)
-
-    const result = handleLeaveGroup(db, userB, group.id)
-    expect(result.success).toBe(false)
-  })
-})
-
-describe('handleDeleteGroup', () => {
-  it('deletes group when all bills paid', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-
-    const result = handleDeleteGroup(db, userA, group.id)
-    expect(result.success).toBe(true)
-
-    const found = db
-      .select()
-      .from(schema.groups)
-      .where(eq(schema.groups.id, group.id))
-      .get()
-    expect(found).toBeUndefined()
-  })
-
-  it('rejects non-creator', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-
-    const result = handleDeleteGroup(db, userB, group.id)
-    expect(result.success).toBe(false)
-  })
-
-  it('rejects deletion with unpaid bills', () => {
-    const userA = createUser(sqlite, { email: 'a@test.com' })
-    const userB = createUser(sqlite, { email: 'b@test.com' })
-    const group = createGroup(sqlite, { createdBy: userA })
-    addMember(sqlite, group.id, userB)
-
-    createSubscription(db, {
-      name: 'Netflix',
-      price: 18000,
-      currency: 'CNY',
-      nextPayment: '2026-06-01',
-      ownerId: userA,
-      groupId: group.id,
-    })
-    generateAndSaveBillingRecords(db, 1)
-
-    const result = handleDeleteGroup(db, userA, group.id)
-    expect(result.success).toBe(false)
   })
 })
 

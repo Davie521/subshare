@@ -15,10 +15,6 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 })
 
-export const createGroupSchema = z.object({
-  name: z.string().min(1).max(100),
-})
-
 export const createSubscriptionSchema = z.object({
   name: z.string().min(1).max(100),
   price: z.number().int().positive().max(100_000_000),
