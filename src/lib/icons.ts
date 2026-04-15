@@ -32,14 +32,26 @@ function loadManifest(): Record<string, ManifestEntry> {
   try {
     const p = path.join(process.cwd(), 'public', 'icons', 'manifest.json')
     if (fs.existsSync(p)) {
-      manifestCache = JSON.parse(fs.readFileSync(p, 'utf-8'))
-      return manifestCache!
+      const parsed = JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, ManifestEntry>
+      manifestCache = parsed
+      return parsed
     }
-  } catch {
-    // ignore
+  } catch (err) {
+    console.warn('[icons] manifest load failed:', err instanceof Error ? err.message : err)
   }
   manifestCache = {}
   return manifestCache
+}
+
+const XML_ESCAPE: Record<string, string> = {
+  '<': '&lt;',
+  '>': '&gt;',
+  '&': '&amp;',
+  '"': '&quot;',
+  "'": '&apos;',
+}
+function escapeXml(s: string): string {
+  return s.replace(/[<>&"']/g, (c) => XML_ESCAPE[c] ?? c)
 }
 
 export function findBrandIcon(name: string): BrandIcon {
@@ -58,10 +70,11 @@ export function findBrandIcon(name: string): BrandIcon {
   }
 
   // Service not in manifest (custom user entry) — generate letter SVG as data URL
+  const safeLetter = escapeXml(letter)
   return {
     title: name,
     url: `data:image/svg+xml;utf8,${encodeURIComponent(
-      `<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="4" fill="#6B7280"/><text x="12" y="16.5" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="13" font-weight="600" fill="white">${letter}</text></svg>`
+      `<svg role="img" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><rect width="24" height="24" rx="4" fill="#6B7280"/><text x="12" y="16.5" text-anchor="middle" font-family="system-ui,-apple-system,sans-serif" font-size="13" font-weight="600" fill="white">${safeLetter}</text></svg>`
     )}`,
     hex: '6B7280',
     isSvg: true,

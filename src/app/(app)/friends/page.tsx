@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -58,33 +59,45 @@ function relativeSince(iso: string): string {
 }
 
 export default function FriendsPage() {
+  const router = useRouter();
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [preferredCurrency, setPreferredCurrency] = useState("CNY");
   const [loadError, setLoadError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
 
-  async function loadFriends() {
-    const res = await api.friends();
-    if (res.data) {
-      setFriends(res.data);
-      setLoadError(null);
-    } else if (res.status === 401) {
-      window.location.assign("/login");
-    } else {
-      setLoadError(res.error || "Failed to load");
+  const loadFriends = useCallback(async () => {
+    try {
+      const res = await api.friends();
+      if (res.data) {
+        setFriends(res.data);
+        setLoadError(null);
+      } else if (res.status === 401) {
+        router.push("/login");
+      } else {
+        setLoadError(res.error || "Failed to load");
+      }
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Network error");
     }
-  }
+  }, [router]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      void loadFriends();
-      void api.me().then((r) => {
+    let cancelled = false;
+    // loadFriends is async; state updates happen in later microtasks.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void loadFriends();
+    api.me()
+      .then((r) => {
+        if (cancelled) return;
         if (r.data) setPreferredCurrency(r.data.preferredCurrency);
+      })
+      .catch(() => {
+        // Preferred-currency is non-critical; fall back to the default.
       });
-    }, 0);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => {
+      cancelled = true;
+    };
+  }, [loadFriends]);
 
   async function onCurrencyChange(friendId: number, currency: string | null) {
     // Optimistic update.
@@ -117,7 +130,7 @@ export default function FriendsPage() {
           Couldn&apos;t load friends
         </h1>
         <p className="text-sm text-muted-foreground">{loadError}</p>
-        <Button onClick={() => window.location.reload()}>Retry</Button>
+        <Button onClick={() => router.refresh()}>Retry</Button>
       </div>
     );
   }

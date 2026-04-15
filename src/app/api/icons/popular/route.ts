@@ -2,14 +2,22 @@ import { NextResponse } from 'next/server'
 import { POPULAR_SERVICES } from '@/lib/popular-services'
 import { findBrandIcon } from '@/lib/icons'
 
-let cachedResult: unknown = null
+interface ServiceEntry {
+  name: string
+  category: string
+  defaultPrice: number | undefined
+  defaultCurrency: string | undefined
+  icon: { url: string; color: string; isSvg: boolean; letter: string }
+}
+
+let cachedResult: { services: ServiceEntry[] } | null = null
 
 export async function GET() {
   if (cachedResult) {
     return NextResponse.json(cachedResult)
   }
 
-  const services = POPULAR_SERVICES.map((s) => {
+  const services: ServiceEntry[] = POPULAR_SERVICES.map((s) => {
     const icon = findBrandIcon(s.name)
     return {
       name: s.name,

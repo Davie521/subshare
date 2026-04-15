@@ -22,10 +22,6 @@ function assertSuccess<T>(r: Result<T>): asserts r is { success: true; data?: T 
   if (!r.success) throw new Error(`Expected success, got error: ${r.error}`)
 }
 
-function assertFailure<T>(r: Result<T>): asserts r is { success: false; error: string } {
-  if (r.success) throw new Error('Expected failure, got success')
-}
-
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']
 let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 

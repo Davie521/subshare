@@ -27,7 +27,7 @@
 
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { hashSync } from 'bcryptjs'
+import { hash } from 'bcryptjs'
 import { migrate } from '../src/db/migrate'
 import * as schema from '../src/db/schema'
 import {
@@ -42,6 +42,7 @@ import { insertNotification } from '../src/lib/notifications'
 
 const args = new Set(process.argv.slice(2))
 const RESET = args.has('--reset')
+const FORCE = args.has('--force')
 
 // FX rates for April 2026 — covers every (subCurrency, userCurrency)
 // pair that could arise. Format: `${from}_${to}` → multiplier.
@@ -73,6 +74,13 @@ const RATES: Record<string, number> = {
 }
 
 async function main() {
+  if (process.env.NODE_ENV === 'production' && !FORCE) {
+    console.error(
+      '[seed] refusing to run in NODE_ENV=production. Pass --force if you really mean it.'
+    )
+    process.exit(1)
+  }
+
   const url = process.env.DATABASE_URL
   if (!url) {
     console.error(
@@ -82,7 +90,18 @@ async function main() {
     process.exit(1)
   }
 
-  const client = postgres(url, { max: 5 })
+  if (RESET && !FORCE) {
+    const marker = url.includes('localhost') || url.includes('127.0.0.1')
+    if (!marker) {
+      console.error(
+        '[seed] --reset on a non-localhost DATABASE_URL requires --force to confirm.'
+      )
+      process.exit(1)
+    }
+  }
+
+  const ssl = process.env.PGSSLMODE === 'disable' ? false : 'prefer'
+  const client = postgres(url, { max: 5, ssl })
   const db = drizzle(client, { schema })
 
   try {
@@ -112,7 +131,7 @@ async function main() {
       return
     }
 
-    const passwordHash = hashSync('password123', 10)
+    const passwordHash = await hash('password123', 10)
 
     // ── Users ─────────────────────────────────────────────────────
     const alice = await insertUser(client, {

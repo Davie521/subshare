@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
-const CURRENCIES = ['CNY', 'USD', 'HKD', 'CAD', 'EUR', 'GBP', 'JPY'] as const
+export const CURRENCIES = ['CNY', 'USD', 'HKD', 'CAD', 'EUR', 'GBP', 'JPY'] as const
+export type Currency = (typeof CURRENCIES)[number]
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 export const registerSchema = z.object({
@@ -37,7 +38,7 @@ export const createSubscriptionSchema = z.object({
   logo: z
     .string()
     .max(500)
-    .regex(/^(https?:\/\/|\/icons\/)/, 'Logo must be an http(s) URL or /icons/ path')
+    .regex(/^(https:\/\/|\/icons\/)/, 'Logo must be an https URL or /icons/ path')
     .optional(),
   url: z.string().url().max(500).optional().or(z.literal('')),
   notes: z.string().max(1000).optional(),

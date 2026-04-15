@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, afterEach } from 'vitest'
 import { setupTestDb } from './helpers'
 import { migrate } from '@/db/migrate'
 
@@ -7,7 +7,14 @@ import { migrate } from '@/db/migrate'
  * payer_id schema and ran ALTER TABLE backfill no longer exists. Fresh
  * Postgres databases get payer_id as NOT NULL from day one, and the
  * H1 guard in await migrate() runs an orphan check that we exercise here.
+ *
+ * The guard logs a warning (not an exception) so an admin can boot the
+ * app and repair the offending rows without editing the database by hand.
  */
+
+afterEach(() => {
+  vi.restoreAllMocks()
+})
 
 describe('T17 migration payer_id guard', () => {
   it('guard passes on a freshly migrated DB with no orphan rows', async () => {
@@ -15,8 +22,9 @@ describe('T17 migration payer_id guard', () => {
     await expect(migrate(db)).resolves.not.toThrow()
   })
 
-  it('guard throws when a subscription has payer_id IS NULL', async () => {
+  it('guard warns (not throws) when a subscription has payer_id IS NULL', async () => {
     const { db, sqlite } = await setupTestDb()
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     await sqlite.exec(
       'ALTER TABLE subscriptions ALTER COLUMN payer_id DROP NOT NULL'
@@ -30,6 +38,7 @@ describe('T17 migration payer_id guard', () => {
        VALUES ('Broken', 100, '2026-01-01', '2026-01-01', 99, NULL)`
     ).run()
 
-    await expect(migrate(db)).rejects.toThrow(/payer_id/i)
+    await expect(migrate(db)).resolves.not.toThrow()
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringMatching(/payer_id/i))
   })
 })

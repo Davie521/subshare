@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
-import * as schema from '@/db/schema'
 import {
   createSubscription,
   addMemberToSubscription,
@@ -69,7 +68,7 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
     expect(row.price).toBe(25000)
   })
 
-  it('does NOT modify bills already generated for the current month', async () => {
+  it('R5 rewrites unpaid current-month bills to the new share', async () => {
     const { sub } = await setup3()
     await generateMonthlyBills(db, '2026-05') // 2 bills at share 5000 (15000/3)
 

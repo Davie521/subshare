@@ -44,36 +44,36 @@ export async function createSubscription(
   const today = new Date().toISOString().slice(0, 10)
   const startDate = input.startDate ?? today
 
-  const [result] = await db
-    .insert(schema.subscriptions)
-    .values({
-      name: input.name,
-      price: input.price,
-      currency: input.currency,
-      nextPayment: input.nextPayment,
-      startDate,
-      ownerId: input.ownerId,
-      payerId: input.payerId ?? input.ownerId,
-      logo: input.logo ?? null,
-      url: input.url ?? null,
-      notes: input.notes ?? null,
-      categoryId: input.categoryId ?? null,
-    })
-    .returning()
-    
+  return db.transaction(async (tx) => {
+    const [result] = await tx
+      .insert(schema.subscriptions)
+      .values({
+        name: input.name,
+        price: input.price,
+        currency: input.currency,
+        nextPayment: input.nextPayment,
+        startDate,
+        ownerId: input.ownerId,
+        payerId: input.payerId ?? input.ownerId,
+        logo: input.logo ?? null,
+        url: input.url ?? null,
+        notes: input.notes ?? null,
+        categoryId: input.categoryId ?? null,
+      })
+      .returning()
 
-  // Owner is automatically the first member (and payer by default).
-  await db.insert(schema.subscriptionMembers)
-    .values({
-      subscriptionId: result.id,
-      userId: input.ownerId,
-      addedBy: input.ownerId,
-      addedAt: startDate,
-    })
-    .onConflictDoNothing()
-    
+    // Owner is automatically the first member (and payer by default).
+    await tx.insert(schema.subscriptionMembers)
+      .values({
+        subscriptionId: result.id,
+        userId: input.ownerId,
+        addedBy: input.ownerId,
+        addedAt: startDate,
+      })
+      .onConflictDoNothing()
 
-  return { id: result.id, name: result.name }
+    return { id: result.id, name: result.name }
+  })
 }
 
 export async function addMemberToSubscription(
@@ -477,63 +477,63 @@ export async function transferPayer(
   db: DB,
   input: { subscriptionId: number; newPayerId: number }
 ): Promise<void> {
-  const [sub] = await db
-    .select()
-    .from(schema.subscriptions)
-    .where(eq(schema.subscriptions.id, input.subscriptionId))
-    
-  if (!sub) throw new Error('Subscription not found')
+  await db.transaction(async (tx) => {
+    const [sub] = await tx
+      .select()
+      .from(schema.subscriptions)
+      .where(eq(schema.subscriptions.id, input.subscriptionId))
 
-  if (sub.payerId === input.newPayerId) {
-    throw new Error('User is already the payer')
-  }
+    if (!sub) throw new Error('Subscription not found')
 
-  const today = new Date().toISOString().slice(0, 10)
-  const members = await getActiveMembersAt(db, input.subscriptionId, today)
-  const isMember = members.some((m) => m.userId === input.newPayerId)
-  if (!isMember) {
-    throw new Error('New payer must be an active member of the subscription')
-  }
+    if (sub.payerId === input.newPayerId) {
+      throw new Error('User is already the payer')
+    }
 
-  const [oldPayer] = await db
-    .select({
-      name: schema.users.name,
-      displayName: schema.users.displayName,
-    })
-    .from(schema.users)
-    .where(eq(schema.users.id, sub.payerId))
-    
-  const [newPayer] = await db
-    .select({
-      name: schema.users.name,
-      displayName: schema.users.displayName,
-    })
-    .from(schema.users)
-    .where(eq(schema.users.id, input.newPayerId))
-    
+    const today = new Date().toISOString().slice(0, 10)
+    const members = await getActiveMembersAt(tx, input.subscriptionId, today)
+    const isMember = members.some((m) => m.userId === input.newPayerId)
+    if (!isMember) {
+      throw new Error('New payer must be an active member of the subscription')
+    }
 
-  await db.update(schema.subscriptions)
-    .set({ payerId: input.newPayerId })
-    .where(eq(schema.subscriptions.id, input.subscriptionId))
-    
+    const [oldPayer] = await tx
+      .select({
+        name: schema.users.name,
+        displayName: schema.users.displayName,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, sub.payerId))
 
-  const oldPayerName = oldPayer?.displayName || oldPayer?.name || 'Previous'
-  const newPayerName = newPayer?.displayName || newPayer?.name || 'New'
+    const [newPayer] = await tx
+      .select({
+        name: schema.users.name,
+        displayName: schema.users.displayName,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, input.newPayerId))
 
-  for (const m of members) {
-    await insertNotification(db, {
-      userId: m.userId,
-      type: 'payer_changed',
-      subscriptionId: input.subscriptionId,
-      payload: {
-        sub_name: sub.name,
-        old_payer_id: sub.payerId,
-        old_payer_name: oldPayerName,
-        new_payer_id: input.newPayerId,
-        new_payer_name: newPayerName,
-      },
-    })
-  }
+    await tx.update(schema.subscriptions)
+      .set({ payerId: input.newPayerId })
+      .where(eq(schema.subscriptions.id, input.subscriptionId))
+
+    const oldPayerName = oldPayer?.displayName || oldPayer?.name || 'Previous'
+    const newPayerName = newPayer?.displayName || newPayer?.name || 'New'
+
+    for (const m of members) {
+      await insertNotification(tx, {
+        userId: m.userId,
+        type: 'payer_changed',
+        subscriptionId: input.subscriptionId,
+        payload: {
+          sub_name: sub.name,
+          old_payer_id: sub.payerId,
+          old_payer_name: oldPayerName,
+          new_payer_id: input.newPayerId,
+          new_payer_name: newPayerName,
+        },
+      })
+    }
+  })
 }
 
 /**
@@ -671,7 +671,7 @@ export async function generateMonthlyBills(
     const nonPayers = members.filter((m) => m.userId !== sub.payerId)
     if (nonPayers.length === 0) continue
 
-    const share = Math.floor(sub.price / members.length)
+    const share = calculateShares(sub.price, members.length)
 
     // Isolate FX / insertion failures to a single sub so one bad rate
     // does not abort the cron for the rest of the month's subscriptions.
@@ -726,10 +726,14 @@ export async function generateMonthlyBills(
         }
         return count
       })
-    } catch {
-      // Per-sub best-effort. Swallowed errors (e.g. missing FX rate) skip
-      // this sub for the current cron run; the next run or a manual retry
-      // will pick it up once the upstream issue is resolved.
+    } catch (err) {
+      // Per-sub best-effort. Log loud enough that operators can notice a
+      // stuck billing run (e.g. missing FX rate); the transaction above
+      // already rolled back, so other subs are unaffected.
+      const message = err instanceof Error ? err.message : String(err)
+      console.error(
+        `[billing] generateMonthlyBills sub=${sub.id} name="${sub.name}" failed: ${message}`
+      )
     }
   }
 

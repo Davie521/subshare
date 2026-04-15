@@ -6,21 +6,28 @@ import * as schema from '@/db/schema'
 
 const SESSION_COOKIE = 'subshare_session'
 
-/** Lazy-evaluated secret — only resolved at request time, not module load */
-let _secret: string | null = null
+/**
+ * Resolve SESSION_SECRET on every call so an operator can rotate the secret
+ * without restarting the process. Production / staging must have it set;
+ * dev and test fall back to a well-known insecure string.
+ */
 function getSecret(): string {
-  if (_secret) return _secret
-  if (process.env.SESSION_SECRET) {
-    _secret = process.env.SESSION_SECRET
-    return _secret
+  const configured = process.env.SESSION_SECRET
+  if (configured && configured.length > 0) return configured
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('SESSION_SECRET env var is required in production')
   }
-  if (process.env.NODE_ENV !== 'development') {
-    throw new Error('SESSION_SECRET env var is required outside development')
+  // dev/test fallback. Logged only once per process to avoid log spam.
+  if (!devFallbackWarned) {
+    console.warn(
+      '[session] SESSION_SECRET missing — using insecure dev fallback. Do not expose this process to the network.'
+    )
+    devFallbackWarned = true
   }
-  console.warn('[session] SESSION_SECRET missing — using insecure dev fallback. Do not expose this process to the network.')
-  _secret = 'dev-only-secret-not-for-production-use'
-  return _secret
+  return 'dev-only-secret-not-for-production-use'
 }
+let devFallbackWarned = false
 
 function sign(payload: object): string {
   const data = Buffer.from(JSON.stringify(payload)).toString('base64url')
@@ -72,7 +79,7 @@ export async function getSession(): Promise<{ userId: number } | null> {
   if (!data || !data.userId) return null
 
   try {
-    const db = getDb()
+    const db = await getDb()
     const [user] = await db
       .select({ id: schema.users.id })
       .from(schema.users)

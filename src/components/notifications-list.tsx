@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import {
   Bell,
@@ -176,28 +177,31 @@ export function NotificationsList({
   unreadOnly?: boolean;
   maxVisible?: number;
 }) {
+  const router = useRouter();
   const [items, setItems] = useState<Notification[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  async function load() {
-    const res = await api.notifications(limit);
-    if (res.data) {
-      setItems(res.data.items as Notification[]);
-      setLoadError(null);
-    } else if (res.status === 401) {
-      window.location.assign("/login");
-    } else {
-      setLoadError(res.error || "Failed to load");
+  const load = useCallback(async () => {
+    try {
+      const res = await api.notifications(limit);
+      if (res.data) {
+        setItems(res.data.items as Notification[]);
+        setLoadError(null);
+      } else if (res.status === 401) {
+        router.push("/login");
+      } else {
+        setLoadError(res.error || "Failed to load");
+      }
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Network error");
     }
-  }
+  }, [limit, router]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      void load();
-    }, 0);
-    return () => clearTimeout(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // load is async; setState calls happen in later microtasks.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
 
   const visibleItems = useMemo(() => {
     if (!items) return null;
@@ -335,7 +339,13 @@ export function NotificationsList({
                   {body}
                 </Link>
               ) : (
-                <div onClick={() => onItemClick(n)}>{body}</div>
+                <button
+                  type="button"
+                  onClick={() => onItemClick(n)}
+                  className="w-full text-left"
+                >
+                  {body}
+                </button>
               )}
             </li>
           );

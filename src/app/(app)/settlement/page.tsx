@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Check, Sparkles, Clock } from "lucide-react";
@@ -57,28 +58,33 @@ function formatBillingDate(iso: string): string {
 /* ======================== PAGE ======================== */
 
 export default function SettlementPage() {
+  const router = useRouter();
   const [direction, setDirection] = useState<Direction>("owe");
   const [rows, setRows] = useState<SettlementRow[] | null>(null);
   const [settlingId, setSettlingId] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [settleError, setSettleError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await api.settlement();
-    if (res.data) {
-      setRows(res.data);
-      setLoadError(null);
-    } else if (res.status === 401) {
-      window.location.assign("/login");
-    } else {
-      setLoadError(res.error || "Failed to load");
+    try {
+      const res = await api.settlement();
+      if (res.data) {
+        setRows(res.data);
+        setLoadError(null);
+      } else if (res.status === 401) {
+        router.push("/login");
+      } else {
+        setLoadError(res.error || "Failed to load");
+      }
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Network error");
     }
-  }, []);
+  }, [router]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      void load();
-    }, 0);
-    return () => clearTimeout(t);
+    // load is async; state updates happen in later microtasks.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
   }, [load]);
 
   const oweRows = useMemo(
@@ -94,9 +100,14 @@ export default function SettlementPage() {
 
   async function onSettlePerson(row: SettlementRow) {
     setSettlingId(row.counterpartyUserId);
+    setSettleError(null);
     const res = await api.markPairSettled(row.counterpartyUserId);
     setSettlingId(null);
-    if (!res.error) await load();
+    if (res.error) {
+      setSettleError(res.error);
+      return;
+    }
+    await load();
   }
 
   if (loadError && !rows) {
@@ -129,6 +140,10 @@ export default function SettlementPage() {
         owedCount={owedRows.length}
         onChange={setDirection}
       />
+
+      {settleError && (
+        <p className="text-[13px] font-medium text-destructive">{settleError}</p>
+      )}
 
       {rows === null ? (
         <div className="space-y-3">

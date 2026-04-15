@@ -1,4 +1,4 @@
-import { hashSync, compareSync } from 'bcryptjs'
+import { hash, compare } from 'bcryptjs'
 import { eq } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
@@ -22,13 +22,13 @@ export async function registerUser(
 
   if (existing) return { error: 'Email already registered' }
 
-  const hash = hashSync(input.password, 10)
+  const passwordHash = await hash(input.password, 10)
   const [user] = await db
     .insert(schema.users)
     .values({
       name: input.name,
       email: input.email,
-      passwordHash: hash,
+      passwordHash,
       preferredCurrency: input.preferredCurrency ?? 'CNY',
     })
     .returning()
@@ -46,7 +46,7 @@ export async function loginUser(
     .where(eq(schema.users.email, input.email))
 
   if (!user) return { error: 'Invalid email or password' }
-  if (!compareSync(input.password, user.passwordHash))
+  if (!(await compare(input.password, user.passwordHash)))
     return { error: 'Invalid email or password' }
 
   return { id: user.id, name: user.name, email: user.email }

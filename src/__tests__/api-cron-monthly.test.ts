@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
-import * as schema from '@/db/schema'
 import { handleCreateSubscription, runBillingCron } from '@/lib/api-handlers'
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']

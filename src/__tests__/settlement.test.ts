@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
-import * as schema from '@/db/schema'
 import {
   createSubscription,
   addMemberToSubscription,
@@ -308,5 +307,278 @@ describe('T16 markPairSettled', () => {
       )
       .get(c) as { n: number }
     expect(cUnpaid.n).toBe(1)
+  })
+})
+
+async function pairSetup() {
+  const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+  const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+  const sub1 = await createSubscription(db, {
+    name: 'Netflix',
+    price: 12000,
+    currency: 'CNY',
+    nextPayment: '2026-06-01',
+    startDate: '2026-03-01',
+    ownerId: a,
+  })
+  await addMemberToSubscription(db, {
+    subscriptionId: sub1.id,
+    userId: b,
+    addedBy: a,
+    addedAt: '2026-05-01',
+  })
+  const sub2 = await createSubscription(db, {
+    name: 'Spotify',
+    price: 4000,
+    currency: 'CNY',
+    nextPayment: '2026-06-01',
+    startDate: '2026-03-01',
+    ownerId: b,
+  })
+  await addMemberToSubscription(db, {
+    subscriptionId: sub2.id,
+    userId: a,
+    addedBy: b,
+    addedAt: '2026-05-01',
+  })
+  await generateMonthlyBills(db, '2026-05')
+  return { a, b }
+}
+
+describe('T16 settlement edge cases — multi-sub / three-way / history', () => {
+  it('nets the same pair across multiple subs (A owns two subs, B joins both)', async () => {
+    // A hosts Netflix AND YouTube; B is in both. Expected: one row,
+    // owedByMe = share(Netflix) + share(YouTube).
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+
+    const netflix = await createSubscription(db, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: netflix.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-05-01',
+    })
+
+    const yt = await createSubscription(db, {
+      name: 'YouTube',
+      price: 4000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: yt.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-05-01',
+    })
+
+    await generateMonthlyBills(db, '2026-05')
+
+    const bSum = await getSettlementSummary(db, b)
+    expect(bSum).toHaveLength(1)
+    expect(bSum[0].counterpartyUserId).toBe(a)
+    expect(bSum[0].owedByMe).toBe(5000 + 2000) // 7000
+    expect(bSum[0].owedToMe).toBe(0)
+    expect(bSum[0].net).toBe(-7000)
+    // Two bills aggregated into one row.
+    expect(bSum[0].billIds).toHaveLength(2)
+  })
+
+  it('three-way: viewer only sees direct counterparties, never indirect', async () => {
+    // A pays sub1 (B, C members). B pays sub2 (A, C members).
+    // From A's view: sees B (bidirectional) and C (A collects only).
+    // C's debts to B should NOT appear in A's summary.
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
+
+    const sub1 = await createSubscription(db, {
+      name: 'Netflix',
+      price: 9000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub1.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-05-01',
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub1.id,
+      userId: c,
+      addedBy: a,
+      addedAt: '2026-05-01',
+    })
+
+    const sub2 = await createSubscription(db, {
+      name: 'Spotify',
+      price: 6000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: b,
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub2.id,
+      userId: a,
+      addedBy: b,
+      addedAt: '2026-05-01',
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub2.id,
+      userId: c,
+      addedBy: b,
+      addedAt: '2026-05-01',
+    })
+
+    await generateMonthlyBills(db, '2026-05')
+
+    const aSum = await getSettlementSummary(db, a)
+    const byParty = new Map(aSum.map((r) => [r.counterpartyUserId, r]))
+
+    // R4: share is fixed at the time each member joined, not retroactively
+    // rebalanced when someone else joins later.
+    //   sub1 (9000, A payer): B joined first (members=2 → share 4500),
+    //                         C joined second (members=3 → share 3000).
+    //   sub2 (6000, B payer): A joined first (share 3000),
+    //                         C joined second (share 2000).
+    //
+    // A's settlement view:
+    //   A ↔ B: owedToMe = 4500 (B's sub1 bill), owedByMe = 3000 (A's sub2 bill) → net +1500
+    //   A ↔ C: owedToMe = 3000 (C's sub1 bill), owedByMe = 0                    → net +3000
+    //   C-owes-B (on sub2) must NOT appear in A's summary.
+    expect(byParty.get(b)?.owedToMe).toBe(4500)
+    expect(byParty.get(b)?.owedByMe).toBe(3000)
+    expect(byParty.get(b)?.net).toBe(1500)
+
+    expect(byParty.get(c)?.owedToMe).toBe(3000)
+    expect(byParty.get(c)?.owedByMe).toBe(0)
+    expect(byParty.get(c)?.net).toBe(3000)
+
+    // A's summary must not contain B-C-only debts; exactly 2 rows total.
+    expect(aSum).toHaveLength(2)
+  })
+
+  it('markPairSettled preserves already-paid history (does not re-touch paidAt)', async () => {
+    const { a, b } = await pairSetup()
+
+    // First pass: mark a's outgoing bill paid with a specific paidAt.
+    await sqlite.prepare(
+      `UPDATE billing_records SET is_paid = true, paid_at = '2026-05-10T00:00:00Z'
+       WHERE user_id = ?`
+    ).run(a)
+
+    const before = await sqlite.prepare(
+      `SELECT paid_at FROM billing_records WHERE user_id = ?`
+    ).get(a) as { paid_at: string }
+    expect(before.paid_at).toBe('2026-05-10T00:00:00Z')
+
+    // Settle the pair — only the remaining unpaid direction should flip.
+    const flipped = await markPairSettled(db, {
+      userA: a,
+      userB: b,
+      currency: 'CNY',
+    })
+    expect(flipped).toBe(1) // only B's outgoing bill remained unpaid
+
+    // A's old paid_at must be preserved (not overwritten).
+    const after = await sqlite.prepare(
+      `SELECT paid_at FROM billing_records WHERE user_id = ?`
+    ).get(a) as { paid_at: string }
+    expect(after.paid_at).toBe('2026-05-10T00:00:00Z')
+  })
+
+  it('settlement summary excludes already-paid bills (only unpaid counts)', async () => {
+    const { a, b } = await pairSetup()
+
+    // Mark half of the unpaid bills as paid.
+    await sqlite.prepare(
+      `UPDATE billing_records SET is_paid = true, paid_at = '2026-05-10T00:00:00Z'
+       WHERE user_id = ?`
+    ).run(a)
+
+    // Summary should now reflect only the remaining unpaid direction.
+    const bSum = await getSettlementSummary(db, b)
+    expect(bSum).toHaveLength(1)
+    expect(bSum[0].owedByMe).toBe(6000)  // B still owes A on sub1
+    expect(bSum[0].owedToMe).toBe(0)      // A's 2000 already paid off — not counted
+    expect(bSum[0].net).toBe(-6000)
+  })
+
+  it('mutual subs in different currencies do NOT net across currencies (R10)', async () => {
+    // A hosts CNY sub (B owes 5000 CNY). B hosts USD sub (A owes 1000 USD).
+    // Summary must be two rows; no implicit FX conversion.
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'USD' })
+
+    const sub1 = await createSubscription(db, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    await addMemberToSubscription(
+      db,
+      {
+        subscriptionId: sub1.id,
+        userId: b,
+        addedBy: a,
+        addedAt: '2026-05-01',
+      },
+      { CNY_USD: 0.14 }
+    )
+
+    const sub2 = await createSubscription(db, {
+      name: 'Spotify',
+      price: 2000,
+      currency: 'USD',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: b,
+    })
+    await addMemberToSubscription(
+      db,
+      {
+        subscriptionId: sub2.id,
+        userId: a,
+        addedBy: b,
+        addedAt: '2026-05-01',
+      },
+      { USD_CNY: 7.2 }
+    )
+
+    await generateMonthlyBills(db, '2026-05', {
+      CNY_USD: 0.14,
+      USD_CNY: 7.2,
+    })
+
+    const aSum = await getSettlementSummary(db, a)
+    expect(aSum).toHaveLength(2)
+    const byCurrency = new Map(aSum.map((r) => [r.currency, r]))
+
+    // CNY row: A collects 5000 from B (B's share of sub1).
+    expect(byCurrency.get('CNY')?.owedToMe).toBe(5000)
+    expect(byCurrency.get('CNY')?.owedByMe).toBe(0)
+    expect(byCurrency.get('CNY')?.net).toBe(5000)
+
+    // USD row: A owes 1000 to B (A's share of sub2).
+    expect(byCurrency.get('USD')?.owedToMe).toBe(0)
+    expect(byCurrency.get('USD')?.owedByMe).toBe(1000)
+    expect(byCurrency.get('USD')?.net).toBe(-1000)
   })
 })

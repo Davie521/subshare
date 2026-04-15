@@ -18,9 +18,14 @@ services:
 
   subshare:
     build: .
+    # SESSION_SECRET and CRON_SECRET must be provided via a host-side .env
+    # file (docker compose picks it up automatically) or equivalent — no
+    # default is baked in, so the container refuses to start without them.
     environment:
-      - SESSION_SECRET=${SESSION_SECRET:-change-me-to-a-random-32-char-string}
+      - SESSION_SECRET=${SESSION_SECRET:?SESSION_SECRET must be set in .env}
+      - CRON_SECRET=${CRON_SECRET:?CRON_SECRET must be set in .env}
       - DATABASE_URL=postgres://subshare:subshare@postgres:5432/subshare
+      - PGSSLMODE=disable
       - NODE_ENV=production
     ports:
       - "3000:3000"

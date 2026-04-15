@@ -15,13 +15,10 @@ import {
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
 import {
-  getSettlementSummary,
-  getSettledHistory,
   getNormalizedSettlement,
   getAgreedCurrencyMap,
   type NormalizedSettlementRow,
   markPairSettled,
-  type SettlementRow,
 } from './settlement'
 import {
   listNotifications,
@@ -39,12 +36,38 @@ import {
   deleteCircle,
   type CircleSummary,
 } from './circles'
+import { CURRENCIES } from './validators'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
-type Result<T = unknown> =
+
+export type ResultErrorCode =
+  | 'NOT_FOUND'
+  | 'FORBIDDEN'
+  | 'VALIDATION_ERROR'
+  | 'CONFLICT'
+  | 'INTERNAL'
+
+export type Result<T = unknown> =
   | { success: true; data?: T }
-  | { success: false; error: string }
+  | { success: false; error: string; code?: ResultErrorCode }
+
+/** Map a Result error code to an HTTP status code. */
+export function statusForResultCode(code: ResultErrorCode | undefined): number {
+  switch (code) {
+    case 'NOT_FOUND':
+      return 404
+    case 'FORBIDDEN':
+      return 403
+    case 'CONFLICT':
+      return 409
+    case 'INTERNAL':
+      return 500
+    case 'VALIDATION_ERROR':
+    default:
+      return 400
+  }
+}
 
 export async function handleCreateSubscription(
   db: DB,
@@ -70,6 +93,7 @@ export async function handleCreateSubscription(
     return {
       success: false,
       error: 'payerId must be the owner or one of the members',
+      code: 'VALIDATION_ERROR',
     }
   }
 
@@ -129,47 +153,80 @@ export async function handleAddMembers(
   actorId: number,
   subId: number,
   memberIds: number[]
-): Promise<Result<{ added: number }>> {
+): Promise<Result<{ added: number; reactivated: number; errors: Array<{ userId: number; error: string }> }>> {
   const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
-    
-  if (!sub) return { success: false, error: 'Subscription not found' }
+
+  if (!sub) {
+    return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
+  }
 
   if (sub.ownerId !== actorId && sub.payerId !== actorId) {
     return {
       success: false,
       error: 'Only the owner or payer can add members',
+      code: 'FORBIDDEN',
     }
   }
 
-  const invitees = memberIds.filter((id) => id !== actorId)
-  if (invitees.length === 0) return { success: true, data: { added: 0 } }
+  const invitees = Array.from(new Set(memberIds.filter((id) => id !== actorId)))
+  if (invitees.length === 0) {
+    return { success: true, data: { added: 0, reactivated: 0, errors: [] } }
+  }
 
   const rates = await fetchRatesForUsers(db, invitees, sub.currency)
   const today = new Date().toISOString().slice(0, 10)
   let added = 0
+  let reactivated = 0
+  const errors: Array<{ userId: number; error: string }> = []
+
   for (const uid of invitees) {
-    const [before] = await db
-      .select({ userId: schema.subscriptionMembers.userId })
-      .from(schema.subscriptionMembers)
-      .where(
-        and(
-          eq(schema.subscriptionMembers.subscriptionId, subId),
-          eq(schema.subscriptionMembers.userId, uid)
+    try {
+      const [existing] = await db
+        .select({ leftAt: schema.subscriptionMembers.leftAt })
+        .from(schema.subscriptionMembers)
+        .where(
+          and(
+            eq(schema.subscriptionMembers.subscriptionId, subId),
+            eq(schema.subscriptionMembers.userId, uid)
+          )
         )
+
+      if (existing && existing.leftAt === null) {
+        // Genuinely active member — nothing to do.
+        continue
+      }
+
+      if (existing && existing.leftAt !== null) {
+        // Reactivate a departed member: clear leftAt, refresh addedAt/addedBy.
+        await db
+          .update(schema.subscriptionMembers)
+          .set({ leftAt: null, addedAt: today, addedBy: actorId })
+          .where(
+            and(
+              eq(schema.subscriptionMembers.subscriptionId, subId),
+              eq(schema.subscriptionMembers.userId, uid)
+            )
+          )
+        reactivated++
+        continue
+      }
+
+      await addMemberToSubscription(
+        db,
+        { subscriptionId: subId, userId: uid, addedBy: actorId, addedAt: today },
+        rates
       )
-    if (before) continue
-    await addMemberToSubscription(
-      db,
-      { subscriptionId: subId, userId: uid, addedBy: actorId, addedAt: today },
-      rates
-    )
-    added++
+      added++
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      errors.push({ userId: uid, error: message })
+    }
   }
 
-  return { success: true, data: { added } }
+  return { success: true, data: { added, reactivated, errors } }
 }
 
 export async function handleRemoveMember(
@@ -183,13 +240,14 @@ export async function handleRemoveMember(
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
     
-  if (!sub) return { success: false, error: 'Subscription not found' }
+  if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
 
   const isSelf = actorId === targetUserId
   if (!isSelf && sub.ownerId !== actorId && sub.payerId !== actorId) {
     return {
       success: false,
       error: 'Only the owner or payer can remove another member',
+      code: 'FORBIDDEN',
     }
   }
 
@@ -204,6 +262,7 @@ export async function handleRemoveMember(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to remove member',
+      code: 'VALIDATION_ERROR',
     }
   }
   return { success: true }
@@ -264,23 +323,11 @@ export async function runBillingCron(
   return { success: true, data: { monthlyBillsGenerated: generated } }
 }
 
-export type EnrichedSettlementRow = SettlementRow & {
-  counterpartyName: string
-}
-
 export type EnrichedNormalizedSettlementRow = NormalizedSettlementRow & {
   counterpartyName: string
 }
 
-const CURRENCY_WHITELIST = new Set([
-  'CNY',
-  'USD',
-  'HKD',
-  'CAD',
-  'EUR',
-  'GBP',
-  'JPY',
-])
+const CURRENCY_WHITELIST: ReadonlySet<string> = new Set(CURRENCIES)
 
 export async function handleGetSettlement(
   db: DB,
@@ -330,10 +377,10 @@ export async function handleMarkPairSettled(
   currency?: string
 ): Promise<Result<{ marked: number }>> {
   if (userId === counterpartyUserId) {
-    return { success: false, error: 'Cannot settle with yourself' }
+    return { success: false, error: 'Cannot settle with yourself', code: 'VALIDATION_ERROR' }
   }
   if (currency !== undefined && !CURRENCY_WHITELIST.has(currency)) {
-    return { success: false, error: 'Unsupported currency' }
+    return { success: false, error: 'Unsupported currency', code: 'VALIDATION_ERROR' }
   }
   const marked = await markPairSettled(db, {
     userA: userId,
@@ -624,9 +671,11 @@ export async function handleMarkNotificationRead(
     .from(schema.notifications)
     .where(eq(schema.notifications.id, notificationId))
     
-  if (!row) return { success: false, error: 'Notification not found' }
-  if (row.userId !== userId) {
-    return { success: false, error: 'Not your notification' }
+  // Return 404 for both "not found" and "belongs to someone else" so the
+  // endpoint doesn't confirm the existence of notifications the caller
+  // has no right to see.
+  if (!row || row.userId !== userId) {
+    return { success: false, error: 'Notification not found', code: 'NOT_FOUND' }
   }
   await markNotificationRead(db, notificationId)
   return { success: true }
@@ -651,12 +700,13 @@ export async function handleTransferPayer(
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
     
-  if (!sub) return { success: false, error: 'Subscription not found' }
+  if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
 
   if (sub.ownerId !== actorId && sub.payerId !== actorId) {
     return {
       success: false,
       error: 'Only the owner or current payer can transfer payer',
+      code: 'FORBIDDEN',
     }
   }
 
@@ -666,6 +716,7 @@ export async function handleTransferPayer(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Failed to transfer payer',
+      code: 'VALIDATION_ERROR',
     }
   }
   return { success: true }
@@ -688,26 +739,35 @@ export async function handleUpdateSubscription(
     .where(eq(schema.subscriptions.id, subId))
     
 
-  if (!sub) return { success: false, error: 'Subscription not found' }
-  if (sub.ownerId !== userId)
-    return { success: false, error: 'Only the owner can update this subscription' }
-
-  // Price changes go through changeSubscriptionPrice so R5 notifications fire.
-  if (input.price !== undefined && input.price !== sub.price) {
-    await changeSubscriptionPrice(db, { subscriptionId: subId, newPrice: input.price })
+  if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
+  if (sub.ownerId !== userId) {
+    return {
+      success: false,
+      error: 'Only the owner can update this subscription',
+      code: 'FORBIDDEN',
+    }
   }
 
-  const updates: Record<string, unknown> = {}
-  if (input.name !== undefined) updates.name = input.name
-  if (input.nextPayment !== undefined) updates.nextPayment = input.nextPayment
-  if (input.inactive !== undefined) updates.inactive = input.inactive
+  // Price changes and metadata writes share a single transaction so a
+  // crash between them can't leave the sub with the new price but the
+  // old name (or vice versa).
+  await db.transaction(async (tx) => {
+    if (input.price !== undefined && input.price !== sub.price) {
+      await changeSubscriptionPrice(tx, { subscriptionId: subId, newPrice: input.price })
+    }
 
-  if (Object.keys(updates).length > 0) {
-    await db.update(schema.subscriptions)
-      .set(updates)
-      .where(eq(schema.subscriptions.id, subId))
-      
-  }
+    const updates: Record<string, unknown> = {}
+    if (input.name !== undefined) updates.name = input.name
+    if (input.nextPayment !== undefined) updates.nextPayment = input.nextPayment
+    if (input.inactive !== undefined) updates.inactive = input.inactive
+
+    if (Object.keys(updates).length > 0) {
+      await tx
+        .update(schema.subscriptions)
+        .set(updates)
+        .where(eq(schema.subscriptions.id, subId))
+    }
+  })
 
   return { success: true }
 }
@@ -721,11 +781,15 @@ export async function handleDeleteSubscription(
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
-    
 
-  if (!sub) return { success: false, error: 'Subscription not found' }
-  if (sub.ownerId !== userId)
-    return { success: false, error: 'Only the owner can delete this subscription' }
+  if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
+  if (sub.ownerId !== userId) {
+    return {
+      success: false,
+      error: 'Only the owner can delete this subscription',
+      code: 'FORBIDDEN',
+    }
+  }
 
   // Check for unpaid bills
   const unpaid = await db
@@ -767,9 +831,11 @@ export async function handleMarkPaid(
     .where(eq(schema.billingRecords.id, billId))
     
 
-  if (!bill) return { success: false, error: 'Bill not found' }
-  if (bill.userId !== userId)
-    return { success: false, error: 'This bill does not belong to you' }
+  // Return 404 in both cases — don't confirm existence of bills belonging
+  // to other users.
+  if (!bill || bill.userId !== userId) {
+    return { success: false, error: 'Bill not found', code: 'NOT_FOUND' }
+  }
 
   await markBillPaid(db, billId)
   return { success: true }
@@ -879,7 +945,7 @@ export async function handleGetCircle(
   circleId: number
 ): Promise<Result<CircleSummary>> {
   const circle = await getCircle(db, circleId, userId)
-  if (!circle) return { success: false, error: 'Not found' }
+  if (!circle) return { success: false, error: 'Not found', code: 'NOT_FOUND' }
   return { success: true, data: circle }
 }
 
@@ -895,7 +961,7 @@ export async function handleUpdateCircle(
 ): Promise<Result> {
   try {
     const ok = await updateCircle(db, circleId, userId, patch)
-    if (!ok) return { success: false, error: 'Not found' }
+    if (!ok) return { success: false, error: 'Not found', code: 'NOT_FOUND' }
     return { success: true }
   } catch (err) {
     return {
@@ -911,6 +977,6 @@ export async function handleDeleteCircle(
   circleId: number
 ): Promise<Result> {
   const ok = await deleteCircle(db, circleId, userId)
-  if (!ok) return { success: false, error: 'Not found' }
+  if (!ok) return { success: false, error: 'Not found', code: 'NOT_FOUND' }
   return { success: true }
 }

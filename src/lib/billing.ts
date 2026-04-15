@@ -11,6 +11,12 @@ export function calculateShares(
   price: number,
   memberCount: number
 ): number {
+  if (!Number.isInteger(memberCount) || memberCount <= 0) {
+    throw new Error('memberCount must be a positive integer')
+  }
+  if (!Number.isFinite(price) || price < 0) {
+    throw new Error('price must be a non-negative finite number')
+  }
   return Math.floor(price / memberCount)
 }
 
@@ -54,15 +60,22 @@ export function calculateMonthlySpending(
   let total = 0
 
   for (const sub of subscriptions) {
+    if (sub.memberCount <= 0) continue
     const myShare = calculateShares(sub.price, sub.memberCount)
 
     if (sub.currency === preferredCurrency) {
       total += myShare
-    } else {
-      const rateKey = `${sub.currency}_${preferredCurrency}`
-      const rate = rates[rateKey] ?? 1
-      total += Math.floor(myShare * rate)
+      continue
     }
+
+    const rateKey = `${sub.currency}_${preferredCurrency}`
+    const rate = rates[rateKey]
+    // Skip the contribution when the FX rate is missing — a silent 1:1
+    // fallback would quote the foreign-currency number as if it were in
+    // the user's preferred currency, which is wildly wrong on the
+    // dashboard (e.g. 1300 JPY reported as 1300 USD).
+    if (rate === undefined || !Number.isFinite(rate) || rate <= 0) continue
+    total += Math.floor(myShare * rate)
   }
 
   return total

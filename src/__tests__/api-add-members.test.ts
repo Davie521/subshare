@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
-import * as schema from '@/db/schema'
 import {
   handleCreateSubscription,
   handleAddMembers,
@@ -14,12 +13,10 @@ import { listNotifications } from '@/lib/notifications'
  */
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']
-let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
 beforeEach(async () => {
   const setup = await setupTestDb()
   db = setup.db
-  sqlite = setup.sqlite
 })
 
 async function bootstrap() {

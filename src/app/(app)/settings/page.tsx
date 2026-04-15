@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,6 +30,13 @@ export default function SettingsPage() {
   const [preferredCurrency, setPreferredCurrency] = useState("CNY");
   const [saving, setSaving] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
+  const savedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+    };
+  }, []);
 
   useEffect(() => {
     api.me().then((res) => {
@@ -81,7 +88,8 @@ export default function SettingsPage() {
           : null
       );
       setShowSaved(true);
-      setTimeout(() => setShowSaved(false), 3000);
+      if (savedTimer.current) clearTimeout(savedTimer.current);
+      savedTimer.current = setTimeout(() => setShowSaved(false), 3000);
     }
   }
 

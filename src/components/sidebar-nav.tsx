@@ -27,13 +27,14 @@ export function SidebarNav() {
       </div>
 
       {/* Nav links */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5">
+      <nav aria-label="Primary" className="flex-1 px-3 py-4 space-y-0.5">
         {navItems.map((item) => {
           const active = pathname.startsWith(item.href);
           return (
             <Link
               key={item.href}
               href={item.href}
+              aria-current={active ? "page" : undefined}
               className={cn(
                 "flex items-center gap-3 px-3 py-2 rounded-md text-[14px] font-medium cursor-pointer transition-colors duration-150",
                 active
@@ -52,6 +53,7 @@ export function SidebarNav() {
       <div className="px-3 pb-2">
         <Link
           href="/settings"
+          aria-current={pathname.startsWith("/settings") ? "page" : undefined}
           className={cn(
             "flex items-center gap-3 px-3 py-2 rounded-md text-[14px] font-medium cursor-pointer transition-colors duration-150",
             pathname.startsWith("/settings")

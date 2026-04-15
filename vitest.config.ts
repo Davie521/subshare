@@ -15,15 +15,14 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
-      // Thresholds are floors, set a few pts below current coverage so an
-      // obvious regression trips CI but ordinary drift doesn't. Raise once
-      // fx-cache.ts (network fetch) and the untouched schema/migrate helpers
-      // gain unit coverage.
+      // Floors set just below current coverage so an obvious regression
+      // trips CI but ordinary drift doesn't. Lift once api-utils.ts /
+      // api-handlers.ts route-wrapper paths gain dedicated unit tests.
       thresholds: {
         lines: 80,
         statements: 80,
-        functions: 70,
-        branches: 70,
+        functions: 75,
+        branches: 72,
       },
     },
   },
