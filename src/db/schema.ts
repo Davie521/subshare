@@ -110,6 +110,14 @@ export const friendships = pgTable(
       .notNull()
       .references(() => users.id),
     createdAt: text('created_at').notNull().$defaultFn(isoNow),
+    /**
+     * Currency userA prefers when settling with userB.
+     * Per-row override of preferredCurrency. Asymmetric per friend: each
+     * side keeps their own override.
+     */
+    agreedCurrencyA: text('agreed_currency_a'),
+    /** Same as `agreedCurrencyA` but for userB. */
+    agreedCurrencyB: text('agreed_currency_b'),
   },
   (t) => [
     primaryKey({ columns: [t.userAId, t.userBId] }),

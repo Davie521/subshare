@@ -15,16 +15,17 @@ import {
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
 import {
-  getSettlementSummary,
-  getSettledHistory,
+  getNormalizedSettlement,
+  getAgreedCurrencyMap,
+  type NormalizedSettlementRow,
   markPairSettled,
-  type SettlementRow,
 } from './settlement'
 import {
   listNotifications,
   markNotificationRead,
   markAllNotificationsRead,
   countUnreadNotifications,
+  syncSettlementDueNotifications,
   type NotificationRecord,
 } from './notifications'
 import {
@@ -322,7 +323,7 @@ export async function runBillingCron(
   return { success: true, data: { monthlyBillsGenerated: generated } }
 }
 
-export type EnrichedSettlementRow = SettlementRow & {
+export type EnrichedNormalizedSettlementRow = NormalizedSettlementRow & {
   counterpartyName: string
 }
 
@@ -330,13 +331,21 @@ const CURRENCY_WHITELIST: ReadonlySet<string> = new Set(CURRENCIES)
 
 export async function handleGetSettlement(
   db: DB,
-  userId: number,
-  opts: { view?: 'unpaid' | 'paid' } = {}
-): Promise<Result<EnrichedSettlementRow[]>> {
-  const rows =
-    opts.view === 'paid'
-      ? await getSettledHistory(db, userId)
-      : await getSettlementSummary(db, userId)
+  userId: number
+): Promise<Result<EnrichedNormalizedSettlementRow[]>> {
+  const [viewer] = await db
+    .select({ preferredCurrency: schema.users.preferredCurrency })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId))
+  const displayCurrency = viewer?.preferredCurrency || 'CNY'
+
+  const agreedMap = await getAgreedCurrencyMap(db, userId)
+  const rows = await getNormalizedSettlement(
+    db,
+    userId,
+    displayCurrency,
+    (counterparty) => agreedMap.get(counterparty) ?? displayCurrency
+  )
   if (rows.length === 0) return { success: true, data: [] }
 
   const counterpartyIds = Array.from(
@@ -350,10 +359,10 @@ export async function handleGetSettlement(
     })
     .from(schema.users)
     .where(inArray(schema.users.id, counterpartyIds))
-    
+
   const byId = new Map(users.map((u) => [u.id, u]))
 
-  const enriched: EnrichedSettlementRow[] = rows.map((r) => {
+  const enriched: EnrichedNormalizedSettlementRow[] = rows.map((r) => {
     const u = byId.get(r.counterpartyUserId)
     const counterpartyName = u?.displayName?.trim() || u?.name || 'Unknown'
     return { ...r, counterpartyName }
@@ -365,12 +374,12 @@ export async function handleMarkPairSettled(
   db: DB,
   userId: number,
   counterpartyUserId: number,
-  currency: string
+  currency?: string
 ): Promise<Result<{ marked: number }>> {
   if (userId === counterpartyUserId) {
     return { success: false, error: 'Cannot settle with yourself', code: 'VALIDATION_ERROR' }
   }
-  if (!CURRENCY_WHITELIST.has(currency)) {
+  if (currency !== undefined && !CURRENCY_WHITELIST.has(currency)) {
     return { success: false, error: 'Unsupported currency', code: 'VALIDATION_ERROR' }
   }
   const marked = await markPairSettled(db, {
@@ -378,6 +387,10 @@ export async function handleMarkPairSettled(
     userB: counterpartyUserId,
     currency,
   })
+  await Promise.all([
+    syncSettlementDueNotifications(db, userId),
+    syncSettlementDueNotifications(db, counterpartyUserId),
+  ])
   return { success: true, data: { marked } }
 }
 
@@ -403,6 +416,8 @@ export interface FriendRow {
   since: string
   sharedSubs: FriendSharedSub[]
   nets: FriendNet[]
+  /** Per-friend currency override, null if using preferredCurrency. */
+  agreedCurrency: string | null
 }
 
 export async function handleListFriends(
@@ -414,6 +429,8 @@ export async function handleListFriends(
       userAId: schema.friendships.userAId,
       userBId: schema.friendships.userBId,
       since: schema.friendships.createdAt,
+      agreedCurrencyA: schema.friendships.agreedCurrencyA,
+      agreedCurrencyB: schema.friendships.agreedCurrencyB,
     })
     .from(schema.friendships)
     .where(
@@ -558,12 +575,17 @@ export async function handleListFriends(
             .map(([currency, net]) => ({ currency, net }))
         : []
 
+      const isViewerA = r.userAId === userId
+      const agreedCurrency =
+        (isViewerA ? r.agreedCurrencyA : r.agreedCurrencyB) ?? null
+
       const out: FriendRow = {
         userId: u.id,
         displayName: u.displayName?.trim() || u.name,
         since: r.since,
         sharedSubs,
         nets,
+        agreedCurrency,
       }
       if (u.showEmail) out.email = u.email
       return out
@@ -573,11 +595,67 @@ export async function handleListFriends(
   return { success: true, data: result }
 }
 
+/**
+ * Set or clear the per-friend agreed_currency override for this viewer.
+ * Pass `currency: null` to clear and fall back to preferredCurrency.
+ */
+export async function handleSetFriendCurrency(
+  db: DB,
+  viewerId: number,
+  friendId: number,
+  currency: string | null
+): Promise<Result<{ ok: true }>> {
+  if (viewerId === friendId) {
+    return { success: false, error: 'Cannot set currency with yourself' }
+  }
+  if (currency !== null && !CURRENCY_WHITELIST.has(currency)) {
+    return { success: false, error: 'Unsupported currency' }
+  }
+
+  const userA = Math.min(viewerId, friendId)
+  const userB = Math.max(viewerId, friendId)
+  const isViewerA = viewerId === userA
+
+  // Friendship must exist (created by addMemberToSubscription).
+  const [existing] = await db
+    .select({ userAId: schema.friendships.userAId })
+    .from(schema.friendships)
+    .where(
+      and(
+        eq(schema.friendships.userAId, userA),
+        eq(schema.friendships.userBId, userB)
+      )
+    )
+  if (!existing) {
+    return { success: false, error: 'Friendship not found' }
+  }
+
+  await db
+    .update(schema.friendships)
+    .set(
+      isViewerA
+        ? { agreedCurrencyA: currency }
+        : { agreedCurrencyB: currency }
+    )
+    .where(
+      and(
+        eq(schema.friendships.userAId, userA),
+        eq(schema.friendships.userBId, userB)
+      )
+    )
+
+  // Re-sync notifications since display currency for this counterparty changed.
+  await syncSettlementDueNotifications(db, viewerId)
+
+  return { success: true, data: { ok: true } }
+}
+
 export async function handleListNotifications(
   db: DB,
   userId: number,
   limit = 50
 ): Promise<Result<{ items: NotificationRecord[]; unreadCount: number }>> {
+  await syncSettlementDueNotifications(db, userId)
   const items = await listNotifications(db, userId, limit)
   const unreadCount = await countUnreadNotifications(db, userId)
   return { success: true, data: { items, unreadCount } }

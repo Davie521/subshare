@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { getDb } from '@/db'
 import { getSession } from '@/lib/session'
 import { readJson, guard } from '@/lib/api-utils'
+import { CURRENCIES } from '@/lib/validators'
 import * as schema from '@/db/schema'
 
 export async function GET() {
@@ -42,6 +43,7 @@ export async function GET() {
 const updateProfileSchema = z.object({
   displayName: z.string().trim().max(60).optional(),
   showEmail: z.boolean().optional(),
+  preferredCurrency: z.enum(CURRENCIES).optional(),
 })
 
 export async function PUT(req: NextRequest) {
@@ -68,6 +70,9 @@ export async function PUT(req: NextRequest) {
     }
     if (parsed.data.showEmail !== undefined) {
       updates.showEmail = parsed.data.showEmail
+    }
+    if (parsed.data.preferredCurrency !== undefined) {
+      updates.preferredCurrency = parsed.data.preferredCurrency
     }
 
     if (Object.keys(updates).length > 0) {

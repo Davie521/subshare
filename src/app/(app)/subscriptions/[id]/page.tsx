@@ -6,12 +6,16 @@ import { useParams, useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
   Pencil,
+  Trash2,
   UserMinus,
   UserPlus,
   Wallet,
+  X,
 } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
@@ -54,8 +58,17 @@ export default function SubscriptionDetailPage() {
   const [showTransfer, setShowTransfer] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmKickId, setConfirmKickId] = useState<number | null>(null);
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    price: "",
+    nextPayment: "",
+  });
+  const [editError, setEditError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -200,6 +213,54 @@ export default function SubscriptionDetailPage() {
     await load();
   }
 
+  function startEdit() {
+    if (!sub) return;
+    setEditForm({
+      name: sub.name,
+      price: (sub.price / 100).toFixed(2),
+      nextPayment: sub.nextPayment,
+    });
+    setEditError(null);
+    setEditing(true);
+  }
+
+  async function handleSaveEdit() {
+    if (!sub) return;
+    const price = Math.round(parseFloat(editForm.price) * 100);
+    if (!editForm.name.trim() || isNaN(price) || price <= 0) {
+      setEditError("Name and a valid price are required");
+      return;
+    }
+    setBusy(true);
+    setEditError(null);
+    const res = await api.updateSubscription(sub.id, {
+      name: editForm.name.trim(),
+      price,
+      nextPayment: editForm.nextPayment,
+    });
+    setBusy(false);
+    if (res.error) {
+      setEditError(res.error);
+      return;
+    }
+    setEditing(false);
+    await load();
+  }
+
+  async function handleDelete() {
+    if (!sub) return;
+    setBusy(true);
+    setActionError(null);
+    const res = await api.deleteSubscription(sub.id);
+    setBusy(false);
+    if (res.error) {
+      setActionError(res.error);
+      setConfirmDelete(false);
+      return;
+    }
+    router.push("/subscriptions");
+  }
+
   const addableFriends = (friends ?? []).filter(
     (f) => !sub.members.some((m) => m.userId === f.userId)
   );
@@ -214,32 +275,116 @@ export default function SubscriptionDetailPage() {
           <ArrowLeft className="size-3.5" />
           Subscriptions
         </Link>
-        <Link
-          href={`/subscriptions/${sub.id}/edit`}
-          className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground cursor-pointer"
-        >
-          <Pencil className="size-3.5" />
-          Edit
-        </Link>
+        {!editing && selfIsOwnerOrPayer && (
+          <button
+            type="button"
+            onClick={startEdit}
+            className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground cursor-pointer"
+          >
+            <Pencil className="size-3.5" />
+            Edit details
+          </button>
+        )}
       </div>
 
       {/* Hero */}
       <Card>
         <CardContent className="space-y-4">
-          <div className="flex items-center gap-4">
-            <BrandIcon name={sub.name} size={52} />
-            <div className="min-w-0">
-              <h1 className="text-[26px] font-bold tracking-[-0.022em] truncate">
-                {sub.name}
-              </h1>
-              <p className="text-[13px] text-muted-foreground tabular-nums">
-                {formatMoney(sub.price, sub.currency)} / month · next{" "}
-                {sub.nextPayment}
-              </p>
-            </div>
-          </div>
+          {editing ? (
+            <div className="space-y-4">
+              <div className="flex items-center gap-4">
+                <BrandIcon name={editForm.name || sub.name} size={52} />
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="sub-name" className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    Name
+                  </Label>
+                  <Input
+                    id="sub-name"
+                    value={editForm.name}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, name: e.target.value })
+                    }
+                    autoFocus
+                  />
+                </div>
+              </div>
 
-          {sub.members.length > 1 && (
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="sub-price" className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    Price ({sub.currency}) / month
+                  </Label>
+                  <Input
+                    id="sub-price"
+                    type="number"
+                    step="0.01"
+                    value={editForm.price}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, price: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="sub-next" className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    Next payment
+                  </Label>
+                  <Input
+                    id="sub-next"
+                    type="date"
+                    value={editForm.nextPayment}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, nextPayment: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+
+              {editError && (
+                <p className="text-[13px] font-medium text-destructive">
+                  {editError}
+                </p>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() => {
+                    setEditing(false);
+                    setEditError(null);
+                  }}
+                  className="cursor-pointer gap-1.5"
+                >
+                  <X className="size-3.5" />
+                  Cancel
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={busy}
+                  onClick={handleSaveEdit}
+                  className="cursor-pointer"
+                >
+                  {busy ? "Saving…" : "Save changes"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-4">
+              <BrandIcon name={sub.name} size={52} />
+              <div className="min-w-0">
+                <h1 className="text-[26px] font-bold tracking-[-0.022em] truncate">
+                  {sub.name}
+                </h1>
+                <p className="text-[13px] text-muted-foreground tabular-nums">
+                  {formatMoney(sub.price, sub.currency)} / month · next{" "}
+                  {sub.nextPayment}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {!editing && sub.members.length > 1 && (
             <div className="grid grid-cols-2 gap-4 rounded-md bg-muted/50 px-3 py-2.5">
               <div>
                 <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
@@ -431,6 +576,65 @@ export default function SubscriptionDetailPage() {
                     </li>
                   ))}
                 </ul>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Delete subscription (owner / payer only) */}
+        {selfIsOwnerOrPayer && (
+          <Card className="border-destructive/20 bg-destructive/[0.02]">
+            <CardContent className="space-y-3">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[13px] font-semibold">
+                    Delete subscription
+                  </p>
+                  <p className="text-[12px] text-muted-foreground">
+                    Removes the subscription and all of its billing history.
+                    Members will no longer see it.
+                  </p>
+                </div>
+                {!confirmDelete && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => setConfirmDelete(true)}
+                    className="cursor-pointer shrink-0 gap-1.5"
+                  >
+                    <Trash2 className="size-3.5" />
+                    Delete
+                  </Button>
+                )}
+              </div>
+              {confirmDelete && (
+                <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/[0.04] px-3 py-2.5">
+                  <p className="text-[12px] font-medium text-foreground">
+                    Delete <span className="font-semibold">{sub.name}</span>?
+                    This can&apos;t be undone.
+                  </p>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      disabled={busy}
+                      onClick={() => setConfirmDelete(false)}
+                      className="cursor-pointer"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      size="sm"
+                      variant="default"
+                      disabled={busy}
+                      onClick={handleDelete}
+                      className="cursor-pointer bg-destructive hover:bg-destructive/90 text-white"
+                    >
+                      {busy ? "Deleting…" : "Yes, delete"}
+                    </Button>
+                  </div>
+                </div>
               )}
             </CardContent>
           </Card>

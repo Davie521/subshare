@@ -56,10 +56,9 @@ describe('A8 handleGetSettlement', () => {
     const row = res.data![0]
     expect(row.counterpartyUserId).toBe(a)
     expect(row.counterpartyName).toBe('Alice')
-    expect(row.currency).toBe('CNY')
-    expect(row.owedByMe).toBe(6000)
-    expect(row.owedToMe).toBe(2000)
-    expect(row.net).toBe(-4000)
+    expect(row.displayCurrency).toBe('CNY')
+    expect(row.netAmount).toBe(-4000)
+    expect(row.billCount).toBeGreaterThan(0)
   })
 
   it('empty when no unpaid bills exist', async () => {
