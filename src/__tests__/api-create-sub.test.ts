@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
-import * as schema from '@/db/schema'
 import { handleCreateSubscription } from '@/lib/api-handlers'
 import { getMembersOfSubscription } from '@/lib/db-operations'
 

@@ -12,6 +12,7 @@
     "seed:reset": "tsx scripts/seed-dummy.ts --reset",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage"

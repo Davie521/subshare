@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -49,21 +50,32 @@ function relativeDate(iso: string): string {
 }
 
 export default function FriendsPage() {
+  const router = useRouter();
   const [friends, setFriends] = useState<Friend[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    api.friends().then((res) => {
-      if (res.data) {
-        setFriends(res.data);
-        setLoadError(null);
-      } else if (res.status === 401) {
-        window.location.assign("/login");
-      } else {
-        setLoadError(res.error || "Failed to load");
-      }
-    });
-  }, []);
+    let cancelled = false;
+    api.friends()
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data) {
+          setFriends(res.data);
+          setLoadError(null);
+        } else if (res.status === 401) {
+          router.push("/login");
+        } else {
+          setLoadError(res.error || "Failed to load");
+        }
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setLoadError(err instanceof Error ? err.message : "Network error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [router]);
 
   const totals = useMemo(() => {
     if (!friends) return null;
@@ -87,7 +99,7 @@ export default function FriendsPage() {
           Couldn&apos;t load friends
         </h1>
         <p className="text-sm text-muted-foreground">{loadError}</p>
-        <Button onClick={() => window.location.reload()}>Retry</Button>
+        <Button onClick={() => router.refresh()}>Retry</Button>
       </div>
     );
   }

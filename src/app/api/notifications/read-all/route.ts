@@ -1,15 +1,17 @@
 import { NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/api-utils'
+import { requireAuth, resultResponse, rateLimitUser, guard } from '@/lib/api-utils'
 import { handleMarkAllNotificationsRead } from '@/lib/api-handlers'
 
 export async function PUT() {
-  const auth = await requireAuth()
-  if (auth instanceof NextResponse) return auth
-  const { userId, db } = auth
+  return guard('notifications.readAll', async () => {
+    const auth = await requireAuth()
+    if (auth instanceof NextResponse) return auth
+    const { userId, db } = auth
 
-  const result = await handleMarkAllNotificationsRead(db, userId)
-  if (!result.success) {
-    return NextResponse.json({ error: result.error }, { status: 400 })
-  }
-  return NextResponse.json({ ok: true })
+    const limited = rateLimitUser(userId, 'notif-read-all', 30, 60_000)
+    if (limited) return limited
+
+    const result = await handleMarkAllNotificationsRead(db, userId)
+    return resultResponse(result)
+  })
 }

@@ -31,7 +31,8 @@ export default function RegisterPage() {
       setSubmitting(false);
       return;
     }
-    window.location.assign("/dashboard");
+    router.refresh();
+    router.push("/dashboard");
   }
 
   return (

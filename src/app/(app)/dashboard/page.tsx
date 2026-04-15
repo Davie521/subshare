@@ -50,20 +50,32 @@ export default function DashboardPage() {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   useEffect(() => {
-    Promise.all([api.dashboard(), api.settlement()]).then(([d, s]) => {
-      if (d.status === 401) {
-        router.push("/login");
-        return;
-      }
-      if (d.data) {
-        setData(d.data);
-        setLoadError(null);
-      } else {
-        setLoadError(d.error || "Failed to load");
-      }
-      if (s.data) setSettlement(s.data);
-      setLoading(false);
-    });
+    let cancelled = false;
+    Promise.all([api.dashboard(), api.settlement()])
+      .then(([d, s]) => {
+        if (cancelled) return;
+        if (d.status === 401) {
+          router.push("/login");
+          return;
+        }
+        if (d.data) {
+          setData(d.data);
+          setLoadError(null);
+        } else {
+          setLoadError(d.error || "Failed to load");
+        }
+        if (s.data) setSettlement(s.data);
+        setLoading(false);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : "Network error";
+        setLoadError(message);
+        setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [router]);
 
   // settlement kept only to power the "To transfer" stat card.
@@ -85,7 +97,7 @@ export default function DashboardPage() {
           </h1>
           <p className="text-sm text-muted-foreground">{loadError}</p>
         </div>
-        <Button onClick={() => window.location.reload()}>Retry</Button>
+        <Button onClick={() => router.refresh()}>Retry</Button>
       </div>
     );
   }

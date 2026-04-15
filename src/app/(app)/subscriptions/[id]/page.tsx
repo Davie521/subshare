@@ -53,37 +53,63 @@ export default function SubscriptionDetailPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [showTransfer, setShowTransfer] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
+  const [confirmKickId, setConfirmKickId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const res = await api.getSubscription(subId);
-    if (res.data) {
-      setSub(res.data as Sub);
-      setLoadError(null);
-    } else if (res.status === 401) {
-      router.push("/login");
-    } else if (res.status === 404) {
-      setLoadError("Subscription not found");
-    } else {
-      setLoadError(res.error || "Failed to load");
+    try {
+      const res = await api.getSubscription(subId);
+      if (res.data) {
+        const d = res.data;
+        // Narrow the API shape to the subset this page uses — explicit rather
+        // than `as Sub` so future API columns don't silently leak in.
+        setSub({
+          id: d.id,
+          name: d.name,
+          price: d.price,
+          currency: d.currency,
+          nextPayment: d.nextPayment,
+          ownerId: d.ownerId,
+          payerId: d.payerId,
+          logo: d.logo,
+          inactive: d.inactive,
+          members: d.members,
+        });
+        setLoadError(null);
+      } else if (res.status === 401) {
+        router.push("/login");
+      } else if (res.status === 404) {
+        setLoadError("Subscription not found");
+      } else {
+        setLoadError(res.error || "Failed to load");
+      }
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Network error");
     }
   }, [subId, router]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      void load();
-      void api.friends().then((r) => {
-        if (r.data)
-          setFriends(
-            r.data.map((f) => ({
-              userId: f.userId,
-              displayName: f.displayName,
-            }))
-          );
-      });
-    }, 0);
-    return () => clearTimeout(t);
+    let cancelled = false;
+    // load is async; setState calls happen in later microtasks.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+    api.friends().then((r) => {
+      if (cancelled) return;
+      if (r.data) {
+        setFriends(
+          r.data.map((f) => ({
+            userId: f.userId,
+            displayName: f.displayName,
+          }))
+        );
+      }
+    }).catch(() => {
+      // Friends sidebar is non-critical; stay silent if it fails.
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [load]);
 
   if (loadError && !sub) {
@@ -99,7 +125,7 @@ export default function SubscriptionDetailPage() {
         <h1 className="text-[24px] font-bold tracking-[-0.022em]">
           {loadError}
         </h1>
-        <Button onClick={() => window.location.reload()}>Retry</Button>
+        <Button onClick={() => void load()}>Retry</Button>
       </div>
     );
   }
@@ -122,20 +148,30 @@ export default function SubscriptionDetailPage() {
   const nonPayerMembers = sub.members.filter((m) => !m.isPayer);
   const payer = sub.members.find((m) => m.isPayer);
 
-  async function handleRemove(userId: number, self: boolean) {
-    if (!self) {
-      if (!confirm("Remove this member? They'll still owe any unpaid bills.")) return;
-    }
+  async function doRemove(userId: number, self: boolean) {
     setBusy(true);
     setActionError(null);
     const res = await api.removeSubMember(sub!.id, userId);
     setBusy(false);
+    setConfirmKickId(null);
     if (res.error) {
       setActionError(res.error);
       return;
     }
     if (self) router.push("/subscriptions");
     else await load();
+  }
+
+  function handleRemove(userId: number, self: boolean) {
+    if (self) {
+      void doRemove(userId, true);
+      return;
+    }
+    if (confirmKickId === userId) {
+      void doRemove(userId, false);
+    } else {
+      setConfirmKickId(userId);
+    }
   }
 
   async function handleTransfer(newPayerId: number) {
@@ -323,10 +359,27 @@ export default function SubscriptionDetailPage() {
                       <button
                         type="button"
                         disabled={busy}
-                        title={canLeave ? "Leave" : "Remove"}
-                        aria-label={canLeave ? "Leave" : "Remove"}
+                        title={
+                          canLeave
+                            ? "Leave"
+                            : confirmKickId === m.userId
+                            ? "Confirm remove"
+                            : "Remove"
+                        }
+                        aria-label={
+                          canLeave
+                            ? "Leave"
+                            : confirmKickId === m.userId
+                            ? "Confirm remove"
+                            : "Remove"
+                        }
                         onClick={() => handleRemove(m.userId, !!canLeave)}
-                        className="shrink-0 size-8 rounded-md flex items-center justify-center text-muted-foreground hover:text-destructive hover:bg-destructive/[0.08] cursor-pointer disabled:opacity-50"
+                        className={
+                          "shrink-0 size-8 rounded-md flex items-center justify-center cursor-pointer disabled:opacity-50 " +
+                          (confirmKickId === m.userId
+                            ? "text-white bg-destructive hover:bg-destructive/90"
+                            : "text-muted-foreground hover:text-destructive hover:bg-destructive/[0.08]")
+                        }
                       >
                         <UserMinus className="size-3.5" />
                       </button>

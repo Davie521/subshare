@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -23,24 +24,30 @@ type SettlementRow = {
 type View = "unpaid" | "paid";
 
 export default function SettlementPage() {
+  const router = useRouter();
   const [view, setView] = useState<View>("unpaid");
   const [rows, setRows] = useState<SettlementRow[] | null>(null);
   const [me, setMe] = useState<string>("You");
   const [settlingKey, setSettlingKey] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [settleError, setSettleError] = useState<string | null>(null);
 
-  async function load(v: View) {
+  const load = useCallback(async (v: View) => {
     setRows(null);
-    const res = await api.settlement(v);
-    if (res.data) {
-      setRows(res.data);
-      setLoadError(null);
-    } else if (res.status === 401) {
-      window.location.assign("/login");
-    } else {
-      setLoadError(res.error || "Failed to load");
+    try {
+      const res = await api.settlement(v);
+      if (res.data) {
+        setRows(res.data);
+        setLoadError(null);
+      } else if (res.status === 401) {
+        router.push("/login");
+      } else {
+        setLoadError(res.error || "Failed to load");
+      }
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Network error");
     }
-  }
+  }, [router]);
 
   useEffect(() => {
     void api.me().then((r) => {
@@ -49,18 +56,21 @@ export default function SettlementPage() {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      void load(view);
-    }, 0);
-    return () => clearTimeout(t);
-  }, [view]);
+    // load is async; setState calls happen in later microtasks.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load(view);
+  }, [view, load]);
 
   async function onSettle(row: SettlementRow) {
     const key = `${row.counterpartyUserId}-${row.currency}`;
     setSettlingKey(key);
+    setSettleError(null);
     const res = await api.markPairSettled(row.counterpartyUserId, row.currency);
     setSettlingKey(null);
-    if (res.error) return;
+    if (res.error) {
+      setSettleError(res.error);
+      return;
+    }
     await load(view);
   }
 
@@ -86,7 +96,7 @@ export default function SettlementPage() {
           Couldn&apos;t load settlement
         </h1>
         <p className="text-sm text-muted-foreground">{loadError}</p>
-        <Button onClick={() => window.location.reload()}>Retry</Button>
+        <Button onClick={() => void load(view)}>Retry</Button>
       </div>
     );
   }
@@ -112,6 +122,10 @@ export default function SettlementPage() {
           label="Show paid history"
         />
       </header>
+
+      {settleError && (
+        <p className="text-[13px] font-medium text-destructive">{settleError}</p>
+      )}
 
       {/* Summary totals */}
       {!showingPaid && totals && totals.length > 0 && (

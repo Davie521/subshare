@@ -23,26 +23,41 @@ export default function EditSubscriptionPage() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/subscriptions/${subId}`)
-      .then((r) => r.json())
-      .then((sub) => {
-        if (sub.error) {
-          router.push("/subscriptions");
+    let cancelled = false;
+    api.getSubscription(subId)
+      .then((res) => {
+        if (cancelled) return;
+        if (res.data) {
+          setForm({
+            name: res.data.name,
+            price: (res.data.price / 100).toFixed(2),
+            nextPayment: res.data.nextPayment,
+          });
+          setLoading(false);
           return;
         }
-        setForm({
-          name: sub.name,
-          price: (sub.price / 100).toFixed(2),
-          nextPayment: sub.nextPayment,
-        });
+        if (res.status === 401) {
+          router.push("/login");
+          return;
+        }
+        router.push("/subscriptions");
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setError("Network error");
         setLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
   }, [subId, router]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
     const price = Math.round(parseFloat(form.price) * 100);
     if (!form.name.trim() || isNaN(price) || price <= 0) {
       setError("Please fill in name and a valid price");
@@ -68,10 +83,15 @@ export default function EditSubscriptionPage() {
   }
 
   async function handleDelete() {
-    if (!confirm("Delete this subscription?")) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
+    setError("");
     const res = await api.deleteSubscription(subId);
     if (res.error) {
-      alert(res.error);
+      setError(res.error);
+      setConfirmDelete(false);
       return;
     }
     router.push("/subscriptions");
@@ -103,13 +123,17 @@ export default function EditSubscriptionPage() {
           <h1 className="text-2xl font-semibold tracking-tight">Edit</h1>
         </div>
         <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Delete subscription"
-          className="cursor-pointer text-destructive"
+          variant={confirmDelete ? "default" : "ghost"}
+          size={confirmDelete ? "sm" : "icon"}
+          aria-label={confirmDelete ? "Confirm delete" : "Delete subscription"}
+          className={
+            confirmDelete
+              ? "cursor-pointer bg-destructive hover:bg-destructive/90 text-white"
+              : "cursor-pointer text-destructive"
+          }
           onClick={handleDelete}
         >
-          <Trash2 className="h-4 w-4" />
+          {confirmDelete ? "Confirm delete" : <Trash2 className="h-4 w-4" />}
         </Button>
       </div>
 

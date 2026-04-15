@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -25,6 +26,7 @@ type Friend = {
 };
 
 export default function CirclesPage() {
+  const router = useRouter();
   const [circles, setCircles] = useState<Circle[] | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [selfId, setSelfId] = useState<number | null>(null);
@@ -32,30 +34,34 @@ export default function CirclesPage() {
   const [creating, setCreating] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
 
-  async function load() {
-    const [c, f, me] = await Promise.all([
-      api.circles(),
-      api.friends(),
-      api.me(),
-    ]);
-    if (c.data) setCircles(c.data);
-    else if (c.status === 401) {
-      window.location.assign("/login");
-      return;
-    } else setLoadError(c.error || "Failed to load");
-    if (f.data)
-      setFriends(
-        f.data.map((x) => ({ userId: x.userId, displayName: x.displayName }))
-      );
-    if (me.data) setSelfId(me.data.id);
-  }
+  const load = useCallback(async () => {
+    try {
+      const [c, f, me] = await Promise.all([
+        api.circles(),
+        api.friends(),
+        api.me(),
+      ]);
+      if (c.data) setCircles(c.data);
+      else if (c.status === 401) {
+        router.push("/login");
+        return;
+      } else setLoadError(c.error || "Failed to load");
+      if (f.data)
+        setFriends(
+          f.data.map((x) => ({ userId: x.userId, displayName: x.displayName }))
+        );
+      if (me.data) setSelfId(me.data.id);
+    } catch (err) {
+      setLoadError(err instanceof Error ? err.message : "Network error");
+    }
+  }, [router]);
 
   useEffect(() => {
-    const t = setTimeout(() => {
-      void load();
-    }, 0);
-    return () => clearTimeout(t);
-  }, []);
+    // load() is async; state updates happen in later microtasks, not
+    // synchronously in the effect body. The lint rule doesn't model that.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void load();
+  }, [load]);
 
   if (loadError && !circles) {
     return (
@@ -124,24 +130,29 @@ export default function CirclesPage() {
         <ul className="space-y-2">
           {circles.map((c) => (
             <li key={c.id}>
-              <Card
-                size="sm"
-                className="cursor-pointer hover:bg-foreground/[0.02] dark:hover:bg-white/[0.03]"
+              <button
+                type="button"
                 onClick={() => setEditing(c)}
+                className="w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40 rounded-xl"
               >
-                <CardContent className="flex items-center gap-3">
-                  <div className="size-10 rounded-full bg-[var(--accent)] flex items-center justify-center shrink-0">
-                    <Users className="size-4 text-[var(--accent-foreground)]" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold truncate">{c.name}</p>
-                    <p className="text-[13px] text-muted-foreground">
-                      {c.memberIds.length}{" "}
-                      {c.memberIds.length === 1 ? "member" : "members"}
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
+                <Card
+                  size="sm"
+                  className="cursor-pointer hover:bg-foreground/[0.02] dark:hover:bg-white/[0.03]"
+                >
+                  <CardContent className="flex items-center gap-3">
+                    <div className="size-10 rounded-full bg-[var(--accent)] flex items-center justify-center shrink-0">
+                      <Users className="size-4 text-[var(--accent-foreground)]" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold truncate">{c.name}</p>
+                      <p className="text-[13px] text-muted-foreground">
+                        {c.memberIds.length}{" "}
+                        {c.memberIds.length === 1 ? "member" : "members"}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </button>
             </li>
           ))}
         </ul>
@@ -189,6 +200,7 @@ function CircleEditor({
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   async function save() {
     if (saving) return;
@@ -212,10 +224,14 @@ function CircleEditor({
 
   async function remove() {
     if (!circle) return;
-    if (!window.confirm(`Delete group "${circle.name}"?`)) return;
+    if (!confirmDelete) {
+      setConfirmDelete(true);
+      return;
+    }
     const res = await api.deleteCircle(circle.id);
     if (res.error) {
       setError(res.error);
+      setConfirmDelete(false);
       return;
     }
     onSaved();
@@ -329,19 +345,23 @@ function CircleEditor({
           </div>
 
           {error && (
-            <p className="text-[13px] text-[var(--brand)]">{error}</p>
+            <p className="text-[13px] text-destructive">{error}</p>
           )}
 
           <div className="flex items-center justify-between pt-2">
             {circle ? (
               <Button
-                variant="outline"
+                variant={confirmDelete ? "default" : "outline"}
                 size="sm"
                 onClick={remove}
-                className="cursor-pointer gap-1.5 text-muted-foreground hover:text-foreground"
+                className={
+                  confirmDelete
+                    ? "cursor-pointer gap-1.5 bg-destructive hover:bg-destructive/90 text-white"
+                    : "cursor-pointer gap-1.5 text-muted-foreground hover:text-foreground"
+                }
               >
                 <Trash2 className="size-3.5" />
-                Delete
+                {confirmDelete ? `Delete "${circle.name}"` : "Delete"}
               </Button>
             ) : (
               <span />

@@ -80,7 +80,7 @@ function Hero() {
         <div className="mt-12">
           <Link
             href="/register"
-            className="group inline-flex items-center gap-2 rounded-full bg-[var(--brand)] px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(94,106,210,0.35)] hover:bg-[var(--brand-accent)] hover:shadow-[0_12px_28px_rgba(94,106,210,0.45)] active:translate-y-px transition-all cursor-pointer"
+            className="group inline-flex items-center gap-2 rounded-md bg-[var(--brand)] px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(94,106,210,0.35)] hover:bg-[var(--brand-accent)] hover:shadow-[0_12px_28px_rgba(94,106,210,0.45)] active:translate-y-px transition-all cursor-pointer"
           >
             Start your ledger
             <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
@@ -229,7 +229,7 @@ function Closing() {
         <div className="flex justify-center">
           <Link
             href="/register"
-            className="group inline-flex items-center gap-2 rounded-full bg-[var(--brand)] px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(94,106,210,0.35)] hover:bg-[var(--brand-accent)] hover:shadow-[0_12px_28px_rgba(94,106,210,0.45)] active:translate-y-px transition-all cursor-pointer"
+            className="group inline-flex items-center gap-2 rounded-md bg-[var(--brand)] px-6 py-3.5 text-[15px] font-semibold text-white shadow-[0_8px_24px_rgba(94,106,210,0.35)] hover:bg-[var(--brand-accent)] hover:shadow-[0_12px_28px_rgba(94,106,210,0.45)] active:translate-y-px transition-all cursor-pointer"
           >
             Start your ledger
             <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />

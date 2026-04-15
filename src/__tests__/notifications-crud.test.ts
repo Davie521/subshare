@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
-import * as schema from '@/db/schema'
 import { createSubscription } from '@/lib/db-operations'
 import {
   insertNotification,
@@ -11,12 +10,10 @@ import {
 } from '@/lib/notifications'
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']
-let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
 
 beforeEach(async () => {
   const setup = await setupTestDb()
   db = setup.db
-  sqlite = setup.sqlite
 })
 
 describe('T10 notifications CRUD', () => {

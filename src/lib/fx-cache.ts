@@ -25,6 +25,7 @@ export async function getRate(from: string, to: string): Promise<number | null> 
       `https://api.frankfurter.dev/v1/latest?base=${from}&symbols=${to}`,
       { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }
     )
+    if (!res.ok) return cached?.rate ?? null
     const body = frankfurterResponseSchema.safeParse(await res.json())
     if (!body.success) return cached?.rate ?? null
     const rate = body.data.rates[to]

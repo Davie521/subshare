@@ -26,26 +26,25 @@ export async function createCircle(
   const name = input.name.trim()
   if (!name) throw new Error('Circle name cannot be empty')
 
-  const [row] = await db
-    .insert(schema.circles)
-    .values({
-      name,
-      ownerUserId: input.ownerUserId,
-      defaultPayerId: input.defaultPayerId ?? null,
-    })
-    .returning({ id: schema.circles.id })
-    
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(schema.circles)
+      .values({
+        name,
+        ownerUserId: input.ownerUserId,
+        defaultPayerId: input.defaultPayerId ?? null,
+      })
+      .returning({ id: schema.circles.id })
 
-  // Owner is always a member; extra ids merged and deduped.
-  const memberSet = new Set<number>([input.ownerUserId, ...(input.memberIds ?? [])])
-  for (const userId of memberSet) {
-    await db.insert(schema.circleMembers)
-      .values({ circleId: row.id, userId })
-      .onConflictDoNothing()
-      
-  }
+    const memberSet = new Set<number>([input.ownerUserId, ...(input.memberIds ?? [])])
+    for (const userId of memberSet) {
+      await tx.insert(schema.circleMembers)
+        .values({ circleId: row.id, userId })
+        .onConflictDoNothing()
+    }
 
-  return { id: row.id }
+    return { id: row.id }
+  })
 }
 
 export async function listCirclesForOwner(
@@ -125,48 +124,46 @@ export async function updateCircle(
     defaultPayerId?: number | null
   }
 ): Promise<boolean> {
-  const [row] = await db
-    .select()
-    .from(schema.circles)
-    .where(
-      and(
-        eq(schema.circles.id, circleId),
-        eq(schema.circles.ownerUserId, ownerUserId)
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .select()
+      .from(schema.circles)
+      .where(
+        and(
+          eq(schema.circles.id, circleId),
+          eq(schema.circles.ownerUserId, ownerUserId)
+        )
       )
-    )
-  if (!row) return false
+    if (!row) return false
 
-  const updates: Record<string, unknown> = {}
-  if (patch.name !== undefined) {
-    const trimmed = patch.name.trim()
-    if (!trimmed) throw new Error('Circle name cannot be empty')
-    updates.name = trimmed
-  }
-  if (patch.defaultPayerId !== undefined) {
-    updates.defaultPayerId = patch.defaultPayerId
-  }
-  if (Object.keys(updates).length > 0) {
-    await db.update(schema.circles)
-      .set(updates)
-      .where(eq(schema.circles.id, circleId))
-      
-  }
-
-  if (patch.memberIds !== undefined) {
-    const desired = new Set<number>([ownerUserId, ...patch.memberIds])
-    // Replace full membership set.
-    await db.delete(schema.circleMembers)
-      .where(eq(schema.circleMembers.circleId, circleId))
-      
-    for (const userId of desired) {
-      await db.insert(schema.circleMembers)
-        .values({ circleId, userId })
-        .onConflictDoNothing()
-        
+    const updates: Record<string, unknown> = {}
+    if (patch.name !== undefined) {
+      const trimmed = patch.name.trim()
+      if (!trimmed) throw new Error('Circle name cannot be empty')
+      updates.name = trimmed
     }
-  }
+    if (patch.defaultPayerId !== undefined) {
+      updates.defaultPayerId = patch.defaultPayerId
+    }
+    if (Object.keys(updates).length > 0) {
+      await tx.update(schema.circles)
+        .set(updates)
+        .where(eq(schema.circles.id, circleId))
+    }
 
-  return true
+    if (patch.memberIds !== undefined) {
+      const desired = new Set<number>([ownerUserId, ...patch.memberIds])
+      await tx.delete(schema.circleMembers)
+        .where(eq(schema.circleMembers.circleId, circleId))
+      for (const userId of desired) {
+        await tx.insert(schema.circleMembers)
+          .values({ circleId, userId })
+          .onConflictDoNothing()
+      }
+    }
+
+    return true
+  })
 }
 
 export async function deleteCircle(

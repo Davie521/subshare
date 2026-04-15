@@ -27,7 +27,8 @@ export default function LoginPage() {
       setSubmitting(false);
       return;
     }
-    window.location.assign("/dashboard");
+    router.refresh();
+    router.push("/dashboard");
   }
 
   return (

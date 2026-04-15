@@ -1,4 +1,4 @@
-import { eq, and, isNull, desc } from 'drizzle-orm'
+import { eq, and, isNull, desc, sql } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 
@@ -104,8 +104,8 @@ export async function countUnreadNotifications(
   db: DB,
   userId: number
 ): Promise<number> {
-  const rows = await db
-    .select({ id: schema.notifications.id })
+  const [row] = await db
+    .select({ count: sql<number>`COUNT(*)::int` })
     .from(schema.notifications)
     .where(
       and(
@@ -113,7 +113,7 @@ export async function countUnreadNotifications(
         isNull(schema.notifications.readAt)
       )
     )
-  return rows.length
+  return Number(row?.count ?? 0)
 }
 
 function safeParseJson<P>(s: string): P {

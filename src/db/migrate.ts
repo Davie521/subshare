@@ -169,16 +169,19 @@ export async function migrate(db: Db): Promise<void> {
     )
   `)
 
-  // H1 guard — refuse to leave payer_id NULL on any row.
+  // H1 guard — warn on subscriptions with unresolved payer_id instead of
+  // refusing to boot. Throwing here blocks every cold start until the data
+  // is manually repaired, which is operationally painful; a warning lets
+  // the app come up so an admin can actually fix the rows via the UI.
   const orphans = await db.execute(sql`
     SELECT id FROM subscriptions WHERE payer_id IS NULL LIMIT 5
   `)
   const orphanRows = rowsFrom<{ id: number }>(orphans)
   if (orphanRows.length > 0) {
     const ids = orphanRows.map((o) => o.id).join(', ')
-    throw new Error(
-      `Migration error: subscriptions with unresolved payer_id: ${ids}. ` +
-        `Fix owner_id / group_id on these rows before restarting.`
+    console.warn(
+      `[migrate] WARNING subscriptions with unresolved payer_id: ${ids}. ` +
+        `Billing for these subs will be skipped until the rows are repaired.`
     )
   }
 }
