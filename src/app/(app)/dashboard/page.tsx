@@ -1,11 +1,10 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { ArrowRight, TrendingUp } from "lucide-react";
 import { BrandIcon } from "@/components/brand-icon";
 import { NotificationsList } from "@/components/notifications-list";
@@ -32,11 +31,9 @@ type Dashboard = {
 type SettlementSummaryRow = {
   counterpartyUserId: number;
   counterpartyName: string;
-  currency: string;
-  owedByMe: number;
-  owedToMe: number;
-  net: number;
-  billIds: number[];
+  displayCurrency: string;
+  netAmount: number;
+  billCount: number;
 };
 
 export default function DashboardPage() {
@@ -67,14 +64,6 @@ export default function DashboardPage() {
   }, [router]);
 
   // settlement kept only to power the "To transfer" stat card.
-
-  const greeting = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 5) return "Still up";
-    if (h < 12) return "Good morning";
-    if (h < 18) return "Good afternoon";
-    return "Good evening";
-  }, []);
 
   if (loadError && !data) {
     return (
@@ -107,7 +96,7 @@ export default function DashboardPage() {
   }
 
   // Outgoing count powers the "To transfer" stat card.
-  const outgoingPairs = (settlement ?? []).filter((r) => r.net < 0);
+  const outgoingPairs = (settlement ?? []).filter((r) => r.netAmount < 0);
 
   const personalSubs = data.subscriptions.filter((s) => s.memberCount === 1);
   const sharedSubs = data.subscriptions.filter((s) => s.memberCount > 1);
@@ -117,19 +106,16 @@ export default function DashboardPage() {
   );
 
   return (
-    <div className="space-y-10">
+    <div className="space-y-8">
       {/* Header */}
-      <header className="space-y-1.5">
-        <p className="text-[13px] font-medium text-muted-foreground">
-          {greeting}
-        </p>
+      <header>
         <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
           Dashboard
         </h1>
       </header>
 
       {/* Stats row */}
-      <div className="grid gap-4 md:grid-cols-3">
+      <div className="grid gap-3 md:grid-cols-3">
         <SpendingCard
           total={data.monthlyTotal}
           savings={sharedSavings}
@@ -164,15 +150,15 @@ export default function DashboardPage() {
       </div>
 
       {/* Two-column layout on desktop */}
-      <div className="grid gap-8 lg:grid-cols-5">
-        {/* Updates (notifications feed) — wider, left */}
-        <section className="space-y-4 lg:col-span-3">
+      <div className="grid gap-6 lg:grid-cols-5">
+        {/* Updates — only unread; mark-read makes them disappear */}
+        <section className="space-y-3 lg:col-span-3 min-w-0">
           <SectionHeader title="Updates" />
-          <NotificationsList limit={20} showMarkAll />
+          <NotificationsList limit={30} maxVisible={5} unreadOnly />
         </section>
 
         {/* Subscriptions — narrower */}
-        <section className="space-y-4 lg:col-span-2">
+        <section className="space-y-3 lg:col-span-2">
           <div className="flex items-center justify-between">
             <SectionHeader
               title="Subscriptions"
@@ -196,14 +182,14 @@ export default function DashboardPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-2">
+            <div className="-mx-1">
               {personalSubs.slice(0, 4).map((sub) => (
                 <SubRow key={`p-${sub.id}`} sub={sub} />
               ))}
 
               {sharedSubs.length > 0 && personalSubs.length > 0 && (
-                <div className="pt-3 pb-1">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/70">
+                <div className="pt-3 pb-1 px-2">
+                  <p className="text-[10.5px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
                     Shared
                   </p>
                 </div>
@@ -233,17 +219,20 @@ function SpendingCard({
   subscriptionCount: number;
 }) {
   return (
-    <Card className="relative overflow-hidden md:col-span-1 ring-[var(--brand)]/20 dark:ring-[var(--brand)]/30">
+    <Card
+      size="sm"
+      className="relative overflow-hidden md:col-span-1 ring-[var(--brand)]/20 dark:ring-[var(--brand)]/30"
+    >
       {/* Subtle brand accent stripe */}
       <div className="absolute inset-y-0 left-0 w-[3px] bg-[var(--brand)]" />
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-2">
         <div className="flex items-center justify-between">
-          <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
             This month
           </p>
           <TrendingUp className="size-[14px] text-[var(--brand)]" />
         </div>
-        <p className="text-[32px] font-bold tracking-[-0.022em] tabular-nums leading-none">
+        <p className="text-[28px] font-bold tracking-[-0.022em] tabular-nums leading-none">
           {formatMoney(total)}
         </p>
         <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
@@ -275,12 +264,12 @@ function StatCard({
   tone?: "neutral" | "warn";
 }) {
   return (
-    <Card>
-      <CardContent className="space-y-3">
-        <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+    <Card size="sm">
+      <CardContent className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
           {label}
         </p>
-        <p className="text-[32px] font-bold tracking-[-0.022em] tabular-nums leading-none">
+        <p className="text-[28px] font-bold tracking-[-0.022em] tabular-nums leading-none">
           {value}
         </p>
         <p
@@ -300,11 +289,11 @@ function StatCard({
 function SectionHeader({ title, count }: { title: string; count?: number }) {
   return (
     <div className="flex items-baseline gap-2">
-      <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+      <h2 className="text-[15px] font-semibold tracking-[-0.011em] text-foreground">
         {title}
       </h2>
       {typeof count === "number" && count > 0 && (
-        <span className="text-[11px] font-medium text-muted-foreground/60 tabular-nums">
+        <span className="text-[13px] font-medium text-muted-foreground tabular-nums">
           {count}
         </span>
       )}
@@ -332,20 +321,20 @@ function SubRow({
   return (
     <Link
       href={`/subscriptions/${sub.id}`}
-      className="group flex items-center justify-between gap-3 py-2 px-1 rounded-md transition-colors hover:bg-foreground/[0.025] dark:hover:bg-white/[0.03] cursor-pointer"
+      className="group flex items-center gap-3 px-3.5 py-3 rounded-lg border border-transparent transition-colors cursor-pointer hover:bg-foreground/[0.025] hover:border-[rgba(0,0,0,0.06)] dark:hover:bg-white/[0.03] dark:hover:border-white/[0.06]"
     >
-      <div className="flex items-center gap-2.5 min-w-0">
-        <BrandIcon name={sub.name} size={22} />
-        <p className="font-medium text-sm truncate">{sub.name}</p>
-        {shared && (
-          <Badge variant="brand" className="text-[10px] px-1.5">
-            {sub.memberCount}
-          </Badge>
-        )}
+      <BrandIcon name={sub.name} size={32} className="shrink-0" />
+      <div className="min-w-0 flex-1">
+        <p className="text-[14px] font-semibold truncate leading-tight">
+          {sub.name}
+        </p>
+        <p className="text-[12px] text-muted-foreground mt-0.5">
+          {shared ? `${sub.memberCount} members` : "Personal"}
+        </p>
       </div>
-      <p className="text-sm font-medium tabular-nums whitespace-nowrap">
+      <p className="shrink-0 text-[14px] font-semibold tabular-nums whitespace-nowrap">
         {formatMoney(displayPrice, sub.currency)}
-        <span className="text-muted-foreground font-normal text-xs ml-0.5">
+        <span className="text-muted-foreground font-normal text-[11px] ml-0.5">
           /mo
         </span>
       </p>

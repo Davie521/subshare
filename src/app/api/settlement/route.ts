@@ -20,7 +20,8 @@ export async function GET(req: NextRequest) {
 
 const settleSchema = z.object({
   counterpartyUserId: z.number().int().positive(),
-  currency: z.string().min(3).max(5),
+  /** Omit to settle every unpaid bill with this counterparty regardless of currency. */
+  currency: z.string().min(3).max(5).optional(),
 })
 
 export async function POST(req: NextRequest) {

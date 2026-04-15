@@ -31,7 +31,11 @@ export const api = {
   login: (body: { email: string; password: string }) =>
     request("/api/auth/login", { method: "POST", body: JSON.stringify(body) }),
   me: () => request<{ id: number; name: string; email: string; preferredCurrency: string; monthlyBudget: number | null; displayName: string; showEmail: boolean }>("/api/auth/me"),
-  updateProfile: (body: { displayName?: string; showEmail?: boolean }) =>
+  updateProfile: (body: {
+    displayName?: string;
+    showEmail?: boolean;
+    preferredCurrency?: string;
+  }) =>
     request("/api/auth/me", { method: "PUT", body: JSON.stringify(body) }),
   logout: () => request("/api/auth/logout", { method: "POST" }),
 
@@ -123,26 +127,38 @@ export const api = {
           myShare: number;
         }>;
         nets: Array<{ currency: string; net: number }>;
+        agreedCurrency: string | null;
       }>
     >("/api/friends"),
+  setFriendCurrency: (friendId: number, currency: string | null) =>
+    request<{ ok: true }>(`/api/friends/${friendId}/currency`, {
+      method: "PUT",
+      body: JSON.stringify({ currency }),
+    }),
 
-  // Settlement
-  settlement: (view: "unpaid" | "paid" = "unpaid") =>
+  // Settlement (normalized — one row per counterparty in viewer's preferredCurrency)
+  settlement: () =>
     request<
       Array<{
         counterpartyUserId: number;
         counterpartyName: string;
-        currency: string;
-        owedByMe: number;
-        owedToMe: number;
-        net: number;
-        billIds: number[];
+        displayCurrency: string;
+        netAmount: number;
+        billCount: number;
+        bills: Array<{
+          id: number;
+          subscriptionId: number;
+          subscriptionName: string;
+          billingDate: string;
+          convertedAmount: number;
+          direction: "outgoing" | "incoming";
+        }>;
       }>
-    >(`/api/settlement${view === "paid" ? "?view=paid" : ""}`),
-  markPairSettled: (counterpartyUserId: number, currency: string) =>
+    >("/api/settlement"),
+  markPairSettled: (counterpartyUserId: number) =>
     request<{ marked: number }>("/api/settlement", {
       method: "POST",
-      body: JSON.stringify({ counterpartyUserId, currency }),
+      body: JSON.stringify({ counterpartyUserId }),
     }),
 
   // Circles (UI label "Group") — member preset templates

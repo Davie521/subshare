@@ -27,6 +27,7 @@ export default function SettingsPage() {
 
   const [displayName, setDisplayName] = useState("");
   const [showEmail, setShowEmail] = useState(false);
+  const [preferredCurrency, setPreferredCurrency] = useState("CNY");
   const [saving, setSaving] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
 
@@ -36,6 +37,7 @@ export default function SettingsPage() {
         setUser(res.data);
         setDisplayName(res.data.displayName);
         setShowEmail(res.data.showEmail);
+        setPreferredCurrency(res.data.preferredCurrency);
         return;
       }
       if (res.status === 401) {
@@ -55,7 +57,8 @@ export default function SettingsPage() {
   const dirty =
     user !== null &&
     (displayName.trim() !== user.displayName.trim() ||
-      showEmail !== user.showEmail);
+      showEmail !== user.showEmail ||
+      preferredCurrency !== user.preferredCurrency);
 
   async function handleSave() {
     if (!dirty || saving) return;
@@ -63,12 +66,18 @@ export default function SettingsPage() {
     const res = await api.updateProfile({
       displayName: displayName.trim(),
       showEmail,
+      preferredCurrency,
     });
     setSaving(false);
     if (!res.error) {
       setUser(
         user
-          ? { ...user, displayName: displayName.trim(), showEmail }
+          ? {
+              ...user,
+              displayName: displayName.trim(),
+              showEmail,
+              preferredCurrency,
+            }
           : null
       );
       setShowSaved(true);
@@ -116,6 +125,21 @@ export default function SettingsPage() {
 
             <Separator />
 
+            <div className="space-y-2">
+              <Label htmlFor="preferredCurrency">Preferred currency</Label>
+              <CurrencySelect
+                id="preferredCurrency"
+                value={preferredCurrency}
+                onChange={setPreferredCurrency}
+              />
+              <p className="text-[12px] text-muted-foreground">
+                Settlement totals and shared bills are normalised to this
+                currency.
+              </p>
+            </div>
+
+            <Separator />
+
             <Toggle
               id="showEmail"
               checked={showEmail}
@@ -149,7 +173,6 @@ export default function SettingsPage() {
         <Card>
           <CardContent className="space-y-4">
             <Field label="Email" value={user.email} />
-            <Field label="Currency" value={user.preferredCurrency} />
           </CardContent>
         </Card>
       </section>
@@ -218,6 +241,45 @@ function Field({ label, value }: { label: string; value: string }) {
       </Label>
       <p className="text-[14px] font-medium truncate">{value}</p>
     </div>
+  );
+}
+
+const CURRENCY_OPTIONS: Array<{ code: string; label: string }> = [
+  { code: "CNY", label: "CNY · ¥ Chinese Yuan" },
+  { code: "USD", label: "USD · $ US Dollar" },
+  { code: "HKD", label: "HKD · HK$ Hong Kong Dollar" },
+  { code: "CAD", label: "CAD · CA$ Canadian Dollar" },
+  { code: "EUR", label: "EUR · € Euro" },
+  { code: "GBP", label: "GBP · £ British Pound" },
+  { code: "JPY", label: "JPY · ¥ Japanese Yen" },
+];
+
+function CurrencySelect({
+  id,
+  value,
+  onChange,
+}: {
+  id: string;
+  value: string;
+  onChange: (v: string) => void;
+}) {
+  return (
+    <select
+      id={id}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(
+        "h-9 w-full rounded-md border border-input bg-background px-3 text-[14px] font-medium",
+        "shadow-xs transition-colors cursor-pointer",
+        "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40 focus-visible:ring-offset-1"
+      )}
+    >
+      {CURRENCY_OPTIONS.map((opt) => (
+        <option key={opt.code} value={opt.code}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
   );
 }
 
