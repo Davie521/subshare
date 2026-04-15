@@ -84,7 +84,12 @@ export const subscriptions = pgTable('subscriptions', {
    */
   refundPolicy: text('refund_policy').notNull().default('payer_absorbs'),
   createdAt: text('created_at').notNull().$defaultFn(isoNow),
-})
+}, (t) => [
+  check(
+    'subscriptions_refund_policy_valid',
+    sql`${t.refundPolicy} IN ('payer_absorbs', 'redistribute')`
+  ),
+])
 
 export const subscriptionMembers = pgTable(
   'subscription_members',

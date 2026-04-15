@@ -509,6 +509,27 @@ describe('min-commitment rule has been removed', () => {
   })
 })
 
+describe('DB-level refund_policy enum guard', () => {
+  it('T15: CHECK constraint rejects out-of-band writes of invalid values', async () => {
+    // Zod guards the API; this test proves the DB refuses to store
+    // 'bogus' even when bypassing the app layer (admin shell, raw SQL).
+    const A = await createUser(db, { email: 'a@t.com' })
+    const sub = await createSubscription(db, {
+      name: 'Netflix', price: 3000, currency: 'CNY',
+      nextPayment: '2026-06-01', startDate: '2026-05-01', ownerId: A,
+    })
+    await expect(
+      sqlite
+        .prepare(`UPDATE subscriptions SET refund_policy = 'bogus' WHERE id = ?`)
+        .run(sub.id)
+    ).rejects.toThrow()
+    // Valid values still succeed.
+    await sqlite
+      .prepare(`UPDATE subscriptions SET refund_policy = 'redistribute' WHERE id = ?`)
+      .run(sub.id)
+  })
+})
+
 describe('FX scaling on prorated rewrite', () => {
   it('T14: localAmount shrinks by the same ratio as amount', async () => {
     // B's preferred currency = USD. Netflix in CNY. FX rate != 1 so

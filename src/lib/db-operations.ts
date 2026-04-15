@@ -320,51 +320,55 @@ export async function leaveSubscription(
   // pay for the days they actually used (calculateLeaveProRata below).
   const leftAt = input.leftAt
 
-  await db.update(schema.subscriptionMembers)
-    .set({ leftAt })
-    .where(
-      and(
-        eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
-        eq(schema.subscriptionMembers.userId, input.userId)
+  // Atomic: leftAt + bill prorate + redistribute + notification must all
+  // succeed or all roll back, otherwise a mid-flight crash can leave the
+  // leaver off the sub but their unpaid bill not prorated.
+  await db.transaction(async (tx) => {
+    await tx.update(schema.subscriptionMembers)
+      .set({ leftAt })
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
+          eq(schema.subscriptionMembers.userId, input.userId)
+        )
       )
-    )
 
-
-  // Rewrite the leaver's unpaid bill for the current month to reflect
-  // only the days they actually used.  Paid bills stay locked.
-  // `stintStart` is this stint's addedAt — bills from earlier stints (in
-  // a rejoin scenario) have billingDate < stintStart and must not be
-  // touched, since they were already prorated when the earlier stint ended.
-  await prorateLeaverBill(db, {
-    subscriptionId: input.subscriptionId,
-    userId: input.userId,
-    payerId: sub.payerId,
-    leftAt,
-    stintStart: row.addedAt,
-    refundPolicy: sub.refundPolicy as 'payer_absorbs' | 'redistribute',
-    subPrice: sub.price,
-    subName: sub.name,
-  })
-
-  if (isKick) {
-    const [actor] = await db
-      .select({
-        name: schema.users.name,
-        displayName: schema.users.displayName,
-      })
-      .from(schema.users)
-      .where(eq(schema.users.id, actorId))
-
-    await insertNotification(db, {
-      userId: input.userId,
-      type: 'removed_from_sub',
+    // Rewrite the leaver's unpaid bill for the current month to reflect
+    // only the days they actually used.  Paid bills stay locked.
+    // `stintStart` is this stint's addedAt — bills from earlier stints (in
+    // a rejoin scenario) have billingDate < stintStart and must not be
+    // touched, since they were already prorated when the earlier stint ended.
+    await prorateLeaverBill(tx, {
       subscriptionId: input.subscriptionId,
-      payload: {
-        sub_name: sub.name,
-        actor_name: actor?.displayName || actor?.name || 'Someone',
-      },
+      userId: input.userId,
+      payerId: sub.payerId,
+      leftAt,
+      stintStart: row.addedAt,
+      refundPolicy: sub.refundPolicy as 'payer_absorbs' | 'redistribute',
+      subPrice: sub.price,
+      subName: sub.name,
     })
-  }
+
+    if (isKick) {
+      const [actor] = await tx
+        .select({
+          name: schema.users.name,
+          displayName: schema.users.displayName,
+        })
+        .from(schema.users)
+        .where(eq(schema.users.id, actorId))
+
+      await insertNotification(tx, {
+        userId: input.userId,
+        type: 'removed_from_sub',
+        subscriptionId: input.subscriptionId,
+        payload: {
+          sub_name: sub.name,
+          actor_name: actor?.displayName || actor?.name || 'Someone',
+        },
+      })
+    }
+  })
 }
 
 /**
