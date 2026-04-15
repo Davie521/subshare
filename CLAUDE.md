@@ -88,7 +88,7 @@ Each **subscription** is the primitive. It has its own `payer_id` (the person wh
 
 ### Business logic (`src/lib/`)
 - `billing.ts` — pure functions. `calculateShares` uses floor division (payer absorbs remainder). `calculateProRate` computes days remaining in current cycle for R2 mid-month joins. Exchange rate is injected via `ExchangeRateFetcher` so tests can stub it.
-- `db-operations.ts` — CRUD + membership rules. `addMemberToSubscription`, `leaveSubscription` (R7 payer guard), `transferPayer`, `changeSubscriptionPrice` (R5 rewrite), `generateMonthlyBills` (R1 cron), `generateAndSaveBillingRecords` (legacy per-sub), `backfillFromGroups` (migration).
+- `db-operations.ts` — CRUD + membership rules. `addMemberToSubscription` (handles rejoin via row reuse), `leaveSubscription` (R3 prorate + R7 payer guard + R11 redistribute), `transferPayer`, `changeSubscriptionPrice` (R5 rewrite), `generateMonthlyBills` (R1 cron), `generateAndSaveBillingRecords` (legacy per-sub), `backfillFromGroups` (migration).
 - `settlement.ts` — pair-level netting. `getSettlementSummary` (unpaid) and `getSettledHistory` (paid) share `bucketByPairCurrency`. `markPairSettled` atomically flips every unpaid bill in a (userA, userB, currency) bucket.
 - `notifications.ts` — in-app feed CRUD, unread count, 30-day cleanup. Types: `added_to_sub`, `removed_from_sub`, `price_changed`, `payer_changed`.
 - `api-handlers.ts` — request-shaped business logic called from route handlers; keeps `app/api/**/route.ts` thin.
@@ -103,13 +103,15 @@ PRE-PAID calendar-month model. Key rules:
 
 - **R1** — on the 1st of each month, cron generates one `share(n) = floor(price / n)` bill per active non-payer member; `billing_date = M_start`; payer absorbs rounding remainder (by not being billed).
 - **R2** — mid-month join → immediate pro-rata bill for remaining days, `billing_date = join_date`. Actionable now or bundled with next 1st.
-- **R3** — leaving doesn't refund or generate new bills; member excluded from next month's R1.
-- **R4** — adding/leaving recomputes `share(n)` for future cycles only; prior bills not retroactively adjusted.
+- **R3** — **mid-cycle leave prorates the leaver's unpaid current-month bill by days used** (leave day not counted). Formula: `new_amount = floor(bill.amount × usage_days / coverage_days)` where `coverage_days = daysInMonth − billing_date.day + 1`. `usage_days = 0` deletes the bill; leaving on the last day of the month counts as full coverage. Already-paid bills are immutable. No min-commitment period — members can leave any time.
+- **R4** — adding recomputes `share(n)` for future cycles only. Previously-billed amounts are not retroactively adjusted, except by R3 (leave) and R5 (price change).
 - **R5** — **price change rewrites current-month `is_paid=0` bills** with the new price (pro-rata ratio preserved for R2 joiners). Already-paid bills untouched. FX stays locked (no re-fetch). `price_changed` notification emitted.
-- **R7** — payer can't leave a sub; must transfer payer first.
+- **R6** — **deleting a subscription wipes everything**. Only the payer can delete. All `billing_records` (paid AND unpaid) are cascade-deleted along with members. Deletion forgives all debts on that sub.
+- **R7** — payer cannot leave a sub. The payer must delete the sub instead.
 - **R8** — payer has no `billing_records` (they paid the service directly).
 - **R9** — the 1st is both the billing day and the settlement-reminder day. "Mark settled" is available any day.
 - **R10** — netting is per `(userA, userB, currency)` bucket. No cross-currency netting; different currencies render as separate settlement rows.
+- **R11** — **`subscriptions.refund_policy`** (creator picks at create-time) controls how the diff from R3 is handled: `payer_absorbs` (default) — payer eats the loss; other members unchanged. `redistribute` — diff is split across remaining unpaid non-payer bills in the same month (falls back silently to `payer_absorbs` if no such member exists); affected members receive a `bill_adjusted` notification.
 
 ## Tests (`src/__tests__/`)
 221 tests covering billing math, db operations, settlement, notifications, and API handlers. Use `setupTestDb()` from `helpers.ts` for isolation. Coverage thresholds of 80% (lines/functions/branches/statements) enforced by `vitest.config.ts`.

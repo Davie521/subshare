@@ -35,6 +35,7 @@ export const createSubscriptionSchema = z.object({
   nextPayment: z.string().regex(DATE_REGEX, 'Must be YYYY-MM-DD'),
   members: z.array(z.number().int().positive()).max(50).optional(),
   payerId: z.number().int().positive().optional(),
+  refundPolicy: z.enum(['payer_absorbs', 'redistribute']).optional(),
   logo: z
     .string()
     .max(500)
@@ -53,6 +54,7 @@ export const updateSubscriptionSchema = z.object({
     .union([z.boolean(), z.number().int().min(0).max(1)])
     .transform((v) => (typeof v === 'number' ? v === 1 : v))
     .optional(),
+  refundPolicy: z.enum(['payer_absorbs', 'redistribute']).optional(),
 })
 
 export const exchangeRateSchema = z.object({

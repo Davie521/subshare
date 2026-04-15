@@ -2,6 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   calculateShares,
   calculateMonthlySpending,
+  calculateLeaveProRata,
+  calculateJoinProRata,
 } from '@/lib/billing'
 
 describe('calculateShares', () => {
@@ -94,5 +96,56 @@ describe('calculateMonthlySpending', () => {
       {}
     )
     expect(result).toBe(2500)
+  })
+
+  it('falls back to rate=1 when the requested pair is missing', async () => {
+    // No rate for USD→CNY → treat as 1:1 (best-effort fallback).
+    const result = calculateMonthlySpending(
+      [{ price: 2000, currency: 'USD', memberCount: 1 }],
+      'CNY',
+      {}
+    )
+    expect(result).toBe(2000)
+  })
+})
+
+describe('calculateLeaveProRata', () => {
+  it('returns floor(share × usage / daysInMonth) on the happy path', () => {
+    expect(calculateLeaveProRata(1000, 15, 31)).toBe(483)
+    expect(calculateLeaveProRata(1500, 10, 30)).toBe(500)
+  })
+
+  it('returns 0 when usage_days is 0 or negative', () => {
+    expect(calculateLeaveProRata(1000, 0, 31)).toBe(0)
+    expect(calculateLeaveProRata(1000, -3, 31)).toBe(0)
+  })
+
+  it('returns full share when usage_days ≥ daysInMonth (last-day override)', () => {
+    expect(calculateLeaveProRata(1000, 31, 31)).toBe(1000)
+    expect(calculateLeaveProRata(1000, 40, 31)).toBe(1000)
+  })
+
+  it('rejects negative share', () => {
+    expect(() => calculateLeaveProRata(-1, 10, 31)).toThrow(/non-negative/)
+  })
+
+  it('rejects out-of-range daysInMonth', () => {
+    expect(() => calculateLeaveProRata(1000, 10, 27)).toThrow(/28–31/)
+    expect(() => calculateLeaveProRata(1000, 10, 32)).toThrow(/28–31/)
+  })
+})
+
+describe('calculateJoinProRata error branches', () => {
+  it('rejects negative share', () => {
+    expect(() => calculateJoinProRata(-1, 15, 31)).toThrow(/non-negative/)
+  })
+
+  it('rejects out-of-range daysInMonth', () => {
+    expect(() => calculateJoinProRata(1000, 15, 27)).toThrow(/28–31/)
+  })
+
+  it('rejects out-of-range dayOfMonth', () => {
+    expect(() => calculateJoinProRata(1000, 0, 31)).toThrow(/out of range/)
+    expect(() => calculateJoinProRata(1000, 32, 31)).toThrow(/out of range/)
   })
 })

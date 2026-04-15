@@ -57,6 +57,7 @@ export const api = {
     nextPayment: string;
     members?: number[];
     payerId?: number;
+    refundPolicy?: "payer_absorbs" | "redistribute";
   }) =>
     request<{ id: number; name: string }>(
       "/api/subscriptions",
@@ -75,6 +76,7 @@ export const api = {
       url: string | null;
       notes: string | null;
       inactive: boolean;
+      refundPolicy: "payer_absorbs" | "redistribute";
       members: Array<{
         userId: number;
         displayName: string;

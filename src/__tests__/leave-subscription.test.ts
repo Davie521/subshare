@@ -36,7 +36,7 @@ describe('T5 leaveSubscription', () => {
     return { a, b, sub }
   }
 
-  it('sets left_at on the member row', async () => {
+  it('sets left_at verbatim on the member row (no min-commitment clamp)', async () => {
     const { b, sub } = await scenario()
 
     await leaveSubscription(db, {
@@ -47,7 +47,7 @@ describe('T5 leaveSubscription', () => {
 
     const rows = await getMembersOfSubscription(db, sub.id)
     const bRow = rows.find((r) => r.userId === b)!
-    expect(bRow.leftAt).toBe('2026-05-31')
+    expect(bRow.leftAt).toBe('2026-04-20')
   })
 
   it('generates NO additional billing records on leave (R3, no refund)', async () => {
@@ -102,7 +102,7 @@ describe('T5 leaveSubscription', () => {
     const bRow = (await getMembersOfSubscription(db, sub.id)).find(
       (r) => r.userId === b
     )!
-    expect(bRow.leftAt).toBe('2026-05-31')
+    expect(bRow.leftAt).toBe('2026-04-20')
   })
 
   it('throws when the user is not a member at all', async () => {

@@ -241,7 +241,7 @@ describe('Billing invariants', () => {
     expect(before).toHaveLength(2)
     for (const row of before) expect(row.amount).toBe(5000)
 
-    // C leaves today (kick bypasses min-cycle). Now today.n = 2.
+    // C leaves today (kick). Their R1 bill is prorated by leave math.
     await leaveSubscription(db, {
       subscriptionId: sub.id,
       userId: c,
@@ -249,9 +249,22 @@ describe('Billing invariants', () => {
       actorId: a,
     })
 
+    // Compute what C's bill SHOULD be after the leave-prorate:
+    // coverage = daysInMonth, usage = todayDay - 1.
+    const [ty, tm, tdRaw] = today.split('-').map(Number)
+    const todayDay = tdRaw
+    const daysInMonth = new Date(ty, tm, 0).getDate()
+    const usageDays = todayDay - 1
+    const proratedC =
+      todayDay >= daysInMonth
+        ? 5000 // last-day leave → full month
+        : usageDays <= 0
+        ? 0
+        : Math.floor((5000 * usageDays) / daysInMonth)
+
     // Price raised to 18000. Pins that B's bill is re-priced to 9000
-    // (today.n=2) rather than 6000 (bill-time n=3). Audit #12 fix: C
-    // already left, so C's bill stays at 5000.
+    // (today.n=2) rather than 6000 (bill-time n=3). C already left, so
+    // changeSubscriptionPrice must NOT touch C's (already-prorated) bill.
     await changeSubscriptionPrice(db, {
       subscriptionId: sub.id,
       newPrice: 18000,
@@ -263,8 +276,14 @@ describe('Billing invariants', () => {
     const bAfter = after.find((x) => x.userId === b)!
     expect(bAfter.amount).toBe(9000)
 
-    const cAfter = after.find((x) => x.userId === c)
-    expect(cAfter?.amount).toBe(5000)
+    if (proratedC === 0) {
+      // C's bill was deleted on leave; changeSubscriptionPrice can't
+      // resurrect it.
+      expect(after.find((x) => x.userId === c)).toBeUndefined()
+    } else {
+      const cAfter = after.find((x) => x.userId === c)
+      expect(cAfter?.amount).toBe(proratedC)
+    }
   })
 
   /**

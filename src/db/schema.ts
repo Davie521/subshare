@@ -76,6 +76,13 @@ export const subscriptions = pgTable('subscriptions', {
   }),
   notify: boolean('notify').notNull().default(true),
   notifyDaysBefore: integer('notify_days_before').notNull().default(3),
+  /**
+   * How to handle the diff when a leaver's bill shrinks mid-month:
+   *   'payer_absorbs' — payer eats the loss; other members unchanged.
+   *   'redistribute' — split the diff across other unpaid non-payer
+   *     members (falls back to 'payer_absorbs' if none exist).
+   */
+  refundPolicy: text('refund_policy').notNull().default('payer_absorbs'),
   createdAt: text('created_at').notNull().$defaultFn(isoNow),
 })
 

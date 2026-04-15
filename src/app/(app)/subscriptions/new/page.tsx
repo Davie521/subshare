@@ -209,6 +209,9 @@ function SubscriptionForm({
   const [selectedMemberIds, setSelectedMemberIds] = useState<number[]>([]);
   const [selfId, setSelfId] = useState<number | null>(null);
   const [payerId, setPayerId] = useState<number | null>(null);
+  const [refundPolicy, setRefundPolicy] = useState<
+    "payer_absorbs" | "redistribute"
+  >("payer_absorbs");
   const [circles, setCircles] = useState<Array<{ id: number; name: string; memberIds: number[]; defaultPayerId: number | null }>>([]);
 
   useEffect(() => {
@@ -274,6 +277,7 @@ function SubscriptionForm({
         ? {
             members: selectedMemberIds,
             payerId: payerId ?? undefined,
+            refundPolicy,
           }
         : {}),
     });
@@ -490,6 +494,51 @@ function SubscriptionForm({
                       The payer&apos;s card is charged; everyone else owes
                       their share.
                     </p>
+                  </div>
+                )}
+
+                {/* Refund policy — what happens when someone leaves mid-month */}
+                {selectedMemberIds.length > 0 && (
+                  <div className="space-y-2">
+                    <Label>If someone leaves mid-month</Label>
+                    <div className="grid gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setRefundPolicy("payer_absorbs")}
+                        className={cn(
+                          "cursor-pointer text-left rounded-md border p-3 transition-colors",
+                          refundPolicy === "payer_absorbs"
+                            ? "border-foreground bg-foreground/5"
+                            : "border-input hover:bg-foreground/[0.03]"
+                        )}
+                      >
+                        <p className="text-[13px] font-semibold">
+                          Payer absorbs the difference
+                        </p>
+                        <p className="text-[12px] text-muted-foreground">
+                          The leaver pays only for the days they used; the
+                          payer collects less. Other members unchanged.
+                        </p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setRefundPolicy("redistribute")}
+                        className={cn(
+                          "cursor-pointer text-left rounded-md border p-3 transition-colors",
+                          refundPolicy === "redistribute"
+                            ? "border-foreground bg-foreground/5"
+                            : "border-input hover:bg-foreground/[0.03]"
+                        )}
+                      >
+                        <p className="text-[13px] font-semibold">
+                          Split the difference among remaining members
+                        </p>
+                        <p className="text-[12px] text-muted-foreground">
+                          Other unpaid members&apos; bills go up so the
+                          payer doesn&apos;t lose any money.
+                        </p>
+                      </button>
+                    </div>
                   </div>
                 )}
 

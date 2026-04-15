@@ -13,6 +13,18 @@ export type NotificationType =
   | 'removed_from_sub'
   | 'sub_deleted'
   | 'settlement_due'
+  | 'bill_adjusted'
+
+export interface BillAdjustedPayload {
+  sub_name: string
+  /** Cents, sub's original currency. */
+  delta_amount: number
+  /** Cents, recipient's preferred currency. Display this one. */
+  delta_local_amount: number
+  local_currency: string
+  /** Why the bill was adjusted. Only 'member_left' today (redistribute policy). */
+  reason: 'member_left'
+}
 
 export interface SettlementDuePayload {
   counterpartyUserId: number

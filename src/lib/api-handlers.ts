@@ -79,6 +79,7 @@ export async function handleCreateSubscription(
     nextPayment: string
     members?: number[]
     payerId?: number
+    refundPolicy?: 'payer_absorbs' | 'redistribute'
     logo?: string
     url?: string
     notes?: string
@@ -731,13 +732,14 @@ export async function handleUpdateSubscription(
     price?: number
     nextPayment?: string
     inactive?: boolean
+    refundPolicy?: 'payer_absorbs' | 'redistribute'
   }
 ): Promise<Result> {
   const [sub] = await db
     .select()
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
-    
+
 
   if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
   if (sub.ownerId !== userId) {
@@ -760,6 +762,7 @@ export async function handleUpdateSubscription(
     if (input.name !== undefined) updates.name = input.name
     if (input.nextPayment !== undefined) updates.nextPayment = input.nextPayment
     if (input.inactive !== undefined) updates.inactive = input.inactive
+    if (input.refundPolicy !== undefined) updates.refundPolicy = input.refundPolicy
 
     if (Object.keys(updates).length > 0) {
       await tx
@@ -783,39 +786,21 @@ export async function handleDeleteSubscription(
     .where(eq(schema.subscriptions.id, subId))
 
   if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
-  if (sub.ownerId !== userId) {
+  if (sub.payerId !== userId) {
     return {
       success: false,
-      error: 'Only the owner can delete this subscription',
+      error: 'Only the payer can delete this subscription',
       code: 'FORBIDDEN',
     }
   }
 
-  // Check for unpaid bills
-  const unpaid = await db
-    .select({ id: schema.billingRecords.id })
-    .from(schema.billingRecords)
-    .where(
-      and(
-        eq(schema.billingRecords.subscriptionId, subId),
-        eq(schema.billingRecords.isPaid, false)
-      )
-    )
-    .limit(1)
-    
-
-  if (unpaid.length > 0) {
-    // Soft delete
-    await db.update(schema.subscriptions)
-      .set({ inactive: true })
-      .where(eq(schema.subscriptions.id, subId))
-      
-  } else {
-    // Hard delete
-    await db.delete(schema.subscriptions)
-      .where(eq(schema.subscriptions.id, subId))
-      
-  }
+  // Hard delete. CASCADE on subscription_id wipes billing_records and
+  // subscription_members atomically; notifications tied to this sub are
+  // also cascaded per schema.  Paid bills are included — deletion
+  // forgives all debts on this sub.
+  await db
+    .delete(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subId))
 
   return { success: true }
 }

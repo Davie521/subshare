@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { BrandIcon } from "@/components/brand-icon";
 import { UserAvatar } from "@/components/user-avatar";
 
@@ -42,6 +43,7 @@ type Sub = {
   payerId: number;
   logo: string | null;
   inactive: boolean;
+  refundPolicy: "payer_absorbs" | "redistribute";
   members: Member[];
 };
 
@@ -63,10 +65,16 @@ export default function SubscriptionDetailPage() {
   const [actionError, setActionError] = useState<string | null>(null);
 
   const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState({
+  const [editForm, setEditForm] = useState<{
+    name: string;
+    price: string;
+    nextPayment: string;
+    refundPolicy: "payer_absorbs" | "redistribute";
+  }>({
     name: "",
     price: "",
     nextPayment: "",
+    refundPolicy: "payer_absorbs",
   });
   const [editError, setEditError] = useState<string | null>(null);
 
@@ -219,6 +227,7 @@ export default function SubscriptionDetailPage() {
       name: sub.name,
       price: (sub.price / 100).toFixed(2),
       nextPayment: sub.nextPayment,
+      refundPolicy: sub.refundPolicy ?? "payer_absorbs",
     });
     setEditError(null);
     setEditing(true);
@@ -237,6 +246,7 @@ export default function SubscriptionDetailPage() {
       name: editForm.name.trim(),
       price,
       nextPayment: editForm.nextPayment,
+      refundPolicy: editForm.refundPolicy,
     });
     setBusy(false);
     if (res.error) {
@@ -338,6 +348,62 @@ export default function SubscriptionDetailPage() {
                   />
                 </div>
               </div>
+
+              {sub.members.length > 1 && (
+                <div className="space-y-2">
+                  <Label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
+                    If someone leaves mid-month
+                  </Label>
+                  <div className="grid gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditForm({
+                          ...editForm,
+                          refundPolicy: "payer_absorbs",
+                        })
+                      }
+                      className={cn(
+                        "cursor-pointer text-left rounded-md border p-3 transition-colors",
+                        editForm.refundPolicy === "payer_absorbs"
+                          ? "border-foreground bg-foreground/5"
+                          : "border-input hover:bg-foreground/[0.03]"
+                      )}
+                    >
+                      <p className="text-[13px] font-semibold">
+                        Payer absorbs the difference
+                      </p>
+                      <p className="text-[12px] text-muted-foreground">
+                        The leaver pays only for the days they used; the payer
+                        collects less. Other members unchanged.
+                      </p>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setEditForm({
+                          ...editForm,
+                          refundPolicy: "redistribute",
+                        })
+                      }
+                      className={cn(
+                        "cursor-pointer text-left rounded-md border p-3 transition-colors",
+                        editForm.refundPolicy === "redistribute"
+                          ? "border-foreground bg-foreground/5"
+                          : "border-input hover:bg-foreground/[0.03]"
+                      )}
+                    >
+                      <p className="text-[13px] font-semibold">
+                        Split the difference among remaining members
+                      </p>
+                      <p className="text-[12px] text-muted-foreground">
+                        Other unpaid members&apos; bills go up so the payer
+                        doesn&apos;t lose any money.
+                      </p>
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {editError && (
                 <p className="text-[13px] font-medium text-destructive">

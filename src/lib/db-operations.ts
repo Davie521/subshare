@@ -1,4 +1,4 @@
-import { eq, and, sql, inArray, isNull, or, gt, gte, lte } from 'drizzle-orm'
+import { eq, and, sql, inArray, isNull, or, gt, gte, lte, ne } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import { calculateShares, calculateJoinProRata } from './billing'
@@ -6,24 +6,6 @@ import { insertNotification } from './notifications'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
-
-/**
- * R2 minimum-cycle commitment: the earliest date a member may leave
- * on demand after joining. Partial join-months (day > 1) don't count
- * as a full cycle, so the member must complete the NEXT full month.
- */
-export function computeMinimumCycleEnd(addedAt: string): string {
-  const [y, m, d] = addedAt.split('-').map(Number)
-  const targetMonth = d === 1 ? m : m + 1
-  const targetYear = targetMonth > 12 ? y + 1 : y
-  const normalizedMonth = targetMonth > 12 ? 1 : targetMonth
-  const daysInTarget = new Date(targetYear, normalizedMonth, 0).getDate()
-  return `${targetYear}-${String(normalizedMonth).padStart(2, '0')}-${String(daysInTarget).padStart(2, '0')}`
-}
-
-function maxDate(a: string, b: string): string {
-  return a >= b ? a : b
-}
 
 export async function createSubscription(
   db: DB,
@@ -39,6 +21,7 @@ export async function createSubscription(
     notes?: string
     categoryId?: number
     startDate?: string // defaults to today; owner's addedAt matches this
+    refundPolicy?: 'payer_absorbs' | 'redistribute'
   }
 ): Promise<{ id: number; name: string }> {
   const today = new Date().toISOString().slice(0, 10)
@@ -59,6 +42,7 @@ export async function createSubscription(
         url: input.url ?? null,
         notes: input.notes ?? null,
         categoryId: input.categoryId ?? null,
+        refundPolicy: input.refundPolicy ?? 'payer_absorbs',
       })
       .returning()
 
@@ -93,9 +77,15 @@ export async function addMemberToSubscription(
   }
 
   await db.transaction(async (tx) => {
-    // Detect whether this is a genuine new insert vs. a no-op re-add.
+    // Detect: (a) genuine new insert, (b) no-op re-add of active member,
+    // or (c) rejoin of a member who previously left. (c) reuses the row
+    // per schema's `(sub, user)` primary key — we UPDATE addedAt + clear
+    // leftAt so downstream R2 billing uses the fresh join date.
     const [existingMember] = await tx
-      .select({ userId: schema.subscriptionMembers.userId })
+      .select({
+        userId: schema.subscriptionMembers.userId,
+        leftAt: schema.subscriptionMembers.leftAt,
+      })
       .from(schema.subscriptionMembers)
       .where(
         and(
@@ -104,15 +94,35 @@ export async function addMemberToSubscription(
         )
       )
     const isNewMember = !existingMember
+    const isRejoin = existingMember !== undefined && existingMember.leftAt !== null
 
-    await tx.insert(schema.subscriptionMembers)
-      .values({
-        subscriptionId: input.subscriptionId,
-        userId: input.userId,
-        addedBy: input.addedBy,
-        addedAt: input.addedAt,
-      })
-      .onConflictDoNothing()
+    if (isNewMember) {
+      await tx.insert(schema.subscriptionMembers)
+        .values({
+          subscriptionId: input.subscriptionId,
+          userId: input.userId,
+          addedBy: input.addedBy,
+          addedAt: input.addedAt,
+        })
+    } else if (isRejoin) {
+      await tx
+        .update(schema.subscriptionMembers)
+        .set({
+          addedAt: input.addedAt,
+          addedBy: input.addedBy,
+          leftAt: null,
+        })
+        .where(
+          and(
+            eq(
+              schema.subscriptionMembers.subscriptionId,
+              input.subscriptionId
+            ),
+            eq(schema.subscriptionMembers.userId, input.userId)
+          )
+        )
+    }
+    // else: active member already — no-op (legacy behaviour preserved).
 
     // Auto-create friendship between inviter and invitee (T7).
     // Self-adds (owner-insert) produce no friendship.
@@ -273,10 +283,12 @@ export async function leaveSubscription(
     .select({
       name: schema.subscriptions.name,
       payerId: schema.subscriptions.payerId,
+      price: schema.subscriptions.price,
+      refundPolicy: schema.subscriptions.refundPolicy,
     })
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, input.subscriptionId))
-    
+
 
   if (!sub) throw new Error('Subscription not found')
 
@@ -298,28 +310,41 @@ export async function leaveSubscription(
         eq(schema.subscriptionMembers.userId, input.userId)
       )
     )
-    
+
 
   if (!row) throw new Error('User is not a member of this subscription')
 
   if (row.leftAt !== null) return // idempotent
 
-  // R2 minimum-cycle commitment: a self-initiated leave must stay through
-  // at least one full calendar-month cycle after the join. The partial
-  // join-month (day > 1) doesn't count. Payer-initiated kicks bypass this.
-  const effectiveLeftAt = isKick
-    ? input.leftAt
-    : maxDate(input.leftAt, computeMinimumCycleEnd(row.addedAt))
+  // No minimum-cycle commitment — members can leave at any time and only
+  // pay for the days they actually used (calculateLeaveProRata below).
+  const leftAt = input.leftAt
 
   await db.update(schema.subscriptionMembers)
-    .set({ leftAt: effectiveLeftAt })
+    .set({ leftAt })
     .where(
       and(
         eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
         eq(schema.subscriptionMembers.userId, input.userId)
       )
     )
-    
+
+
+  // Rewrite the leaver's unpaid bill for the current month to reflect
+  // only the days they actually used.  Paid bills stay locked.
+  // `stintStart` is this stint's addedAt — bills from earlier stints (in
+  // a rejoin scenario) have billingDate < stintStart and must not be
+  // touched, since they were already prorated when the earlier stint ended.
+  await prorateLeaverBill(db, {
+    subscriptionId: input.subscriptionId,
+    userId: input.userId,
+    payerId: sub.payerId,
+    leftAt,
+    stintStart: row.addedAt,
+    refundPolicy: sub.refundPolicy as 'payer_absorbs' | 'redistribute',
+    subPrice: sub.price,
+    subName: sub.name,
+  })
 
   if (isKick) {
     const [actor] = await db
@@ -329,7 +354,7 @@ export async function leaveSubscription(
       })
       .from(schema.users)
       .where(eq(schema.users.id, actorId))
-      
+
     await insertNotification(db, {
       userId: input.userId,
       type: 'removed_from_sub',
@@ -339,6 +364,156 @@ export async function leaveSubscription(
         actor_name: actor?.displayName || actor?.name || 'Someone',
       },
     })
+  }
+}
+
+/**
+ * Rewrite the leaver's current-month unpaid bill(s) to charge only for
+ * the days they actually used. If the resulting amount is zero, delete
+ * the bill outright. If the subscription's `refund_policy` is
+ * 'redistribute', the diff is split across the remaining unpaid
+ * non-payer members' bills in the same month (falls back silently to
+ * 'payer_absorbs' if no such member exists).
+ */
+async function prorateLeaverBill(
+  db: DB,
+  input: {
+    subscriptionId: number
+    userId: number
+    payerId: number
+    leftAt: string
+    stintStart: string
+    refundPolicy: 'payer_absorbs' | 'redistribute'
+    subPrice: number
+    subName: string
+  }
+): Promise<void> {
+  const [y, m, d] = input.leftAt.split('-').map(Number)
+  const daysInMonth = new Date(y, m, 0).getDate()
+  const monthStart = `${y}-${String(m).padStart(2, '0')}-01`
+  const monthEndExclusive = (() => {
+    const ny = m === 12 ? y + 1 : y
+    const nm = m === 12 ? 1 : m + 1
+    return `${ny}-${String(nm).padStart(2, '0')}-01`
+  })()
+  // Earlier-stint bills have billingDate < stintStart — already locked from
+  // when that stint ended, must not be re-prorated here.
+  const floor = input.stintStart > monthStart ? input.stintStart : monthStart
+
+  const bills = await db
+    .select({
+      id: schema.billingRecords.id,
+      amount: schema.billingRecords.amount,
+      localAmount: schema.billingRecords.localAmount,
+      billingDate: schema.billingRecords.billingDate,
+    })
+    .from(schema.billingRecords)
+    .where(
+      and(
+        eq(schema.billingRecords.subscriptionId, input.subscriptionId),
+        eq(schema.billingRecords.userId, input.userId),
+        eq(schema.billingRecords.isPaid, false),
+        gte(schema.billingRecords.billingDate, floor),
+        sql`${schema.billingRecords.billingDate} < ${monthEndExclusive}`
+      )
+    )
+
+  for (const bill of bills) {
+    const cycleStartDay = Number(bill.billingDate.slice(8, 10))
+    // R1 bills (billing_date = YYYY-MM-01) cover the whole month.
+    // R2 bills (billing_date = join day) cover join..month-end.
+    // bill.amount already reflects this coverage; we prorate against
+    // it directly rather than trying to reconstruct the original share.
+    const coverageDays = daysInMonth - cycleStartDay + 1
+
+    let usageDays = d - cycleStartDay
+    // Last-day leave = full coverage (user-specified override).
+    if (d >= daysInMonth) usageDays = coverageDays
+
+    if (usageDays <= 0) {
+      await db
+        .delete(schema.billingRecords)
+        .where(eq(schema.billingRecords.id, bill.id))
+      continue
+    }
+    if (usageDays >= coverageDays) continue // nothing to adjust
+
+    const newAmount = Math.floor((bill.amount * usageDays) / coverageDays)
+    const newLocalAmount = Math.floor(
+      (bill.localAmount * usageDays) / coverageDays
+    )
+
+    const diffAmount = bill.amount - newAmount
+    const diffLocalAmount = bill.localAmount - newLocalAmount
+
+    await db
+      .update(schema.billingRecords)
+      .set({ amount: newAmount, localAmount: newLocalAmount })
+      .where(eq(schema.billingRecords.id, bill.id))
+
+    if (input.refundPolicy !== 'redistribute' || diffAmount <= 0) continue
+
+    // Redistribute the diff across other unpaid non-payer bills in the
+    // same calendar month.
+    const others = await db
+      .select({
+        id: schema.billingRecords.id,
+        amount: schema.billingRecords.amount,
+        localAmount: schema.billingRecords.localAmount,
+        localCurrency: schema.billingRecords.localCurrency,
+        userId: schema.billingRecords.userId,
+      })
+      .from(schema.billingRecords)
+      .where(
+        and(
+          eq(schema.billingRecords.subscriptionId, input.subscriptionId),
+          eq(schema.billingRecords.isPaid, false),
+          gte(schema.billingRecords.billingDate, monthStart),
+          sql`${schema.billingRecords.billingDate} < ${monthEndExclusive}`,
+          ne(schema.billingRecords.userId, input.userId),
+          // Defensive: payer should never have billing_records per R8, but
+          // exclude explicitly so a stray row can't be inadvertently topped up.
+          ne(schema.billingRecords.userId, input.payerId)
+        )
+      )
+
+    if (others.length === 0) continue
+
+    const addPer = Math.floor(diffAmount / others.length)
+    const addPerLocal = Math.floor(diffLocalAmount / others.length)
+    let remainderAmount = diffAmount - addPer * others.length
+    let remainderLocal = diffLocalAmount - addPerLocal * others.length
+
+    for (const o of others) {
+      const extra = addPer + (remainderAmount > 0 ? 1 : 0)
+      const extraLocal = addPerLocal + (remainderLocal > 0 ? 1 : 0)
+      if (remainderAmount > 0) remainderAmount--
+      if (remainderLocal > 0) remainderLocal--
+
+      await db
+        .update(schema.billingRecords)
+        .set({
+          amount: o.amount + extra,
+          localAmount: o.localAmount + extraLocal,
+        })
+        .where(eq(schema.billingRecords.id, o.id))
+
+      // Notify the member whose bill just went up.
+      if (extra > 0) {
+        await insertNotification(db, {
+          userId: o.userId,
+          type: 'bill_adjusted',
+          subscriptionId: input.subscriptionId,
+          payload: {
+            sub_name: input.subName,
+            delta_amount: extra,
+            delta_local_amount: extraLocal,
+            local_currency: o.localCurrency,
+            reason: 'member_left',
+          },
+        })
+      }
+    }
   }
 }
 

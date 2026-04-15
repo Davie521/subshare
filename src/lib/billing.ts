@@ -46,6 +46,34 @@ export function calculateJoinProRata(
 }
 
 /**
+ * Pre-paid mid-cycle leave pro-rata.
+ *
+ * `usageDays` is inclusive of the cycle-start day but EXCLUSIVE of the
+ * leave day (a member with leftAt = cycleStart used 0 days). Caller
+ * must compute `usageDays = leftAt_day - cycleStart_day`, where
+ * cycleStart = 1 for R1 bills and cycleStart = joinDate for R2 bills.
+ *
+ * Rules:
+ *   - usageDays ≤ 0  → 0 (caller should delete the bill row)
+ *   - usageDays ≥ daysInMonth → full share (last-day leave counts as
+ *     a full month per product spec)
+ *   - otherwise floor(share × usageDays / daysInMonth)
+ */
+export function calculateLeaveProRata(
+  share: number,
+  usageDays: number,
+  daysInMonth: number
+): number {
+  if (share < 0) throw new Error('share must be non-negative')
+  if (daysInMonth < 28 || daysInMonth > 31) {
+    throw new Error('daysInMonth must be 28–31')
+  }
+  if (usageDays <= 0) return 0
+  if (usageDays >= daysInMonth) return share
+  return Math.floor((share * usageDays) / daysInMonth)
+}
+
+/**
  * Calculate a user's total monthly spending across all subscriptions.
  */
 export function calculateMonthlySpending(

@@ -58,6 +58,8 @@ function Icon({
       return <UserMinus className={base} strokeWidth={1.75} />;
     case "price_changed":
       return <DollarSign className={base} strokeWidth={1.75} />;
+    case "bill_adjusted":
+      return <DollarSign className={base} strokeWidth={1.75} />;
     case "payer_changed":
       return <Wallet className={base} strokeWidth={1.75} />;
     case "settlement_due":
@@ -128,6 +130,23 @@ function renderMessage(n: Notification): { title: string; detail?: string } {
       const actor = (p.actor_name as string) ?? "Someone";
       const subName = (p.sub_name as string) ?? "a subscription";
       return { title: `${actor} removed you from ${subName}` };
+    }
+    case "bill_adjusted": {
+      const subName = (p.sub_name as string) ?? "A subscription";
+      const localCur = (p.local_currency as string) || currency;
+      const delta =
+        typeof p.delta_local_amount === "number"
+          ? p.delta_local_amount
+          : typeof p.delta_amount === "number"
+            ? p.delta_amount
+            : null;
+      const deltaStr =
+        delta !== null ? `+${formatMoney(delta, localCur)}` : "+—";
+      const reason = p.reason === "member_left" ? "a member left" : "adjusted";
+      return {
+        title: `${subName} bill went up`,
+        detail: `Your share ${deltaStr} this cycle · ${reason}`,
+      };
     }
     case "settlement_due": {
       const direction =
