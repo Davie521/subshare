@@ -62,11 +62,12 @@ describe('resolveRequestUrl', () => {
     expect(url.toString()).toBe('https://example.com/login?error=oauth_denied')
   })
 
-  it('no forwarded headers and no OAUTH_REDIRECT_URI: returns req.url-derived URL unchanged', () => {
+  it('no forwarded headers, bad req.url host, no OAUTH_REDIRECT_URI: synthesises localhost as last resort (never leaks 0.0.0.0)', () => {
     delete process.env.OAUTH_REDIRECT_URI
     const req = makeReq('http://0.0.0.0:8080/x')
     const url = resolveRequestUrl(req, '/dashboard')
-    expect(url.toString()).toBe('http://0.0.0.0:8080/dashboard')
+    expect(url.host).not.toMatch(/^0\.0\.0\.0/)
+    expect(url.pathname).toBe('/dashboard')
   })
 
   it('uses host header when x-forwarded-host absent but proto present', () => {
@@ -76,5 +77,51 @@ describe('resolveRequestUrl', () => {
     })
     const url = resolveRequestUrl(req, '/dashboard')
     expect(url.toString()).toBe('https://example.com/dashboard')
+  })
+
+  it('malformed forwarded host: does not throw, falls back to OAUTH_REDIRECT_URI', () => {
+    process.env.OAUTH_REDIRECT_URI =
+      'https://subshare-production.up.railway.app/api/auth/google/callback'
+    const req = makeReq('http://0.0.0.0:8080/x', {
+      'x-forwarded-proto': 'https',
+      'x-forwarded-host': 'bad host with spaces',
+    })
+    expect(() => resolveRequestUrl(req, '/dashboard')).not.toThrow()
+    expect(resolveRequestUrl(req, '/dashboard').toString()).toBe(
+      'https://subshare-production.up.railway.app/dashboard'
+    )
+  })
+
+  it('host with embedded @ is rejected (open-redirect guard)', () => {
+    process.env.OAUTH_REDIRECT_URI =
+      'https://subshare-production.up.railway.app/api/auth/google/callback'
+    const req = makeReq('http://0.0.0.0:8080/x', {
+      'x-forwarded-proto': 'https',
+      'x-forwarded-host': 'evil.com@subshare-production.up.railway.app',
+    })
+    const url = resolveRequestUrl(req, '/dashboard')
+    expect(url.host).toBe('subshare-production.up.railway.app')
+  })
+
+  it('non-http(s) proto is rejected', () => {
+    process.env.OAUTH_REDIRECT_URI =
+      'https://subshare-production.up.railway.app/api/auth/google/callback'
+    const req = makeReq('http://0.0.0.0:8080/x', {
+      'x-forwarded-proto': 'javascript',
+      'x-forwarded-host': 'example.com',
+    })
+    const url = resolveRequestUrl(req, '/dashboard')
+    expect(url.protocol).toBe('https:')
+    expect(url.host).toBe('subshare-production.up.railway.app')
+  })
+
+  it('throws when path does not start with "/"', () => {
+    const req = makeReq('http://localhost:3000/x')
+    expect(() => resolveRequestUrl(req, 'dashboard')).toThrow(
+      /must start with "\/"/
+    )
+    expect(() => resolveRequestUrl(req, 'https://evil.com/x')).toThrow(
+      /must start with "\/"/
+    )
   })
 })
