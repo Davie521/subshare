@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { setupTestDb, createUser, addSubMember } from './helpers'
 import * as schema from '@/db/schema'
-import { registerUser, loginUser } from '@/lib/auth'
 import {
   createSubscription,
   addMemberToSubscription,
@@ -29,46 +28,6 @@ beforeEach(async () => {
   const setup = await setupTestDb()
   db = setup.db
   sqlite = setup.sqlite
-})
-
-// --- Auth ---
-
-describe('auth', () => {
-  it('registers a new user', async () => {
-    const result = await registerUser(db, {
-      name: 'Alice',
-      email: 'alice@test.com',
-      password: 'pass123',
-    })
-    expect('id' in result).toBe(true)
-    if ('id' in result) {
-      expect(result.name).toBe('Alice')
-      expect(result.email).toBe('alice@test.com')
-    }
-  })
-
-  it('rejects duplicate email', async () => {
-    await registerUser(db, { name: 'A', email: 'dup@test.com', password: 'pass' })
-    const result = await registerUser(db, { name: 'B', email: 'dup@test.com', password: 'pass' })
-    expect('error' in result).toBe(true)
-  })
-
-  it('logs in with correct password', async () => {
-    await registerUser(db, { name: 'A', email: 'a@test.com', password: 'pass123' })
-    const result = await loginUser(db, { email: 'a@test.com', password: 'pass123' })
-    expect('id' in result).toBe(true)
-  })
-
-  it('rejects wrong password', async () => {
-    await registerUser(db, { name: 'A', email: 'a@test.com', password: 'pass123' })
-    const result = await loginUser(db, { email: 'a@test.com', password: 'wrong' })
-    expect('error' in result).toBe(true)
-  })
-
-  it('rejects non-existent email', async () => {
-    const result = await loginUser(db, { email: 'no@test.com', password: 'pass' })
-    expect('error' in result).toBe(true)
-  })
 })
 
 // --- Subscriptions ---

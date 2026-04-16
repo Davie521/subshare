@@ -22,12 +22,12 @@
  *
  * Requires DATABASE_URL pointing at a Postgres instance (same one the app
  * uses — `postgres://subshare:subshare@localhost:5432/subshare` under
- * docker-compose). All users share the password `password123`.
+ * docker-compose). Auth is Google OAuth — seed users can't be logged
+ * into via the browser (use a real Google account for that).
  */
 
 import postgres from 'postgres'
 import { drizzle } from 'drizzle-orm/postgres-js'
-import { hash } from 'bcryptjs'
 import { migrate } from '../src/db/migrate'
 import * as schema from '../src/db/schema'
 import {
@@ -130,47 +130,45 @@ async function main() {
       return
     }
 
-    const passwordHash = await hash('password123', 10)
-
     // ── Users ─────────────────────────────────────────────────────
     const alice = await insertUser(client, {
-      name: 'Alice Chen', email: 'alice@test.local', passwordHash,
+      name: 'Alice Chen', email: 'alice@test.local', googleId: 'seed-alice',
       preferredCurrency: 'CNY', displayName: 'Alice', showEmail: true,
     })
     const bob = await insertUser(client, {
-      name: 'Bob Wang', email: 'bob@test.local', passwordHash,
+      name: 'Bob Wang', email: 'bob@test.local', googleId: 'seed-bob',
       preferredCurrency: 'CNY', displayName: '小王', showEmail: true,
     })
     const carol = await insertUser(client, {
-      name: 'Carol Lee', email: 'carol@test.local', passwordHash,
+      name: 'Carol Lee', email: 'carol@test.local', googleId: 'seed-carol',
       preferredCurrency: 'USD', displayName: 'Carol', showEmail: false,
     })
     const dave = await insertUser(client, {
-      name: 'Dave Zhang', email: 'dave@test.local', passwordHash,
+      name: 'Dave Zhang', email: 'dave@test.local', googleId: 'seed-dave',
       preferredCurrency: 'CNY', displayName: '老张', showEmail: false,
     })
     const emma = await insertUser(client, {
-      name: 'Emma Liu', email: 'emma@test.local', passwordHash,
+      name: 'Emma Liu', email: 'emma@test.local', googleId: 'seed-emma',
       preferredCurrency: 'GBP', displayName: 'Emma', showEmail: true,
     })
     const frank = await insertUser(client, {
-      name: 'Frank Wu', email: 'frank@test.local', passwordHash,
+      name: 'Frank Wu', email: 'frank@test.local', googleId: 'seed-frank',
       preferredCurrency: 'JPY', displayName: 'Frank-san', showEmail: false,
     })
     const grace = await insertUser(client, {
-      name: 'Grace Sun', email: 'grace@test.local', passwordHash,
+      name: 'Grace Sun', email: 'grace@test.local', googleId: 'seed-grace',
       preferredCurrency: 'HKD', displayName: 'Grace姐', showEmail: true,
     })
     const henry = await insertUser(client, {
-      name: 'Henry Chen', email: 'henry@test.local', passwordHash,
+      name: 'Henry Chen', email: 'henry@test.local', googleId: 'seed-henry',
       preferredCurrency: 'CNY', displayName: 'Henry', showEmail: true,
     })
     const jack = await insertUser(client, {
-      name: 'Jack Smith', email: 'jack@test.local', passwordHash,
+      name: 'Jack Smith', email: 'jack@test.local', googleId: 'seed-jack',
       preferredCurrency: 'CAD', displayName: 'Jack', showEmail: false,
     })
     const kate = await insertUser(client, {
-      name: 'Kate Chen', email: 'kate@test.local', passwordHash,
+      name: 'Kate Chen', email: 'kate@test.local', googleId: 'seed-kate',
       preferredCurrency: 'CNY', displayName: '陈妈', showEmail: true,
     })
 
@@ -419,11 +417,9 @@ async function main() {
 
     console.log('[seed] notifications: all 4 types covered, mixed read/unread')
 
-    console.log('\n[seed] Done. Log in at http://localhost:3000/login with any of:')
-    console.log(
-      '        alice / bob / carol / dave / emma / frank / grace / henry / jack / kate @test.local'
-    )
-    console.log('        password: password123')
+    console.log('\n[seed] Done. Seed users exist in DB but cannot be logged into')
+    console.log('        (auth is Google OAuth). Use your own Google account at')
+    console.log('        http://localhost:3000/login')
     console.log('        (alice@test.local has the most populated dashboard)')
   } finally {
     await client.end()
@@ -435,7 +431,7 @@ async function insertUser(
   u: {
     name: string
     email: string
-    passwordHash: string
+    googleId: string
     preferredCurrency: string
     displayName: string
     showEmail: boolean
@@ -443,10 +439,10 @@ async function insertUser(
 ): Promise<number> {
   const [{ id }] = (await client`
     INSERT INTO users (
-      name, email, password_hash, preferred_currency, display_name, show_email
+      name, email, google_id, preferred_currency, display_name, show_email
     )
     VALUES (
-      ${u.name}, ${u.email}, ${u.passwordHash},
+      ${u.name}, ${u.email}, ${u.googleId},
       ${u.preferredCurrency}, ${u.displayName}, ${u.showEmail}
     )
     RETURNING id

@@ -30,7 +30,7 @@ describe('T17 migration payer_id guard', () => {
       'ALTER TABLE subscriptions ALTER COLUMN payer_id DROP NOT NULL'
     )
     await sqlite.prepare(
-      "INSERT INTO users (id, name, email, password_hash) VALUES (99, 'Z', 'z@t.com', 'x')"
+      "INSERT INTO users (id, name, email, google_id) VALUES (99, 'Z', 'z@t.com', 'g-z')"
     ).run()
     await sqlite.prepare(
       `INSERT INTO subscriptions

@@ -25,11 +25,7 @@ async function request<T>(
 }
 
 export const api = {
-  // Auth
-  register: (body: { name: string; email: string; password: string }) =>
-    request("/api/auth/register", { method: "POST", body: JSON.stringify(body) }),
-  login: (body: { email: string; password: string }) =>
-    request("/api/auth/login", { method: "POST", body: JSON.stringify(body) }),
+  // Auth (Google OAuth — login is a redirect to /api/auth/google, not an API call)
   me: () => request<{ id: number; name: string; email: string; preferredCurrency: string; monthlyBudget: number | null; displayName: string; showEmail: boolean }>("/api/auth/me"),
   updateProfile: (body: {
     displayName?: string;
