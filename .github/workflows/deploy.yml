@@ -9,21 +9,12 @@ concurrency:
   group: deploy-production
   cancel-in-progress: false
 
+env:
+  RAILWAY_SERVICE_ID: d46814b0-ab16-48df-a142-24d75444c240
+
 jobs:
   ci:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-      - run: npm ci
-      - run: npm run fetch-icons
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
-      - run: npm run build
+    uses: ./.github/workflows/ci.yml
 
   deploy:
     needs: ci
@@ -31,6 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npm i -g @railway/cli@4
-      - run: railway up --service d46814b0-ab16-48df-a142-24d75444c240 --ci -m "deploy ${{ github.sha }}"
+      - run: railway up --service $RAILWAY_SERVICE_ID --ci -m "deploy ${{ github.sha }}"
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}

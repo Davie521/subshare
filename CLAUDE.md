@@ -53,6 +53,8 @@ Full Docker (pre-deploy smoke test): `docker compose up --build -d` → `http://
 
 Target: **Railway** (Dockerfile-based, Postgres plugin). Full setup + env vars + cron scheduling in `docs/DEPLOYMENT.md`.
 
+**CI/CD**: GitHub Actions — PRs get lint/typecheck/test/build gate (`ci.yml`); push to `main` runs the same gate then `railway up` via CLI (`deploy.yml`). Monthly billing cron also runs via GH Actions. See `docs/DEPLOYMENT.md` § CI/CD for secrets and details.
+
 Two hard constraints (detailed in that doc):
 - **Single-instance only** — rate limiter uses in-process `Map`.
 - **Long-running process required** — background billing generation after HTTP return doesn't survive serverless.

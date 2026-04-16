@@ -17,12 +17,35 @@ Railway auto-detects the `Dockerfile` at the repo root and builds from it. No `r
 
 4. **Redeploy** after setting vars.
 
-## Scheduling the monthly billing cron
+## CI/CD (GitHub Actions)
 
-`/api/cron/billing` needs to be hit on the 1st of each month. Railway doesn't have built-in cron, pick one:
+All deployment goes through GitHub Actions — Railway's GitHub auto-deploy is **not** connected.
 
-- **Railway Cron Jobs** (beta, in project settings) — simplest
-- External scheduler (GitHub Actions, cron-job.org, upstash QStash) calling the URL with `Authorization: Bearer $CRON_SECRET`
+### Workflows (`.github/workflows/`)
+
+| Workflow | Trigger | What it does |
+|---|---|---|
+| `ci.yml` | PR | lint → typecheck → test → build |
+| `deploy.yml` | push to `main` / manual dispatch | CI gate → `railway up` via CLI |
+| `cron-billing.yml` | 1st of month UTC 00:05 / manual dispatch | `POST /api/cron/billing` |
+
+`deploy.yml` reuses `ci.yml` as a reusable workflow (`workflow_call`), so CI logic lives in one place.
+
+### GitHub Secrets required
+
+| Secret | Purpose |
+|---|---|
+| `RAILWAY_TOKEN` | Railway **project token** (environment-scoped to production). Created in Railway → Project Settings → Tokens. |
+| `CRON_SECRET` | Bearer token for `/api/cron/billing`. Must match the Railway env var. |
+| `PROD_URL` | Production URL, e.g. `https://subshare-production.up.railway.app` (no trailing slash). |
+
+### Manual redeploy
+
+Go to GitHub → Actions → Deploy → "Run workflow" button (uses `workflow_dispatch`).
+
+### Concurrency
+
+`deploy.yml` uses `concurrency: { group: deploy-production, cancel-in-progress: false }` — rapid pushes queue instead of racing.
 
 ## Deployment constraints
 
