@@ -1,7 +1,6 @@
 import { z } from 'zod'
 
 export const CURRENCIES = ['CNY', 'USD', 'HKD', 'CAD', 'EUR', 'GBP', 'JPY'] as const
-export type Currency = (typeof CURRENCIES)[number]
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 export const createCircleSchema = z.object({

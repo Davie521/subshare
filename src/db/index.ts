@@ -1,6 +1,5 @@
 import postgres from 'postgres'
 import { drizzle as drizzlePostgres } from 'drizzle-orm/postgres-js'
-import { PGlite } from '@electric-sql/pglite'
 import { drizzle as drizzlePglite } from 'drizzle-orm/pglite'
 import * as schema from './schema'
 import { migrate } from './migrate'
@@ -43,19 +42,4 @@ export function getDb(): Promise<Db> {
     return db
   })()
   return pending
-}
-
-/**
- * For testing: create an in-memory pglite database, pre-migrated.
- * Returns both the Drizzle handle and the underlying PGlite instance
- * (the latter is exposed for tests that need raw SQL helpers).
- */
-export async function createTestDb(): Promise<{
-  db: ReturnType<typeof drizzlePglite<typeof schema>>
-  pg: PGlite
-}> {
-  const pg = new PGlite()
-  const db = drizzlePglite(pg, { schema })
-  await migrate(db)
-  return { db, pg }
 }

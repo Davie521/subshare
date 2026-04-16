@@ -156,17 +156,6 @@ export async function getSettlementSummary(
   return bucketByPairCurrency(await fetchBills(db, viewerId, false), viewerId)
 }
 
-/**
- * T26 — historical paid view. Same bucketing as getSettlementSummary but
- * over is_paid=1 bills. `owedByMe` / `owedToMe` represent flow (what you
- * paid them vs. what they paid you) rather than current balance.
- */
-export async function getSettledHistory(
-  db: DB,
-  viewerId: number
-): Promise<SettlementRow[]> {
-  return bucketByPairCurrency(await fetchBills(db, viewerId, true), viewerId)
-}
 
 /**
  * T16 — mark all unpaid bills between userA and userB in `currency` paid.

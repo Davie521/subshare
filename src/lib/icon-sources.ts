@@ -434,22 +434,6 @@ export const ALIASES: Record<string, string> = {
 // Services with no good favicon — force letter with brand color
 export const FORCE_LETTER: Record<string, string> = {}
 
-// Services where DuckDuckGo has better favicon than Google
-export const PREFER_DDG: Set<string> = new Set([
-  'hulu', 'disney+', 'prime video', 'amazon prime video',
-  'tunein premium', 'bookbeat', 'udio', 'neon', 'craft',
-  'adobe stock', 'onedrive', 'hinge preferred', 'feeld',
-  'nintendo switch online', 'eve online omega', 'minecraft realms',
-  'the economist', 'wired', 'the information',
-  'readly', 'les mills+', 'alo moves', 'waking up', 'hims', 'daily harvest',
-  'barkbox', 'onx maps', '酷狗音乐', '唯品会超级vip',
-  '讯飞星火', '丁香医生', '17live', 'melon', 'genie music',
-  '요기요 yogiyo', 'simplilearn', 'osn+', 'dstv',
-  'espn+', 'amazon music', 'scribd/everand', 'descript', 'synthesia', 'tuta',
-  'linkedin learning', 'masterclass', 'readwise', 'myfitnesspal premium',
-  'noom', 'rent the runway', 'motley fool', 'abema', 'wavve',
-])
-
 /** Generate a URL-safe slug from a service name */
 export function nameToSlug(name: string): string {
   // For Chinese/non-ASCII names, use a hash-like safe slug
