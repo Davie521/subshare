@@ -1,20 +1,20 @@
 /**
- * Runtime icon resolver — reads manifest built by scripts/fetch-icons.ts
- * All icons are served from /icons/ as static assets (same origin).
+ * Icon resolver — reads the manifest built by scripts/fetch-icons.ts.
+ * The manifest is bundled at build time so resolution is synchronous and
+ * works identically on server and client (no API round-trip).
  */
 
-import fs from 'fs'
-import path from 'path'
+import manifest from '../../public/icons/manifest.json'
 
 export interface BrandIcon {
   title: string
-  /** URL to load the icon (always same-origin /icons/...) */
+  /** URL to load the icon (always same-origin /icons/…) */
   url: string
   /** Hex color (without #), for tinting SVG icons */
   hex: string
-  /** True if SVG (client can tint with color) */
+  /** True if SVG (can be tinted) */
   isSvg: boolean
-  /** Letter for last-resort fallback (used if <img> fails) */
+  /** Letter for last-resort fallback if <img> fails to load */
   letter: string
 }
 
@@ -25,23 +25,7 @@ interface ManifestEntry {
   letter: string
 }
 
-let manifestCache: Record<string, ManifestEntry> | null = null
-
-function loadManifest(): Record<string, ManifestEntry> {
-  if (manifestCache) return manifestCache
-  try {
-    const p = path.join(process.cwd(), 'public', 'icons', 'manifest.json')
-    if (fs.existsSync(p)) {
-      const parsed = JSON.parse(fs.readFileSync(p, 'utf-8')) as Record<string, ManifestEntry>
-      manifestCache = parsed
-      return parsed
-    }
-  } catch (err) {
-    console.warn('[icons] manifest load failed:', err instanceof Error ? err.message : err)
-  }
-  manifestCache = {}
-  return manifestCache
-}
+const MANIFEST = manifest as Record<string, ManifestEntry>
 
 const XML_ESCAPE: Record<string, string> = {
   '<': '&lt;',
@@ -56,8 +40,7 @@ function escapeXml(s: string): string {
 
 export function findBrandIcon(name: string): BrandIcon {
   const letter = name.charAt(0).toUpperCase()
-  const manifest = loadManifest()
-  const entry = manifest[name]
+  const entry = MANIFEST[name]
 
   if (entry) {
     return {
@@ -69,7 +52,7 @@ export function findBrandIcon(name: string): BrandIcon {
     }
   }
 
-  // Service not in manifest (custom user entry) — generate letter SVG as data URL
+  // Custom user entry not in manifest — generate letter SVG as data URL
   const safeLetter = escapeXml(letter)
   return {
     title: name,

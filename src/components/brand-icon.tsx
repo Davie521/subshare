@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useState } from "react";
+import { findBrandIcon } from "@/lib/icons";
 
 interface BrandIconProps {
   name: string;
@@ -8,53 +9,10 @@ interface BrandIconProps {
   className?: string;
 }
 
-interface IconData {
-  url: string;
-  color: string;
-  isSvg: boolean;
-  letter: string;
-}
-
-const iconCache = new Map<string, IconData | null>();
-
 export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
-  const key = useMemo(() => name.toLowerCase(), [name]);
-  const cached = iconCache.get(key);
-  const [icon, setIcon] = useState<IconData | null>(cached ?? null);
-  const [loaded, setLoaded] = useState(iconCache.has(key));
+  const icon = findBrandIcon(name);
   const [imgFailed, setImgFailed] = useState(false);
 
-  useEffect(() => {
-    if (iconCache.has(key)) return;
-    let cancelled = false;
-    fetch(`/api/icons?name=${encodeURIComponent(name)}`)
-      .then((r) => r.json())
-      .then((data) => {
-        if (cancelled) return;
-        const result = data.icon ?? null;
-        iconCache.set(key, result);
-        setIcon(result);
-        setLoaded(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        iconCache.set(key, null);
-        setLoaded(true);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [key, name]);
-
-  if (!loaded || !icon) {
-    return (
-      <div className={className} style={{ width: size, height: size }}>
-        <div className="w-full h-full rounded bg-muted animate-pulse" />
-      </div>
-    );
-  }
-
-  // If image load failed, show letter with brand color as last resort
   if (imgFailed) {
     return (
       <div
@@ -62,7 +20,7 @@ export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
         style={{
           width: size,
           height: size,
-          backgroundColor: icon.color,
+          backgroundColor: `#${icon.hex}`,
           fontSize: size * 0.55,
         }}
       >
@@ -71,7 +29,6 @@ export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
     );
   }
 
-  // Render local icon (same-origin, always loads)
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
@@ -79,6 +36,8 @@ export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
       alt={name}
       width={size}
       height={size}
+      loading="lazy"
+      decoding="async"
       className={`rounded ${className ?? ""}`}
       style={{ width: size, height: size }}
       onError={() => setImgFailed(true)}
