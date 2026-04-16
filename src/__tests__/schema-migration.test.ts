@@ -15,7 +15,7 @@ describe('T3 schema migration (smoke)', () => {
 
     // users
     await sqlite.prepare(
-      "INSERT INTO users (name, email, password_hash) VALUES ('A', 'a@t.com', 'x')"
+      "INSERT INTO users (name, email, google_id) VALUES ('A', 'a@t.com', 'g-a')"
     ).run()
     const users = (await sqlite.prepare(
       'SELECT COUNT(*)::int AS n FROM users'
@@ -43,7 +43,7 @@ describe('T3 schema migration (smoke)', () => {
 
     // friendships: enforce a < b CHECK constraint exists
     await sqlite.prepare(
-      "INSERT INTO users (name, email, password_hash) VALUES ('B', 'b@t.com', 'x')"
+      "INSERT INTO users (name, email, google_id) VALUES ('B', 'b@t.com', 'g-b')"
     ).run()
     await sqlite.prepare(
       'INSERT INTO friendships (user_a_id, user_b_id) VALUES ($1, $2)'

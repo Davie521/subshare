@@ -2,7 +2,6 @@ import { PGlite } from '@electric-sql/pglite'
 import { drizzle } from 'drizzle-orm/pglite'
 import * as schema from '@/db/schema'
 import { migrate } from '@/db/migrate'
-import { hashSync } from 'bcryptjs'
 
 export type TestDb = ReturnType<typeof drizzle<typeof schema>>
 
@@ -75,14 +74,13 @@ export async function createUser(
     opts.email ||
     `user${Date.now()}.${Math.random().toString(36).slice(2, 7)}@test.com`
   const currency = opts.currency || 'CNY'
-  const hash = hashSync('password123', 10)
 
   const [row] = await db
     .insert(schema.users)
     .values({
       name,
       email,
-      passwordHash: hash,
+      googleId: `test-google-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       preferredCurrency: currency,
     })
     .returning({ id: schema.users.id })

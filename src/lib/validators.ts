@@ -4,18 +4,6 @@ export const CURRENCIES = ['CNY', 'USD', 'HKD', 'CAD', 'EUR', 'GBP', 'JPY'] as c
 export type Currency = (typeof CURRENCIES)[number]
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
-export const registerSchema = z.object({
-  name: z.string().min(1).max(100),
-  email: z.string().email().max(255),
-  password: z.string().min(8).max(128),
-  preferredCurrency: z.enum(CURRENCIES).optional(),
-})
-
-export const loginSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(1),
-})
-
 export const createCircleSchema = z.object({
   name: z.string().min(1).max(60),
   memberIds: z.array(z.number().int().positive()).max(50).optional(),

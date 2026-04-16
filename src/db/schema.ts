@@ -16,7 +16,7 @@ export const users = pgTable('users', {
   id: integer('id').primaryKey().generatedByDefaultAsIdentity(),
   name: text('name').notNull(),
   email: text('email').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
+  googleId: text('google_id').unique(),
   avatar: text('avatar'),
   preferredCurrency: text('preferred_currency').notNull().default('CNY'),
   monthlyBudget: integer('monthly_budget'), // BigInt cents, nullable
