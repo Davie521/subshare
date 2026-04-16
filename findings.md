@@ -1,91 +1,63 @@
-# Findings — 2026-04-14 leave-refund billing audit (回查)
+# Findings — 2026-04-16 Railway OAuth 回调 0.0.0.0 bug
 
-## 对齐的部分 ✓
+## 根因（确定）
 
-- `calculateLeaveProRata` 在 `billing.ts:56-68`，边界处理正确（≤0→0，≥daysInMonth→share）。
-- `leaveSubscription` 删了最短承诺期，直接用 `input.leftAt`（db-operations.ts:319-321）。
-- `prorateLeaverBill` 正确处理 R1/R2 两类账单（通过 `billingDate` 里的 day 推断 cycleStart 和 coverageDays）。
-- Q3c（月初 1 号退）→ `usageDays ≤ 0` → DELETE bill ✓
-- Q3a（最后一天退）→ `if (d >= daysInMonth) usageDays = coverageDays` ✓
-- FX 缩放：`newLocalAmount = floor(localAmount × usageDays / coverageDays)` 同比例缩 ✓
-- `handleDeleteSubscription` 改成硬删，schema 里 `billing_records` / `subscription_members` / `notifications` 都有 `ON DELETE CASCADE` ✓
-- Schema `refund_policy` 列 + 迁移 `ADD COLUMN IF NOT EXISTS` ✓
-- 创建订阅 UI 的 radio 选择 + validator enum ✓
-- 14 个新测试全部通过，221 回归全绿。
+Next.js 16 standalone + 反向代理下，`NextRequest.url` 来自进程 bind 地址，不读 `X-Forwarded-*`。
 
----
+- Dockerfile：`ENV HOSTNAME=0.0.0.0`
+- Railway 注入：`PORT=8080`
+- 容器内 Next server 监听 `0.0.0.0:8080`
+- 请求经 edge 转发到容器，`req.url = http://0.0.0.0:8080/...`
+- `new URL('/dashboard', req.url)` → `http://0.0.0.0:8080/dashboard`
+- 302 Location 回浏览器 → Safari 拦 `0.0.0.0`（WebKitErrorDomain:103）
 
-## 🐛 Bug 1（严重）—— 退订 → 再加入 → 再退订会把旧账单再缩一次
+## OAuth redirect_uri 为什么不受此影响
 
-**位置**：`src/lib/db-operations.ts:393-409`，`prorateLeaverBill` 的 SELECT。
+`src/lib/oauth-google.ts:11`：`new Google(clientId, secret, process.env.OAUTH_REDIRECT_URI)` —— arctic 直接把这个 env 作为 redirect_uri 参数传给 Google，不走 `req.url`。所以 Google 能正确把用户送回 Railway edge → 容器里 callback 成功执行 → 在 callback **内部**再跳 `/dashboard` 才踩到坏 origin。
 
-**症状**：现在按「整个月范围」查这个用户的所有未付账单，没按「当前 stint」过滤。场景：
+## 受影响位点清单
 
-```
-B 5/5  加入  → R2 账单 billingDate=2026-05-05, amount=1306 (cov=27)
-B 5/15 退订  → prorate：usageDays=10 → amount=483 (locked for days 5..14)
-B 5/25 再加入→ addedAt 更新到 5/25，新建 R2 账单 billingDate=2026-05-25, amount=338
-B 5/28 再退订→ prorateLeaverBill 查 5 月所有未付，找到两张：
-  旧账单 (billingDate=5-05): cycleStartDay=5, coverageDays=27,
-          usageDays=28-5=23 → newAmount = floor(483 * 23/27) = 411
-          ❌ 这张已经是「第一段 10 天」的锁定值，不该再动
-  新账单 (billingDate=5-25): 正确缩
-```
+`src/app/api/auth/google/callback/route.ts`：
+- 14 `new URL('/login?error=rate_limit', req.url)`
+- 23 `new URL('/login?error=oauth_denied', req.url)`
+- 27 `new URL('/login?error=invalid_request', req.url)`
+- 40 `new URL('/login?error=state_mismatch', req.url)`
+- 44 `new URL('/login?error=missing_verifier', req.url)`
+- 56 `new URL('/login?error=email_not_verified', req.url)`
+- 107 `new URL('/dashboard', req.url)` ← 用户踩到的
+- 109 `new URL('/login?error=oauth_failed', req.url)`
+- 17 `new URL(req.url)` ← **不动**（只读 query）
 
-**修复**：查询加一条 `billingDate >= currentAddedAt`（当前 stint 的起点）。旧 stint 的账单 billingDate < 新 addedAt，自动跳过。
+`src/middleware.ts:66`：
+- `new URL('/login', req.url)` ← 未登录访问受保护路由也会踩同一个坑
 
-```ts
-// 在 prorateLeaverBill 里把当前 stint 的 addedAt 传进来
-.where(and(..., gte(billingDate, monthStart),
-           gte(billingDate, currentStintAddedAt),  // ← 新加
-           sql`${billingDate} < ${monthEndExclusive}`))
-```
+`src/app/api/auth/google/route.ts:38`：
+- `NextResponse.redirect(url.toString())` ← 不动（url 是 Google 的 OAuth URL，不是 app URL）
 
-或等价：在 SELECT 前先查 `subscription_members.addedAt`（同事务里已经更新为 `leftAt` 对应的 stint 的 addedAt，但 leaveSubscription 没有改 addedAt，只是把 leftAt 设成 input.leftAt，所以 addedAt 还是当前 stint 的 join 日期 = 正确）。
+## 方案 A 的 12 条隐藏坑位
 
-**测试缺口**：`leave-prorate.test.ts` T12 只验证了 rejoin 本身（row 被复用，两张账单共存），没有测试「rejoin 之后再次 leave」。补一条：
+| # | 风险 | 处理 |
+|---|------|------|
+| 1 | `X-Forwarded-Host` 可伪造 → open redirect | Railway edge 覆盖；只跳同站路径，最差钓鱼页 |
+| 2 | `X-Forwarded-Proto` 多级代理 CSV | `firstCsv()` |
+| 3 | `X-Forwarded-Host` 同上 | `firstCsv()` |
+| 4 | host 带/不带端口 | Railway edge 给裸域名 `https` 默认 443，OK |
+| 5 | `new URL(path, base)` 要求 base 完整 | 模板字符串保证 |
+| 6 | Middleware Edge Runtime | `NextRequest.headers.get` Edge 支持 ✓ |
+| 7 | Cookie 域跨 host 丢失 | 目的就是还原同一 host，不会跨 |
+| 8 | Next.js 16 内置 trust proxy？ | 没有。手写 helper 是标准做法 |
+| 9 | **req.url fallback 在 Railway 还是坏** | `isBadHost()` 拒绝 `0.0.0.0` |
+| 10 | Dev 兼容 | fromReq 分支处理 |
+| 11 | `x-forwarded-port` 非标准端口 | Railway 不涉及，不处理 |
+| 12 | 测试 mock NextRequest | `new Request(url, {headers: new Headers({...})})` |
 
-```ts
-// T12b
-await leaveSubscription(db, { subscriptionId: sub.id, userId: B, leftAt: '2026-05-28' })
-const oldBill = await billFor(sub.id, B, '2026-05-05')
-// 旧账单必须保持 10 天的锁定金额，不能再缩
-expect(oldBill?.amount).toBe(<first-leave 时的值>)
-```
+## 待调研
 
----
+- [ ] Railway 实际发送的 forwarded header 名（99% 是标准 `X-Forwarded-*`，走 Phase 1 一次就验证）
+- [ ] Next.js 16 是否有官方推荐做法（读 `node_modules/next/dist/docs/` 里 proxy 相关段落）
 
-## 🐛 Bug 2（UX）—— `bill_adjusted` 通知只写 DB，不渲染
+## 次要观察
 
-**位置**：
-- 发送点：`db-operations.ts:489-499`（redistribute 分支）。
-- `NotificationType` 联合类型：`src/lib/notifications.ts:9-15`。**缺 `'bill_adjusted'`**。
-- 渲染器：`src/components/notifications-list.tsx:73-158`。**缺 `case 'bill_adjusted'`**，会走 `default: return { title: n.type }` → UI 里直接显示字符串 `"bill_adjusted"`。
-
-**修复**：
-1. 在 `NotificationType` 里加 `'bill_adjusted'`。
-2. 在 `renderMessage` 和 `Icon` switch 里都加 case，读 payload 里的 `sub_name`, `delta_amount`, `reason`。
-3. 给 `notifications.ts` 加一个 `BillAdjustedPayload` 接口。
-
-**影响**：没被测试覆盖（测试只查 DB 表 `notifications` 的 row 数 / payload），UI 实际使用时才会暴露。
-
----
-
-## 🟡 次要观察（非 bug，但值得记录）
-
-1. **redistribute 没显式排除 payer**。`others` 查询只排了 `leaver.userId`（db-operations.ts:462），没排 payer。依赖 R8「payer 没有 billing_records」的全局不变量。如果哪天某条路径违反了 R8（已有的 `generateMonthlyBills` 似乎遵守了，但价格变更 R5 要再确认），就会把差额分给 payer。防御性更好的写法是把 `payerId` 也传进来显式排除。
-
-2. **redistribute 按"每张账单独立分摊"**而非聚合一次。对 rejoin 场景（一个月两张账单），两张账单各自的 diff 会各分摊一次。对被分摊的 C 来说，他会收到两条 `bill_adjusted` 通知。数学上正确，UX 上冗余。
-
-3. **redistribute 的语义**：不是「重新按剩余人数算 share」，而是「把 B 的差额平摊给 C/D/E」。举例 3 人组 B 中途退，最终 C 实际付了「前半月 1/3 + 后半月 1/2」的组合金额 + 多承担了 B 的那部分——C 会付得比「两人组全月」还多。这是计划里定的，不是 bug，但如果用户期望「重新算 share」，就是不同的算法。
-
-4. **refund_policy 创建后不可改**。没有 API 路由允许修改（`handleUpdateSubscription` 只处理 `name/nextPayment/inactive`）。如果用户创建时选错了，只能删重建。可能需要后续增加一个 PATCH 端点。
-
----
-
-## 需要回答的问题
-
-- **Q-A**：确认修 Bug 1（stint 过滤）并补 T12b 测试？
-- **Q-B**：确认修 Bug 2（`bill_adjusted` 注册类型 + 加渲染器）？
-- **Q-C**：次要观察 1（显式排 payer）要不要一起加？
-- **Q-D**：次要观察 4（refund_policy 创建后不可改）现在是范围外，保持还是加 PATCH？
+- `OAUTH_REDIRECT_URI` 在 Railway 上必为 `https://subshare-production.up.railway.app/api/auth/google/callback`（否则 Google 就拦了 OAuth）——所以"从它推 origin"永远安全，当兜底不会错
+- 本地 dev 直连 3000，无 proxy，`req.url` 本身是 `http://localhost:3000`，所以这个 bug 在本地看不到
+- 截图 URL 尾巴 `#` 是片段，可能是 app 之前一次登录成功后留下的路由 hash，与本次 bug 无关
