@@ -13,6 +13,7 @@ jobs:
           node-version: 20
           cache: npm
       - run: npm ci
+      - run: npm run fetch-icons
       - run: npm run lint
       - run: npm run typecheck
       - run: npm test
