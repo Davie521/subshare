@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { resolveRequestUrl } from '@/lib/request-url'
 
 const SESSION_COOKIE = 'subshare_session'
 
@@ -63,8 +64,7 @@ export function middleware(req: NextRequest) {
 
   if (isProtectedPage(pathname)) {
     if (!looksLikeSession(token)) {
-      const loginUrl = new URL('/login', req.url)
-      return NextResponse.redirect(loginUrl)
+      return NextResponse.redirect(resolveRequestUrl(req, '/login'))
     }
     return NextResponse.next()
   }
