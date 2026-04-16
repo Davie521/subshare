@@ -38,6 +38,10 @@ export async function GET(req: NextRequest) {
   // Carry an invite token through the OAuth redirect so that a new user
   // coming from an invite link is auto-joined to the subscription on
   // successful login. Token format validated by the accept route.
+  //
+  // Always delete first so that a stale token from an abandoned invite
+  // flow cannot leak into an unrelated later login.
+  cookieStore.delete('oauth_invite_token')
   const invite = new URL(req.url).searchParams.get('invite')
   if (invite && /^[A-Za-z0-9_-]{16,64}$/.test(invite)) {
     cookieStore.set('oauth_invite_token', invite, {

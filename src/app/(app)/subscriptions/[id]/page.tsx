@@ -552,7 +552,7 @@ export default function SubscriptionDetailPage() {
                     Invite link ready
                   </p>
                   <p className="text-[11px] text-muted-foreground">
-                    Single use · expires in 7 days
+                    Single-use invite link
                   </p>
                 </div>
                 <button

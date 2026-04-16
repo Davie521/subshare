@@ -270,6 +270,36 @@ describe('acceptInvite', () => {
     expect(inviteRow.usedCount).toBe(0)
   })
 
+  it('active members get idempotent success even when the invite has expired', async () => {
+    const owner = await createUser(db, { email: 'o@t.com' })
+    const sub = await createShareableSub({ ownerId: owner })
+    const created = await createInvite(db, owner, sub.id)
+    if (!created.success || !created.data) throw new Error('unreachable')
+
+    await db
+      .update(schema.invites)
+      .set({ expiresAt: '2020-01-01T00:00:00.000Z' })
+      .where(eq(schema.invites.token, created.data.token))
+
+    const res = await acceptInvite(db, owner, created.data.token)
+    expect(res.success).toBe(true)
+  })
+
+  it('active members get idempotent success even when the invite has been revoked', async () => {
+    const owner = await createUser(db, { email: 'o@t.com' })
+    const sub = await createShareableSub({ ownerId: owner })
+    const created = await createInvite(db, owner, sub.id)
+    if (!created.success || !created.data) throw new Error('unreachable')
+
+    await db
+      .update(schema.invites)
+      .set({ revokedAt: new Date().toISOString() })
+      .where(eq(schema.invites.token, created.data.token))
+
+    const res = await acceptInvite(db, owner, created.data.token)
+    expect(res.success).toBe(true)
+  })
+
   it('lets a previously-left member rejoin and consumes the token', async () => {
     const owner = await createUser(db, { email: 'o@t.com' })
     const leaver = await createUser(db, { email: 'l@t.com' })

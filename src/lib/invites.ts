@@ -136,16 +136,11 @@ export async function acceptInvite(
   }
 
   const m = meta.data
-  if (m.revoked) {
-    return { success: false, error: 'Invite revoked', code: 'FORBIDDEN' }
-  }
-  if (m.expired) {
-    return { success: false, error: 'Invite expired', code: 'FORBIDDEN' }
-  }
-  if (m.exhausted) {
-    return { success: false, error: 'Invite already used', code: 'FORBIDDEN' }
-  }
 
+  // Idempotent fast path: if the caller is already an active member, succeed
+  // without consuming a slot. Run this *before* the validity checks so that
+  // existing members hitting a stale link (expired / exhausted / revoked)
+  // still get a coherent success instead of a confusing FORBIDDEN.
   const [existing] = await db
     .select({ leftAt: schema.subscriptionMembers.leftAt })
     .from(schema.subscriptionMembers)
@@ -157,6 +152,16 @@ export async function acceptInvite(
     )
   if (existing && existing.leftAt === null) {
     return { success: true, data: { subscriptionId: m.subscriptionId } }
+  }
+
+  if (m.revoked) {
+    return { success: false, error: 'Invite revoked', code: 'FORBIDDEN' }
+  }
+  if (m.expired) {
+    return { success: false, error: 'Invite expired', code: 'FORBIDDEN' }
+  }
+  if (m.exhausted) {
+    return { success: false, error: 'Invite already used', code: 'FORBIDDEN' }
   }
 
   const [inviteRow] = await db
@@ -179,6 +184,21 @@ export async function acceptInvite(
 
   try {
     await db.transaction(async (tx) => {
+      // Re-check membership inside the transaction. If a concurrent request
+      // or an out-of-band addMember made this user active between the outer
+      // check and here, skip consuming the slot and return success — the
+      // user is already a member so the invite would have been a no-op.
+      const [live] = await tx
+        .select({ leftAt: schema.subscriptionMembers.leftAt })
+        .from(schema.subscriptionMembers)
+        .where(
+          and(
+            eq(schema.subscriptionMembers.subscriptionId, m.subscriptionId),
+            eq(schema.subscriptionMembers.userId, userId)
+          )
+        )
+      if (live && live.leftAt === null) return
+
       const consumed = await tx.execute(sql`
         UPDATE invites
         SET used_count = used_count + 1
