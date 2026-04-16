@@ -1,0 +1,19 @@
+name: Monthly Billing
+
+on:
+  schedule:
+    - cron: "5 0 1 * *" # UTC 00:05 on the 1st (Beijing 08:05)
+  workflow_dispatch:
+
+jobs:
+  billing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger billing cron
+        run: |
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            "$PROD_URL/api/cron/billing"
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          PROD_URL: ${{ secrets.PROD_URL }}
