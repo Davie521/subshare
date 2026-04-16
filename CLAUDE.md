@@ -43,6 +43,8 @@ npm run test:coverage
 npx vitest run src/__tests__/billing.test.ts              # single file
 npx vitest run -t "calculates pro-rated shares"           # single test by name
 npm run fetch-icons    # regenerate public/icons/* + manifest.json
+npm run seed           # populate dev DB with dummy users/subs/bills
+npm run seed:reset     # wipe + reseed
 ```
 
 Full Docker (pre-deploy smoke test): `docker compose up --build -d` → `http://localhost:3000`.
@@ -65,7 +67,7 @@ See `.env.example` for the full template.
 
 ## Architecture — **subscription-centric**
 
-**Stack**: Next.js 16 App Router + React 19, TypeScript, Tailwind v4 + shadcn/ui, Drizzle ORM on SQLite (`better-sqlite3`). Auth is a custom HMAC session (NextAuth is *not* wired). Path alias `@/*` → `src/*`.
+**Stack**: Next.js 16 App Router + React 19, TypeScript, Tailwind v4 + shadcn/ui, Drizzle ORM on Postgres (`postgres-js` in prod/dev, `@electric-sql/pglite` in-memory for tests). Auth is a custom HMAC session (NextAuth is *not* wired). Path alias `@/*` → `src/*`.
 
 ### Primary concept
 Each **subscription** is the primitive. It has its own `payer_id` (the person whose card pays) and its own `subscription_members` (who splits the cost). Friendships auto-form when one user adds another to a sub. There is no "group" in the current UX — the old `groups` / `group_members` tables still exist in the schema for backward compat with existing DBs but are not used by new UI or primary code paths.
@@ -82,9 +84,10 @@ Each **subscription** is the primitive. It has its own `payer_id` (the person wh
 - `api/` — route handlers grouped by resource: `auth`, `dashboard`, `subscriptions/[id]` (+ `members`, `payer`), `billing/[id]/paid`, `settlement`, `friends`, `notifications`, `exchange-rate`, `cron/billing`, `icons`
 
 ### Data layer (`src/db/`)
-- `schema.ts` — Drizzle schemas for `users`, `subscriptions`, `subscription_members`, `friendships`, `notifications`, `billingRecords`, `categories`. Legacy `groups` / `groupMembers` tables kept for backfill compat. All money is stored as integer cents (`price`, `amount`, `localAmount`, `monthlyBudget`). `exchangeRate` is stored as `rate × 1_000_000`.
-- `index.ts` — `getDb()` is a lazy singleton that opens SQLite, sets `WAL` + `foreign_keys = ON`, and auto-runs `migrate()` on first connection. `createTestDb()` returns an in-memory DB for tests.
-- `migrate.ts` — idempotent `CREATE TABLE IF NOT EXISTS` + `backfillFromGroups()` for legacy data.
+- `schema.ts` — Drizzle `pg-core` schemas for `users`, `subscriptions`, `subscription_members`, `friendships`, `notifications`, `billingRecords`, `categories`. Legacy `groups` / `groupMembers` tables kept for backfill compat. All money is stored as integer cents (`price`, `amount`, `localAmount`, `monthlyBudget`). `exchangeRate` is stored as `rate × 1_000_000`.
+- `index.ts` — `getDb()` is a lazy singleton around `postgres-js` (pool size 10) that auto-runs `migrate()` once on first connection. Queries must be **awaited** — postgres-js is async end-to-end (unlike the SQLite predecessor this code was ported from).
+- `migrate.ts` — idempotent `CREATE TABLE IF NOT EXISTS` + `backfillFromGroups()` for legacy data. Statements are executed one-at-a-time to work around Drizzle's extended-query protocol not supporting multi-statement.
+- Tests use `src/__tests__/helpers.ts` → `setupTestDb()`, which spins up a fresh `PGlite` in-memory Postgres per test and runs the same `migrate()`. A `SqliteShim` translates `?` placeholders to `$1…$n` for legacy code paths that still use prepared-statement syntax.
 
 ### Business logic (`src/lib/`)
 - `billing.ts` — pure functions. `calculateShares` uses floor division (payer absorbs remainder). `calculateProRate` computes days remaining in current cycle for R2 mid-month joins. Exchange rate is injected via `ExchangeRateFetcher` so tests can stub it.
@@ -114,7 +117,7 @@ PRE-PAID calendar-month model. Key rules:
 - **R11** — **`subscriptions.refund_policy`** (creator picks at create-time) controls how the diff from R3 is handled: `payer_absorbs` (default) — payer eats the loss; other members unchanged. `redistribute` — diff is split across remaining unpaid non-payer bills in the same month (falls back silently to `payer_absorbs` if no such member exists); affected members receive a `bill_adjusted` notification.
 
 ## Tests (`src/__tests__/`)
-221 tests covering billing math, db operations, settlement, notifications, and API handlers. Use `setupTestDb()` from `helpers.ts` for isolation. Coverage thresholds of 80% (lines/functions/branches/statements) enforced by `vitest.config.ts`.
+~233 tests across 32 files covering billing math, db operations, settlement, notifications, and API handlers. Use `setupTestDb()` from `helpers.ts` for isolation (fresh PGlite per test). Coverage thresholds of 80% (lines/functions/branches/statements) enforced by `vitest.config.ts`.
 
 Convention: each feature task is a RED/GREEN pair — `test(Tn): RED for X` commits failing tests first, `fix(Tn): X` implements to green. See commit history for the pattern.
 
