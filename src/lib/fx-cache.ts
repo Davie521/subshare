@@ -36,7 +36,3 @@ export async function getRate(from: string, to: string): Promise<number | null> 
     return cached?.rate ?? null
   }
 }
-
-export function clearRateCache() {
-  cache.clear()
-}

@@ -5,7 +5,6 @@ const SESSION_COOKIE = 'subshare_session'
 
 const PROTECTED_PAGE_PREFIXES = [
   '/dashboard',
-  '/groups',
   '/subscriptions',
   '/settings',
   '/settlement',
@@ -75,7 +74,6 @@ export function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     '/dashboard/:path*',
-    '/groups/:path*',
     '/subscriptions/:path*',
     '/settings/:path*',
     '/settlement/:path*',
