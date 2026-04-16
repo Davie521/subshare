@@ -1,8 +1,8 @@
 /**
  * Correctness probes for the billing algorithm — invariants that should hold
  * across the full set of operations (R1 cron, R2 join, R3 leave, R4 recompute,
- * R5 price change, transfer payer). These complement the existing scenario
- * tests by asserting end-to-end properties, not just single-step behavior.
+ * R5 price change). These complement the existing scenario tests by asserting
+ * end-to-end properties, not just single-step behavior.
  *
  * Each probe documents what the spec says and either asserts the invariant
  * OR pins the current (possibly spec-divergent) behavior with a comment so
@@ -14,7 +14,6 @@ import {
   createSubscription,
   addMemberToSubscription,
   leaveSubscription,
-  transferPayer,
   changeSubscriptionPrice,
   generateMonthlyBills,
   markBillPaid,
@@ -136,8 +135,8 @@ describe('Billing invariants', () => {
 
   /**
    * Paid-bill immutability: once is_paid=true, no subsequent operation
-   * (R5 price change, R4 add/leave, R3 leave, transfer payer) may alter
-   * amount, localAmount, or exchangeRate. Integrity anchor for settlement.
+   * (R5 price change, R4 add/leave, R3 leave) may alter amount, localAmount,
+   * or exchangeRate. Integrity anchor for settlement.
    */
   it('paid bills are immutable under every follow-up operation', async () => {
     const a = await createUser(db, { email: 'a@t.com' })
@@ -182,8 +181,6 @@ describe('Billing invariants', () => {
       leftAt: '2026-04-30',
       actorId: a,
     })
-    // Transfer payer — move payer to B.
-    await transferPayer(db, { subscriptionId: sub.id, newPayerId: b })
 
     const after = (await sqlite
       .prepare('SELECT * FROM billing_records WHERE id = ?')
@@ -284,60 +281,6 @@ describe('Billing invariants', () => {
       const cAfter = after.find((x) => x.userId === c)
       expect(cAfter?.amount).toBe(proratedC)
     }
-  })
-
-  /**
-   * Transfer-payer mid-month: existing unpaid R1 bill's counterparty
-   * (subscriptions.payer_id used by settlement.ts) flips from old to new
-   * payer, so the old payer no longer collects on those bills via the
-   * settlement view. Pins the behavior explicitly.
-   */
-  it('transferPayer redirects old unpaid bills to the new payer via settlement join', async () => {
-    const a = await createUser(db, { email: 'a@t.com' })
-    const b = await createUser(db, { email: 'b@t.com' })
-    const c = await createUser(db, { email: 'c@t.com' })
-    const sub = await createSubscription(db, {
-      name: 'Hulu',
-      price: 10000,
-      currency: 'CNY',
-      nextPayment: '2026-06-01',
-      startDate: '2026-03-01',
-      ownerId: a,
-    })
-    await addMemberToSubscription(db, {
-      subscriptionId: sub.id,
-      userId: b,
-      addedBy: a,
-      addedAt: '2026-03-01',
-    })
-    await addMemberToSubscription(db, {
-      subscriptionId: sub.id,
-      userId: c,
-      addedBy: a,
-      addedAt: '2026-03-01',
-    })
-
-    await generateMonthlyBills(db, '2026-04')
-
-    const beforeCounterparty = (await sqlite
-      .prepare(
-        `SELECT s.payer_id as "payerId" FROM billing_records br
-         JOIN subscriptions s ON s.id = br.subscription_id
-         WHERE br.user_id = ? AND br.subscription_id = ? AND is_paid = false`
-      )
-      .all(c, sub.id)) as Array<{ payerId: number }>
-    expect(beforeCounterparty.every((r) => r.payerId === a)).toBe(true)
-
-    await transferPayer(db, { subscriptionId: sub.id, newPayerId: b })
-
-    const afterCounterparty = (await sqlite
-      .prepare(
-        `SELECT s.payer_id as "payerId" FROM billing_records br
-         JOIN subscriptions s ON s.id = br.subscription_id
-         WHERE br.user_id = ? AND br.subscription_id = ? AND is_paid = false`
-      )
-      .all(c, sub.id)) as Array<{ payerId: number }>
-    expect(afterCounterparty.every((r) => r.payerId === b)).toBe(true)
   })
 
   /**

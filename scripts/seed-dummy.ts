@@ -35,7 +35,6 @@ import {
   addMemberToSubscription,
   generateMonthlyBills,
   changeSubscriptionPrice,
-  transferPayer,
   leaveSubscription,
 } from '../src/lib/db-operations'
 import { insertNotification } from '../src/lib/notifications'
@@ -342,9 +341,6 @@ async function main() {
       { subscriptionId: netflix.id, userId: emma, addedBy: alice, addedAt: '2026-03-10' }, RATES)
 
     // ── Lifecycle events between Mar and Apr ──────────────────────
-
-    // R7 — transfer PlayStation Plus payer from Frank to Bob.
-    await transferPayer(db, { subscriptionId: psplus.id, newPayerId: bob })
 
     // R3 — Jack (payer) kicks Henry from Coursera Apr 1 after Henry stopped
     // paying his share. Kick path emits a `removed_from_sub` notification to

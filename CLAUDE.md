@@ -81,7 +81,7 @@ Each **subscription** is the primitive. It has its own `payer_id` (the person wh
   - `friends` — people you've co-subscribed with
   - `settings` — profile, display name, email visibility, sign out
 - `(auth)/` — login / register
-- `api/` — route handlers grouped by resource: `auth`, `dashboard`, `subscriptions/[id]` (+ `members`, `payer`), `billing/[id]/paid`, `settlement`, `friends`, `notifications`, `exchange-rate`, `cron/billing`, `icons`
+- `api/` — route handlers grouped by resource: `auth`, `dashboard`, `subscriptions/[id]` (+ `members`), `billing/[id]/paid`, `settlement`, `friends`, `notifications`, `exchange-rate`, `cron/billing`
 
 ### Data layer (`src/db/`)
 - `schema.ts` — Drizzle `pg-core` schemas for `users`, `subscriptions`, `subscription_members`, `friendships`, `notifications`, `billingRecords`, `categories`. Legacy `groups` / `groupMembers` tables kept for backfill compat. All money is stored as integer cents (`price`, `amount`, `localAmount`, `monthlyBudget`). `exchangeRate` is stored as `rate × 1_000_000`.
@@ -91,7 +91,7 @@ Each **subscription** is the primitive. It has its own `payer_id` (the person wh
 
 ### Business logic (`src/lib/`)
 - `billing.ts` — pure functions. `calculateShares` uses floor division (payer absorbs remainder). `calculateProRate` computes days remaining in current cycle for R2 mid-month joins. Exchange rate is injected via `ExchangeRateFetcher` so tests can stub it.
-- `db-operations.ts` — CRUD + membership rules. `addMemberToSubscription` (handles rejoin via row reuse), `leaveSubscription` (R3 prorate + R7 payer guard + R11 redistribute), `transferPayer`, `changeSubscriptionPrice` (R5 rewrite), `generateMonthlyBills` (R1 cron), `generateAndSaveBillingRecords` (legacy per-sub), `backfillFromGroups` (migration).
+- `db-operations.ts` — CRUD + membership rules. `addMemberToSubscription` (handles rejoin via row reuse), `leaveSubscription` (R3 prorate + R7 payer guard + R11 redistribute), `changeSubscriptionPrice` (R5 rewrite), `generateMonthlyBills` (R1 cron), `generateAndSaveBillingRecords` (legacy per-sub), `backfillFromGroups` (migration). Note: the payer role is fixed at subscription creation — there is no transfer-payer path.
 - `settlement.ts` — pair-level netting. `getSettlementSummary` (unpaid) and `getSettledHistory` (paid) share `bucketByPairCurrency`. `markPairSettled` atomically flips every unpaid bill in a (userA, userB, currency) bucket.
 - `notifications.ts` — in-app feed CRUD, unread count, 30-day cleanup. Types: `added_to_sub`, `removed_from_sub`, `price_changed`, `payer_changed`.
 - `api-handlers.ts` — request-shaped business logic called from route handlers; keeps `app/api/**/route.ts` thin.

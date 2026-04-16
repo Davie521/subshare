@@ -8,7 +8,6 @@ import {
   getMonthlySpendingData,
   addMemberToSubscription,
   leaveSubscription,
-  transferPayer,
   changeSubscriptionPrice,
   generateMonthlyBills,
 } from './db-operations'
@@ -687,39 +686,6 @@ export async function handleMarkAllNotificationsRead(
   userId: number
 ): Promise<Result> {
   await markAllNotificationsRead(db, userId)
-  return { success: true }
-}
-
-export async function handleTransferPayer(
-  db: DB,
-  actorId: number,
-  subId: number,
-  newPayerId: number
-): Promise<Result> {
-  const [sub] = await db
-    .select()
-    .from(schema.subscriptions)
-    .where(eq(schema.subscriptions.id, subId))
-    
-  if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
-
-  if (sub.ownerId !== actorId && sub.payerId !== actorId) {
-    return {
-      success: false,
-      error: 'Only the owner or current payer can transfer payer',
-      code: 'FORBIDDEN',
-    }
-  }
-
-  try {
-    await transferPayer(db, { subscriptionId: subId, newPayerId })
-  } catch (err) {
-    return {
-      success: false,
-      error: err instanceof Error ? err.message : 'Failed to transfer payer',
-      code: 'VALIDATION_ERROR',
-    }
-  }
   return { success: true }
 }
 

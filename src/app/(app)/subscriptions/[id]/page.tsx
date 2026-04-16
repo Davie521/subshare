@@ -14,7 +14,6 @@ import {
   Trash2,
   UserMinus,
   UserPlus,
-  Wallet,
   X,
 } from "lucide-react";
 import { api } from "@/lib/api-client";
@@ -57,7 +56,6 @@ export default function SubscriptionDetailPage() {
   const [friends, setFriends] = useState<Array<{ userId: number; displayName: string }> | null>(null);
 
   const [showAdd, setShowAdd] = useState(false);
-  const [showTransfer, setShowTransfer] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmKickId, setConfirmKickId] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -166,7 +164,6 @@ export default function SubscriptionDetailPage() {
   );
   const selfMember = sub.members.find((m) => m.isSelf);
   const perPersonShare = Math.floor(sub.price / Math.max(sub.members.length, 1));
-  const nonPayerMembers = sub.members.filter((m) => !m.isPayer);
   const payer = sub.members.find((m) => m.isPayer);
 
   async function doRemove(userId: number, self: boolean) {
@@ -195,18 +192,6 @@ export default function SubscriptionDetailPage() {
     }
   }
 
-  async function handleTransfer(newPayerId: number) {
-    setBusy(true);
-    setActionError(null);
-    const res = await api.transferPayer(sub!.id, newPayerId);
-    setBusy(false);
-    setShowTransfer(false);
-    if (res.error) {
-      setActionError(res.error);
-      return;
-    }
-    await load();
-  }
 
   async function handleAdd(memberId: number) {
     setBusy(true);
@@ -601,51 +586,6 @@ export default function SubscriptionDetailPage() {
             );
           })}
         </ul>
-
-        {/* Transfer payer */}
-        {selfIsOwnerOrPayer && nonPayerMembers.length > 0 && (
-          <Card className="border-dashed">
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[13px] font-semibold">Transfer payer role</p>
-                  <p className="text-[12px] text-muted-foreground">
-                    Whoever pays gets the service bill, owes no share, and
-                    receives transfers.
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setShowTransfer((v) => !v)}
-                  className="cursor-pointer gap-1.5 shrink-0"
-                >
-                  <Wallet className="size-3.5" />
-                  Transfer
-                </Button>
-              </div>
-              {showTransfer && (
-                <ul className="space-y-1">
-                  {nonPayerMembers.map((m) => (
-                    <li key={m.userId}>
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => handleTransfer(m.userId)}
-                        className="w-full flex items-center justify-between px-2 py-2 rounded-md hover:bg-foreground/[0.04] cursor-pointer text-left disabled:opacity-50"
-                      >
-                        <span className="text-sm font-medium">
-                          {m.isSelf ? "You" : m.displayName}
-                        </span>
-                        <Wallet className="size-3.5 text-muted-foreground" />
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </CardContent>
-          </Card>
-        )}
 
         {/* Delete subscription (owner / payer only) */}
         {selfIsOwnerOrPayer && (

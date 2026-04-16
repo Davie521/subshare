@@ -209,9 +209,4 @@ export const api = {
     request(`/api/subscriptions/${subId}/members/${userId}`, {
       method: "DELETE",
     }),
-  transferPayer: (subId: number, newPayerId: number) =>
-    request(`/api/subscriptions/${subId}/payer`, {
-      method: "PUT",
-      body: JSON.stringify({ newPayerId }),
-    }),
 };
