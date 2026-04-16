@@ -164,13 +164,13 @@ export default function DashboardPage() {
       {/* Two-column layout on desktop */}
       <div className="grid gap-6 lg:grid-cols-5">
         {/* Updates — only unread; mark-read makes them disappear */}
-        <section className="space-y-3 lg:col-span-3 min-w-0">
+        <section className="space-y-3 lg:col-span-2 min-w-0">
           <SectionHeader title="Updates" />
-          <NotificationsList limit={30} maxVisible={5} unreadOnly />
+          <NotificationsList limit={30} maxVisible={7} unreadOnly />
         </section>
 
-        {/* Subscriptions — narrower */}
-        <section className="space-y-3 lg:col-span-2">
+        {/* Subscriptions — wider, packed list */}
+        <section className="space-y-3 lg:col-span-3">
           <div className="flex items-center justify-between">
             <SectionHeader
               title="Subscriptions"
@@ -195,7 +195,7 @@ export default function DashboardPage() {
             </Card>
           ) : (
             <div className="-mx-1">
-              {personalSubs.slice(0, 4).map((sub) => (
+              {personalSubs.slice(0, 7).map((sub) => (
                 <SubRow key={`p-${sub.id}`} sub={sub} />
               ))}
 
@@ -207,7 +207,7 @@ export default function DashboardPage() {
                 </div>
               )}
 
-              {sharedSubs.slice(0, 4).map((sub) => (
+              {sharedSubs.slice(0, 7).map((sub) => (
                 <SubRow key={`s-${sub.id}`} sub={sub} shared />
               ))}
             </div>

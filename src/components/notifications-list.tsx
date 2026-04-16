@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Card, CardContent } from "@/components/ui/card";
 import {
   Bell,
   Check,
@@ -264,18 +263,21 @@ export function NotificationsList({
   }
 
   if (!visibleItems || visibleItems.length === 0) {
+    // Bare, left-aligned, single-row footprint — matches the density of
+    // the populated list so the column edge aligns with Subscriptions
+    // instead of rendering a tall dashed card.
     return (
-      <Card className="border-dashed bg-muted/30 shadow-none">
-        <CardContent className="py-10 flex flex-col items-center gap-2 text-center">
-          <div className="size-8 rounded-full bg-[var(--accent)] flex items-center justify-center">
-            <Sparkles className="size-[14px] text-[var(--accent-foreground)]" />
-          </div>
-          <p className="text-sm font-medium">All caught up</p>
-          <p className="text-[13px] text-muted-foreground">
+      <div className="flex items-center gap-3 px-3.5 py-2.5">
+        <div className="shrink-0 size-8 rounded-full bg-muted flex items-center justify-center">
+          <Sparkles className="size-[14px] text-muted-foreground" />
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm font-medium leading-tight">All caught up</p>
+          <p className="text-[12.5px] text-muted-foreground mt-0.5 leading-snug">
             New activity will show up here.
           </p>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     );
   }
 
