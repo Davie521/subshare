@@ -31,6 +31,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - run: npm i -g @railway/cli@4
-      - run: railway up --service subshare --ci -m "deploy ${{ github.sha }}"
+      - run: railway up --service d46814b0-ab16-48df-a142-24d75444c240 --ci -m "deploy ${{ github.sha }}"
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
