@@ -93,6 +93,7 @@ export default function SubscriptionDetailPage() {
           payerId: d.payerId,
           logo: d.logo,
           inactive: d.inactive,
+          refundPolicy: d.refundPolicy,
           members: d.members,
         });
         setLoadError(null);

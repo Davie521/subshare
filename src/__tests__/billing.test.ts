@@ -98,14 +98,14 @@ describe('calculateMonthlySpending', () => {
     expect(result).toBe(2500)
   })
 
-  it('falls back to rate=1 when the requested pair is missing', async () => {
-    // No rate for USD→CNY → treat as 1:1 (best-effort fallback).
+  it('skips subs whose FX rate is missing rather than 1:1 fallback', async () => {
+    // No rate for USD→CNY → skip (was silently misreporting via 1:1 fallback).
     const result = calculateMonthlySpending(
       [{ price: 2000, currency: 'USD', memberCount: 1 }],
       'CNY',
       {}
     )
-    expect(result).toBe(2000)
+    expect(result).toBe(0)
   })
 })
 
