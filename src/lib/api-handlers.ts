@@ -124,7 +124,7 @@ export async function handleCreateSubscription(
   return { success: true, data: sub }
 }
 
-async function fetchRatesForUsers(
+export async function fetchRatesForUsers(
   db: DB,
   userIds: number[],
   subCurrency: string

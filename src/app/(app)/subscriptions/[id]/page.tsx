@@ -10,6 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
+  Check,
+  Copy,
+  Link2,
   Pencil,
   Trash2,
   UserMinus,
@@ -56,6 +59,10 @@ export default function SubscriptionDetailPage() {
   const [friends, setFriends] = useState<Array<{ userId: number; displayName: string }> | null>(null);
 
   const [showAdd, setShowAdd] = useState(false);
+  const [inviteUrl, setInviteUrl] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteCopied, setInviteCopied] = useState(false);
+  const [invitingBusy, setInvitingBusy] = useState(false);
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmKickId, setConfirmKickId] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -205,6 +212,40 @@ export default function SubscriptionDetailPage() {
       return;
     }
     await load();
+  }
+
+  async function handleCreateInvite() {
+    if (!sub) return;
+    setInvitingBusy(true);
+    setInviteError(null);
+    setInviteCopied(false);
+    const res = await api.createInvite(sub.id);
+    setInvitingBusy(false);
+    if (res.error || !res.data) {
+      setInviteError(res.error || "Could not create invite");
+      return;
+    }
+    const url = `${window.location.origin}/invite/${res.data.token}`;
+    setInviteUrl(url);
+    try {
+      await navigator.clipboard.writeText(url);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 2000);
+    } catch {
+      // Clipboard API can fail on insecure contexts; the UI shows the URL
+      // anyway so the user can manually copy.
+    }
+  }
+
+  async function handleCopyInvite() {
+    if (!inviteUrl) return;
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setInviteCopied(true);
+      setTimeout(() => setInviteCopied(false), 2000);
+    } catch {
+      setInviteError("Copy failed — select the link manually");
+    }
   }
 
   function startEdit() {
@@ -469,18 +510,89 @@ export default function SubscriptionDetailPage() {
           <h2 className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
             Members · {sub.members.length}
           </h2>
-          {selfIsOwnerOrPayer && addableFriends.length > 0 && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setShowAdd((v) => !v)}
-              className="cursor-pointer gap-1.5"
-            >
-              <UserPlus className="size-3.5" />
-              Add
-            </Button>
-          )}
+          <div className="flex gap-2">
+            {selfMember && (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={invitingBusy}
+                onClick={handleCreateInvite}
+                className="cursor-pointer gap-1.5"
+              >
+                <Link2 className="size-3.5" />
+                {invitingBusy ? "Creating…" : "Invite link"}
+              </Button>
+            )}
+            {selfIsOwnerOrPayer && addableFriends.length > 0 && (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setShowAdd((v) => !v)}
+                className="cursor-pointer gap-1.5"
+              >
+                <UserPlus className="size-3.5" />
+                Add
+              </Button>
+            )}
+          </div>
         </div>
+
+        {inviteError && (
+          <p className="text-[13px] font-medium text-destructive">
+            {inviteError}
+          </p>
+        )}
+
+        {inviteUrl && (
+          <Card className="border-dashed">
+            <CardContent className="space-y-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[13px] font-semibold">
+                    Invite link ready
+                  </p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Single use · expires in 7 days
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInviteUrl(null);
+                    setInviteCopied(false);
+                  }}
+                  className="cursor-pointer text-muted-foreground hover:text-foreground"
+                  aria-label="Dismiss"
+                >
+                  <X className="size-4" />
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 min-w-0 truncate text-[12px] font-mono bg-muted/40 border rounded-md px-2.5 py-2">
+                  {inviteUrl}
+                </code>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={handleCopyInvite}
+                  className="cursor-pointer gap-1.5 shrink-0"
+                >
+                  {inviteCopied ? (
+                    <>
+                      <Check className="size-3.5" />
+                      Copied
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="size-3.5" />
+                      Copy
+                    </>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {showAdd && selfIsOwnerOrPayer && (
           <Card className="border-dashed">

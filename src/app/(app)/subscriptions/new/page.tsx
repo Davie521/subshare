@@ -260,10 +260,10 @@ function SubscriptionForm({
       setError("Please fill in name and a valid price");
       return;
     }
-    if (mode === "shared" && selectedMemberIds.length === 0) {
-      setError("Pick at least one friend to share with");
-      return;
-    }
+    // Shared mode with zero picked members is intentionally allowed — the
+    // user will invite others via an Invite link from the subscription
+    // detail page after creation. This is the standard path for users
+    // whose friend list is still empty.
 
     setSubmitting(true);
     setError("");
@@ -436,11 +436,16 @@ function SubscriptionForm({
                 {/* Friends picker */}
                 <div className="space-y-2">
                   <Label>Share with</Label>
+                  <p className="text-[12px] text-muted-foreground leading-relaxed">
+                    Pick existing friends to add now. To bring in new people —
+                    even those not yet on SubShare — use the{" "}
+                    <strong>Invite link</strong> button on the subscription
+                    page after creating.
+                  </p>
                   {friends.length === 0 ? (
-                    <p className="text-[13px] text-muted-foreground">
-                      No friends yet — add someone to your first shared
-                      subscription from an existing one. (Email invites
-                      coming soon.)
+                    <p className="text-[13px] font-medium text-muted-foreground">
+                      No friends yet — create the subscription first, then
+                      share the invite link.
                     </p>
                   ) : (
                     <div className="flex flex-wrap gap-2">

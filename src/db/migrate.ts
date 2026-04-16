@@ -164,6 +164,17 @@ export async function migrate(db: Db): Promise<void> {
       added_at TEXT NOT NULL DEFAULT (now()::text),
       PRIMARY KEY (circle_id, user_id)
     )`,
+    `CREATE TABLE IF NOT EXISTS invites (
+      token TEXT PRIMARY KEY,
+      subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+      inviter_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL,
+      max_uses INTEGER NOT NULL DEFAULT 1,
+      used_count INTEGER NOT NULL DEFAULT 0,
+      revoked_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (now()::text)
+    )`,
+    `CREATE INDEX IF NOT EXISTS invites_by_sub ON invites(subscription_id)`,
   ]
 
   for (const stmt of ddl) {

@@ -7,6 +7,7 @@ import { setSession } from '@/lib/session'
 import { getGoogleProvider, fetchGoogleUserInfo } from '@/lib/oauth-google'
 import { checkRateLimit } from '@/lib/rate-limit'
 import { clientIp } from '@/lib/client-ip'
+import { acceptInvite } from '@/lib/invites'
 
 export async function GET(req: NextRequest) {
   const ip = clientIp(req)
@@ -32,9 +33,14 @@ export async function GET(req: NextRequest) {
   const storedState = cookieStore.get('oauth_state')?.value
   const storedCodeVerifier = cookieStore.get('oauth_code_verifier')?.value
 
+  // Capture the invite token (if any) before we clean the OAuth cookies.
+  // It is consumed at the very end, once the session is set.
+  const pendingInvite = cookieStore.get('oauth_invite_token')?.value ?? null
+
   // Clean up OAuth cookies
   cookieStore.delete('oauth_state')
   cookieStore.delete('oauth_code_verifier')
+  cookieStore.delete('oauth_invite_token')
 
   if (!storedState || state !== storedState) {
     return NextResponse.redirect(new URL('/login?error=state_mismatch', req.url))
@@ -104,6 +110,23 @@ export async function GET(req: NextRequest) {
     }
 
     await setSession(user.id)
+
+    // Auto-accept pending invite (if any) and redirect to that sub instead
+    // of the default dashboard. Failures (expired/exhausted/race) fall
+    // through to /dashboard with an error query param so the user still
+    // lands somewhere useful.
+    if (pendingInvite && /^[A-Za-z0-9_-]{16,64}$/.test(pendingInvite)) {
+      const accept = await acceptInvite(db, user.id, pendingInvite)
+      if (accept.success && accept.data) {
+        return NextResponse.redirect(
+          new URL(`/subscriptions/${accept.data.subscriptionId}`, req.url)
+        )
+      }
+      return NextResponse.redirect(
+        new URL('/dashboard?error=invite_invalid', req.url)
+      )
+    }
+
     return NextResponse.redirect(new URL('/dashboard', req.url))
   } catch {
     return NextResponse.redirect(new URL('/login?error=oauth_failed', req.url))

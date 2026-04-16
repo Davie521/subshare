@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import {
   getGoogleProvider,
@@ -6,7 +6,7 @@ import {
   generateCodeVerifier,
 } from '@/lib/oauth-google'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const google = getGoogleProvider()
   const state = generateState()
   const codeVerifier = generateCodeVerifier()
@@ -23,7 +23,7 @@ export async function GET() {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     sameSite: 'lax',
-    maxAge: 60 * 10, // 10 minutes
+    maxAge: 60 * 10,
     path: '/',
   })
 
@@ -34,6 +34,20 @@ export async function GET() {
     maxAge: 60 * 10,
     path: '/',
   })
+
+  // Carry an invite token through the OAuth redirect so that a new user
+  // coming from an invite link is auto-joined to the subscription on
+  // successful login. Token format validated by the accept route.
+  const invite = new URL(req.url).searchParams.get('invite')
+  if (invite && /^[A-Za-z0-9_-]{16,64}$/.test(invite)) {
+    cookieStore.set('oauth_invite_token', invite, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      maxAge: 60 * 10,
+      path: '/',
+    })
+  }
 
   return NextResponse.redirect(url.toString())
 }

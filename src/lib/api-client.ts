@@ -205,4 +205,11 @@ export const api = {
     request(`/api/subscriptions/${subId}/members/${userId}`, {
       method: "DELETE",
     }),
+
+  // Invites
+  createInvite: (subId: number) =>
+    request<{ token: string; expiresAt: string }>(
+      `/api/subscriptions/${subId}/invites`,
+      { method: "POST" }
+    ),
 };

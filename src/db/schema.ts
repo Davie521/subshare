@@ -219,3 +219,22 @@ export const circleMembers = pgTable(
   },
   (t) => [primaryKey({ columns: [t.circleId, t.userId] })]
 )
+
+export const invites = pgTable(
+  'invites',
+  {
+    token: text('token').primaryKey(),
+    subscriptionId: integer('subscription_id')
+      .notNull()
+      .references(() => subscriptions.id, { onDelete: 'cascade' }),
+    inviterId: integer('inviter_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    expiresAt: text('expires_at').notNull(),
+    maxUses: integer('max_uses').notNull().default(1),
+    usedCount: integer('used_count').notNull().default(0),
+    revokedAt: text('revoked_at'),
+    createdAt: text('created_at').notNull().$defaultFn(isoNow),
+  },
+  (t) => [index('invites_by_sub').on(t.subscriptionId)]
+)
