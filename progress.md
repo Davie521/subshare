@@ -1,33 +1,17 @@
-# 进度日志 — Railway OAuth 回调 0.0.0.0 bug
+# 进度日志
 
-## 2026-04-16
+## 2026-04-16 Google 登录调试（已完成）
 
-### 起点
-- 用户截图：生产 Google 登录 → Safari 错误页 `https://0.0.0.0:8080/dashboard#`
-- 初判：以为 URL 输错；用户澄清："https://subshare-production.up.railway.app/login 这里 不行 本地ok"
+- 用户报告：点 "Sign in with Google" 后浏览器下载文件
+- 根因：`.env.local` 缺 3 个 Google OAuth env vars + 路由无 try-catch → 500 无 Content-Type → 浏览器当文件下载
+- 修复：添加 env vars、重启 dev server → `curl` 返回 307 + `Location: accounts.google.com`
+- 生产：Railway env vars 已设 + deploy 已触发
+- 待确认：Google Console 添加生产回调 URI
 
-### 根因定位
-- `grep NextResponse.redirect` + `grep new URL(.*req.url)` → 10 个位点（callback 9 + middleware 1）
-- 读 Dockerfile：`HOSTNAME=0.0.0.0`；Railway 注入 `PORT=8080`
-- 推理：Next standalone 的 `req.url` 用进程 bind，不读 `X-Forwarded-*` → `new URL('/dashboard', req.url)` 继承坏 origin
-- OAuth 能跑因为 redirect_uri 走 `OAUTH_REDIRECT_URI` env，不经 `req.url`
+## 2026-04-16 邀请链接功能审计（当前）
 
-### 方案讨论
-- A: 读 `x-forwarded-*`，fallback `req.url`
-- B: 从 `OAUTH_REDIRECT_URI` 推 origin
-- C: 加 `APP_URL` env
-- **选 A**：无新 env、dev/prod 自适应、一个 helper 覆盖所有位点
-
-### 深度分析方案 A
-- 识别 12 条隐藏坑（开放重定向、CSV header、Edge runtime、fromReq fallback 也坏 等）
-- 改进：加 `isBadHost` 守卫 + OAUTH_REDIRECT_URI 作为第三层兜底
-- 确认 middleware 的 Edge runtime 兼容 `NextRequest.headers.get`
-
-### 状态
-
-- [x] 根因定位
-- [x] 方案选型（A 改进版）
-- [x] 写好 3 份规划文件
-- [ ] **Phase 1**：等用户确认后实施（helper + 9 位点替换 + 单测）
-- [ ] Phase 2：本地验证
-- [ ] Phase 3：cpr 部署 + 生产验证
+- 用户问：这个 invitation 功能做完了吗？想实现 "分享一个链接 → 别人点了就能用 APP"
+- 审计结论：**未实现**，只有内部 "加已有用户进订阅" 的脚手架
+- 代码证据记在 `findings.md`
+- 实施计划记在 `task_plan.md`：7 个 phase
+- 下一步：用户对齐 4 个决策点（邀请范围 / 过期 / maxUses / 预览页）后开 Phase 1

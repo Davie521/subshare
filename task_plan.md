@@ -1,99 +1,81 @@
-# 任务计划 — 2026-04-16 Railway 生产 OAuth 回调落到 0.0.0.0:8080 修复
+# 任务计划 — 链接邀请功能（Link-based Invites）
 
-## 现象
+## 目标
 
-- 生产 `https://subshare-production.up.railway.app/login` 点 Google 登录
-- Google 认证后 302 到 `https://0.0.0.0:8080/dashboard#`
-- Safari 拦：`WebKitErrorDomain:103 Not allowed to use restricted network port`
-- 本地 dev `localhost:3000` 正常
+让订阅创建者生成一个 URL，任何人点开 → Google 登录（新用户首次注册）→ 自动加入订阅 → 开始分摊。
 
-## 根因
+## 当前状态
 
-Next.js standalone 在 Railway 容器里 `req.url` = `http://0.0.0.0:8080/...`（来自进程 bind，不读 `X-Forwarded-*`）。`src/app/api/auth/google/callback/route.ts:107` 的 `new URL('/dashboard', req.url)` 继承坏 origin → 302 到 `0.0.0.0:8080` → Safari 拦。
+- 基础设施齐全：Google OAuth ✓、auto-friendship ✓、`addMemberToSubscription` ✓
+- 缺：邀请 token 表、邀请路由、邀请落地页、OAuth state 里透传 token 的钩子
 
-OAuth 本身正常（redirect_uri 来自 `OAUTH_REDIRECT_URI` env）——bug 只在 callback 内部的二次 redirect 和 middleware 的未登录重定向。
+## 分阶段实施
 
-## 受影响位点
+### Phase 1 — 数据层（约 1 commit）
+- [ ] 在 `src/db/schema.ts` 新增 `invites` 表：
+  - `token` (text, unique, random 32 chars)
+  - `subscriptionId` (FK cascade)
+  - `inviterId` (FK users)
+  - `expiresAt` (ISO, 默认 +7 天)
+  - `maxUses` (int, null = 无限)
+  - `usedCount` (int default 0)
+  - `revokedAt` (ISO nullable)
+- [ ] 在 `src/db/migrate.ts` 加对应 `CREATE TABLE IF NOT EXISTS`
+- [ ] 更新 `docs/CLAUDE.md` 架构段落提到新表
 
-- `src/app/api/auth/google/callback/route.ts` 行 14 / 23 / 27 / 40 / 44 / 56 / 107 / 109（`route.ts:17` 只读 query，不动）
-- `src/middleware.ts:66`
+### Phase 2 — 后端路由（约 2 commits）
+- [ ] `POST /api/subscriptions/[id]/invites` — 创建邀请
+  - 权限：仅订阅 member 可创建
+  - 返回：`{ token, url, expiresAt }`
+  - 速率限制：每用户每分钟 10 次
+- [ ] `GET /api/invites/[token]` — 获取邀请元数据（公开，不需登录）
+  - 返回：订阅名、logo、inviter 名、是否过期
+- [ ] `POST /api/invites/[token]/accept` — 登录后接受
+  - 校验：token 有效、未过期、未超 maxUses、用户不在 sub 里
+  - 执行：`addMemberToSubscription` + `usedCount++`
+  - 返回：`{ subscriptionId }` 便于前端跳转
 
-共 9 处。
+### Phase 3 — 邀请落地页（约 1 commit）
+- [ ] 新建 `src/app/invite/[token]/page.tsx`（注意：**不在** `(app)` 分组，因为要支持未登录访问）
+  - 未登录 → 显示订阅卡片 + "Sign in with Google to join"，CTA 点击跳 `/api/auth/google?invite={token}`
+  - 已登录 → 直接调 `POST /api/invites/[token]/accept` → 跳 `/subscriptions/{id}`
 
-## 修复方案（方案 A 改进版）
+### Phase 4 — OAuth 透传 invite token（约 1 commit）
+- [ ] `src/app/api/auth/google/route.ts` 读取 `?invite=` query
+- [ ] 把 invite token 塞进 OAuth `state`（和 CSRF state 一起 base64 编码）或塞进 httpOnly cookie
+- [ ] `src/app/api/auth/google/callback/route.ts` 登录成功后检查是否有 pending invite → auto-accept
 
-### 新 helper：`src/lib/request-url.ts`
+### Phase 5 — 前端触发点（约 1 commit）
+- [ ] `src/app/(app)/subscriptions/[id]/page.tsx` 加 "Invite" 按钮
+  - 点击 → 调 create-invite API → 显示 Modal：链接 + 复制按钮 + 二维码（可选）
+- [ ] `new/page.tsx` 的 "Email invites coming soon" 替换成 "After creating, share the invite link"
 
-```ts
-import type { NextRequest } from 'next/server'
+### Phase 6 — 测试（约 1-2 commits）
+RED/GREEN 对：
+- [ ] `invites.test.ts` — 创建 / 过期 / maxUses / revoke
+- [ ] `invite-accept.test.ts` — 成功接受、重复接受（no-op）、自接受、已离开用户重新加入
+- [ ] `invite-oauth-flow.test.ts` — state 透传、登录后自动 accept
 
-function firstCsv(h: string | null): string | null {
-  if (!h) return null
-  return h.split(',')[0]?.trim() || null
-}
+### Phase 7 — 验证
+- [ ] 本地：A 用户创建 sub 并生成邀请 → 无痕浏览器打开链接 → Google 登录（新账号）→ 自动加入 sub → dashboard 显示
+- [ ] Railway 部署后重复一次端到端
 
-function isBadHost(host: string): boolean {
-  return /^0\.0\.0\.0(:|$)/.test(host)
-}
+## 决策（2026-04-16 用户确认）
 
-export function resolveRequestUrl(req: NextRequest, path: string): URL {
-  const proto = firstCsv(req.headers.get('x-forwarded-proto'))
-  const fwdHost = firstCsv(req.headers.get('x-forwarded-host'))
-  const host = fwdHost ?? req.headers.get('host')
+1. **邀请范围**：针对单个订阅（auto-friendship 顺带）
+2. **过期时间**：7 天（硬编码，不做成可配置）
+3. **maxUses**：1（单次使用）
+4. **中转页**：不做，直接跳 Google 登录 → 登录成功后自动 accept → 跳 `/subscriptions/{id}`
 
-  if (proto && host && !isBadHost(host)) {
-    return new URL(path, `${proto}://${host}`)
-  }
+## 简化影响
 
-  const fromReq = new URL(path, req.url)
-  if (!isBadHost(fromReq.host)) return fromReq
+- Phase 3（邀请落地页）简化为：`/invite/[token]` 直接重定向到 `/api/auth/google?invite={token}`，不渲染 UI
+- Schema 里 `maxUses` 可以直接默认 1，不暴露给 UI
+- 不需要 "revoke" 按钮（7 天自然过期 + 单次用完即废）—— 但数据库字段保留以备未来
 
-  // 最后兜底：从 OAUTH_REDIRECT_URI 推公网 origin（生产必配）
-  const redirect = process.env.OAUTH_REDIRECT_URI
-  if (redirect) {
-    return new URL(path, new URL(redirect).origin)
-  }
+## 不做的事
 
-  return fromReq
-}
-```
-
-### 三场景走位验证
-
-| 场景 | forwarded-* | req.url | 走到 |
-|------|-------------|---------|------|
-| 本地 dev | 无 | `http://localhost:3000/...` | fromReq（host=localhost） |
-| Railway 正常 | `https`,`subshare-...railway.app` | `http://0.0.0.0:8080/...` | 主路径 |
-| Railway 异常（header 没转发） | 无 | `http://0.0.0.0:8080/...` | OAUTH_REDIRECT_URI 兜底 |
-
-### 替换 9 个位点
-
-所有 `new URL(path, req.url)` → `resolveRequestUrl(req, path)`。
-
-### 测试：`src/__tests__/request-url.test.ts`
-
-5 个 case：
-1. 无 header + localhost → fromReq 分支
-2. 带 x-forwarded-* + Railway 容器坏 req.url → 主路径
-3. 无 header + req.url 坏 + 有 OAUTH_REDIRECT_URI → 兜底
-4. CSV header `https,http` → 取 https
-5. 无任何可用来源 → fromReq
-
-## 阶段
-
-- [ ] **Phase 1**：写 helper + 改 9 位点 + 单测
-- [ ] **Phase 2**：`npm run dev` + `npm test` + `npm run lint` + `npm run build`
-- [ ] **Phase 3**：走 cpr 流程（commit → PR → CI → merge → Railway 部署）+ 生产登录验证
-
-## 风险
-
-- **Open redirect（低风险）**：`X-Forwarded-Host` 理论可伪造，但 Railway edge 覆盖它；且 helper 只构造同站路径（`/dashboard` / `/login?...`），最差情况是钓鱼页，不是账号接管。后续可加 `ALLOWED_HOSTS` 白名单。
-- **Dev 回归**：本地没 forwarded header，走 fromReq，等价原行为，不会回归。
-- **Middleware Edge Runtime 兼容**：`NextRequest.headers.get` Edge 支持，无问题。
-
-## 范围外
-
-- 不改 Dockerfile（`HOSTNAME=0.0.0.0` 对 Railway 是必须的）
-- 不加新 env var（helper 够用）
-- 不加 host 白名单（下次 PR）
-- 不动 OAuth 流程本身、session、cookie
+- 不做 email 邀请（需要 SMTP / SES 集成，额外基础设施）
+- 不做 SMS 邀请
+- 不改动 `friendships` 表的语义
+- 不做 "邀请待审批"（owner 审核）—— token 本身就是授权凭证
