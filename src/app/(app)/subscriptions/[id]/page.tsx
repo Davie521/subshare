@@ -19,11 +19,13 @@ import {
   UserPlus,
   X,
 } from "lucide-react";
-import { api } from "@/lib/api-client";
+import { api, type SubscriptionTag } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { BrandIcon } from "@/components/brand-icon";
 import { UserAvatar } from "@/components/user-avatar";
+import { TagChipList } from "@/components/tag-chip";
+import { TagEditor } from "@/components/tag-editor";
 
 type Member = {
   userId: number;
@@ -46,6 +48,7 @@ type Sub = {
   logo: string | null;
   inactive: boolean;
   refundPolicy: "payer_absorbs" | "redistribute";
+  tags: SubscriptionTag[];
   members: Member[];
 };
 
@@ -83,6 +86,10 @@ export default function SubscriptionDetailPage() {
   });
   const [editError, setEditError] = useState<string | null>(null);
 
+  const [editingTags, setEditingTags] = useState(false);
+  const [tagsDraft, setTagsDraft] = useState<SubscriptionTag[]>([]);
+  const [tagsError, setTagsError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     try {
       const res = await api.getSubscription(subId);
@@ -101,6 +108,7 @@ export default function SubscriptionDetailPage() {
           logo: d.logo,
           inactive: d.inactive,
           refundPolicy: d.refundPolicy,
+          tags: d.tags ?? [],
           members: d.members,
         });
         setLoadError(null);
@@ -281,6 +289,27 @@ export default function SubscriptionDetailPage() {
       return;
     }
     setEditing(false);
+    await load();
+  }
+
+  function startEditTags() {
+    if (!sub) return;
+    setTagsDraft(sub.tags);
+    setTagsError(null);
+    setEditingTags(true);
+  }
+
+  async function handleSaveTags() {
+    if (!sub) return;
+    setBusy(true);
+    setTagsError(null);
+    const res = await api.updateSubscription(sub.id, { tags: tagsDraft });
+    setBusy(false);
+    if (res.error) {
+      setTagsError(res.error);
+      return;
+    }
+    setEditingTags(false);
     await load();
   }
 
@@ -465,7 +494,7 @@ export default function SubscriptionDetailPage() {
           ) : (
             <div className="flex items-center gap-4">
               <BrandIcon name={sub.name} size={52} />
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <h1 className="text-[26px] font-bold tracking-[-0.022em] truncate">
                   {sub.name}
                 </h1>
@@ -473,6 +502,11 @@ export default function SubscriptionDetailPage() {
                   {formatMoney(sub.price, sub.currency)} / month · next{" "}
                   {sub.nextPayment}
                 </p>
+                {sub.tags.length > 0 && (
+                  <div className="mt-2">
+                    <TagChipList tags={sub.tags} />
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -499,6 +533,79 @@ export default function SubscriptionDetailPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Tags — owner or payer can edit */}
+      {selfIsOwnerOrPayer && (
+        <Card>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                  Tags
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  Private tags are only visible to the owner and payer.
+                </p>
+              </div>
+              {!editingTags && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={startEditTags}
+                  className="cursor-pointer gap-1.5"
+                >
+                  <Pencil className="size-3.5" />
+                  {sub.tags.length > 0 ? "Edit" : "Add"}
+                </Button>
+              )}
+            </div>
+
+            {editingTags ? (
+              <>
+                <TagEditor
+                  tags={tagsDraft}
+                  onChange={setTagsDraft}
+                  disabled={busy}
+                />
+                {tagsError && (
+                  <p className="text-[13px] font-medium text-destructive">
+                    {tagsError}
+                  </p>
+                )}
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setEditingTags(false);
+                      setTagsError(null);
+                    }}
+                    className="cursor-pointer gap-1.5"
+                  >
+                    <X className="size-3.5" />
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={handleSaveTags}
+                    className="cursor-pointer"
+                  >
+                    {busy ? "Saving…" : "Save tags"}
+                  </Button>
+                </div>
+              </>
+            ) : sub.tags.length === 0 ? (
+              <p className="text-[13px] text-muted-foreground">
+                No tags yet.
+              </p>
+            ) : (
+              <TagChipList tags={sub.tags} />
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {actionError && (
         <p className="text-[13px] font-medium text-destructive">{actionError}</p>

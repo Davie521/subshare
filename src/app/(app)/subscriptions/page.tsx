@@ -6,9 +6,10 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Plus } from "lucide-react";
-import { api } from "@/lib/api-client";
+import { api, type SubscriptionTag } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 import { BrandIcon } from "@/components/brand-icon";
+import { TagChipList } from "@/components/tag-chip";
 
 type Sub = {
   id: number;
@@ -18,6 +19,7 @@ type Sub = {
   nextPayment: string;
   memberCount: number;
   inactive: boolean;
+  tags: SubscriptionTag[];
 };
 
 export default function SubscriptionsPage() {
@@ -96,7 +98,7 @@ function SubCard({ sub }: { sub: Sub }) {
           <BrandIcon name={sub.name} size={24} />
           <div>
           <p className="font-medium">{sub.name}</p>
-          <div className="flex items-center gap-2 mt-1">
+          <div className="flex items-center gap-2 mt-1 flex-wrap">
             {sub.memberCount > 1 && (
               <Badge variant="secondary" className="text-xs">
                 {sub.memberCount} people
@@ -105,6 +107,9 @@ function SubCard({ sub }: { sub: Sub }) {
             <span className="text-xs text-muted-foreground">
               Next: {sub.nextPayment}
             </span>
+            {sub.tags?.length > 0 && (
+              <TagChipList tags={sub.tags} max={2} />
+            )}
           </div>
         </div>
         </div>

@@ -3,12 +3,16 @@ import {
   text,
   integer,
   boolean,
+  jsonb,
   uniqueIndex,
   primaryKey,
   index,
   check,
 } from 'drizzle-orm/pg-core'
 import { sql } from 'drizzle-orm'
+import type { SubscriptionTag } from '@/types/tags'
+
+export type { SubscriptionTag } from '@/types/tags'
 
 const isoNow = () => new Date().toISOString()
 
@@ -83,6 +87,15 @@ export const subscriptions = pgTable('subscriptions', {
    *     members (falls back to 'payer_absorbs' if none exist).
    */
   refundPolicy: text('refund_policy').notNull().default('payer_absorbs'),
+  /**
+   * User-authored tags — max 5 enforced at the app layer. Each tag has its
+   * own visibility ('public' | 'private'); non-payer viewers only see
+   * public tags.
+   */
+  tags: jsonb('tags')
+    .$type<SubscriptionTag[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
   createdAt: text('created_at').notNull().$defaultFn(isoNow),
 }, (t) => [
   check(

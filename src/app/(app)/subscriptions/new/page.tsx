@@ -9,9 +9,10 @@ import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { Users, Plus, Search, ArrowLeft, Pencil } from "lucide-react";
-import { api } from "@/lib/api-client";
+import { api, type SubscriptionTag } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { BrandIcon } from "@/components/brand-icon";
+import { TagEditor } from "@/components/tag-editor";
 import { POPULAR_SERVICES, CATEGORIES, type ServiceTemplate } from "@/lib/popular-services";
 import { formatMoney } from "@/lib/format";
 
@@ -213,6 +214,7 @@ function SubscriptionForm({
     "payer_absorbs" | "redistribute"
   >("payer_absorbs");
   const [circles, setCircles] = useState<Array<{ id: number; name: string; memberIds: number[]; defaultPayerId: number | null }>>([]);
+  const [tags, setTags] = useState<SubscriptionTag[]>([]);
 
   useEffect(() => {
     void api.me().then((r) => {
@@ -273,6 +275,7 @@ function SubscriptionForm({
       price,
       currency: form.currency,
       nextPayment: form.nextPayment,
+      ...(tags.length > 0 ? { tags } : {}),
       ...(mode === "shared"
         ? {
             members: selectedMemberIds,
@@ -366,6 +369,8 @@ function SubscriptionForm({
                 onChange={(e) => setForm({ ...form, nextPayment: e.target.value })}
               />
             </div>
+
+            <TagEditor tags={tags} onChange={setTags} />
           </CardContent>
         </Card>
 

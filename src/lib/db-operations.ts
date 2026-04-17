@@ -1,8 +1,10 @@
 import { eq, and, sql, inArray, isNull, or, gt, gte, lte, ne } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
+import type { SubscriptionTag } from '@/db/schema'
 import { calculateShares, calculateJoinProRata } from './billing'
 import { insertNotification } from './notifications'
+import { normalizeTags, filterTagsForViewer } from './tags'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
@@ -22,6 +24,7 @@ export async function createSubscription(
     categoryId?: number
     startDate?: string // defaults to today; owner's addedAt matches this
     refundPolicy?: 'payer_absorbs' | 'redistribute'
+    tags?: SubscriptionTag[]
   }
 ): Promise<{ id: number; name: string }> {
   const today = new Date().toISOString().slice(0, 10)
@@ -43,6 +46,7 @@ export async function createSubscription(
         notes: input.notes ?? null,
         categoryId: input.categoryId ?? null,
         refundPolicy: input.refundPolicy ?? 'payer_absorbs',
+        tags: normalizeTags(input.tags),
       })
       .returning()
 
@@ -591,6 +595,7 @@ export async function getSubscriptionsForUser(
   nextPayment: string
   memberCount: number
   inactive: boolean
+  tags: SubscriptionTag[]
 }>> {
   // All subs the user is an active member of (subscription_members is
   // authoritative). Covers both owned personal subs (owner auto-added on
@@ -608,7 +613,7 @@ export async function getSubscriptionsForUser(
 
   if (subIds.length === 0) return []
 
-  return db
+  const rows = await db
     .select({
       id: schema.subscriptions.id,
       name: schema.subscriptions.name,
@@ -616,6 +621,9 @@ export async function getSubscriptionsForUser(
       currency: schema.subscriptions.currency,
       nextPayment: schema.subscriptions.nextPayment,
       inactive: schema.subscriptions.inactive,
+      ownerId: schema.subscriptions.ownerId,
+      payerId: schema.subscriptions.payerId,
+      tags: schema.subscriptions.tags,
       memberCount: sql<number>`(
         SELECT count(*)::int FROM subscription_members
         WHERE subscription_id = ${schema.subscriptions.id}
@@ -624,7 +632,20 @@ export async function getSubscriptionsForUser(
     })
     .from(schema.subscriptions)
     .where(inArray(schema.subscriptions.id, subIds))
-    
+
+  return rows.map((r) => {
+    const privileged = userId === r.ownerId || userId === r.payerId
+    return {
+      id: r.id,
+      name: r.name,
+      price: r.price,
+      currency: r.currency,
+      nextPayment: r.nextPayment,
+      inactive: r.inactive,
+      memberCount: r.memberCount,
+      tags: filterTagsForViewer(r.tags, privileged),
+    }
+  })
 }
 
 /**
