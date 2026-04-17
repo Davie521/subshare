@@ -1,3 +1,7 @@
+import type { SubscriptionTag } from "@/types/tags";
+
+export type { SubscriptionTag } from "@/types/tags";
+
 const BASE = "";
 const REQUEST_TIMEOUT_MS = 10_000;
 
@@ -45,7 +49,7 @@ export const api = {
 
   // Subscriptions
   getSubscriptions: () =>
-    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: boolean }>>("/api/subscriptions"),
+    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: boolean; tags: SubscriptionTag[] }>>("/api/subscriptions"),
   createSubscription: (body: {
     name: string;
     price: number;
@@ -54,6 +58,7 @@ export const api = {
     members?: number[];
     payerId?: number;
     refundPolicy?: "payer_absorbs" | "redistribute";
+    tags?: SubscriptionTag[];
   }) =>
     request<{ id: number; name: string }>(
       "/api/subscriptions",
@@ -73,6 +78,7 @@ export const api = {
       notes: string | null;
       inactive: boolean;
       refundPolicy: "payer_absorbs" | "redistribute";
+      tags: SubscriptionTag[];
       members: Array<{
         userId: number;
         displayName: string;

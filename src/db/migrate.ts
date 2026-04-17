@@ -86,9 +86,11 @@ export async function migrate(db: Db): Promise<void> {
       notify BOOLEAN NOT NULL DEFAULT TRUE,
       notify_days_before INTEGER NOT NULL DEFAULT 3,
       refund_policy TEXT NOT NULL DEFAULT 'payer_absorbs',
+      tags JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TEXT NOT NULL DEFAULT (now()::text)
     )`,
     `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS refund_policy TEXT NOT NULL DEFAULT 'payer_absorbs'`,
+    `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb`,
     // Enforce enum at the DB level so out-of-band writes can't land an
     // invalid value (app-layer Zod + TS casts would lie).
     `DO $$

@@ -3,6 +3,13 @@ import { z } from 'zod'
 export const CURRENCIES = ['CNY', 'USD', 'HKD', 'CAD', 'EUR', 'GBP', 'JPY'] as const
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
+export const tagSchema = z.object({
+  label: z.string().min(1).max(10),
+  visibility: z.enum(['public', 'private']),
+})
+
+export const tagArraySchema = z.array(tagSchema).max(5)
+
 export const createCircleSchema = z.object({
   name: z.string().min(1).max(60),
   memberIds: z.array(z.number().int().positive()).max(50).optional(),
@@ -31,6 +38,7 @@ export const createSubscriptionSchema = z.object({
   url: z.string().url().max(500).optional().or(z.literal('')),
   notes: z.string().max(1000).optional(),
   categoryId: z.number().int().positive().optional(),
+  tags: tagArraySchema.optional(),
 })
 
 export const updateSubscriptionSchema = z.object({
@@ -42,6 +50,7 @@ export const updateSubscriptionSchema = z.object({
     .transform((v) => (typeof v === 'number' ? v === 1 : v))
     .optional(),
   refundPolicy: z.enum(['payer_absorbs', 'redistribute']).optional(),
+  tags: tagArraySchema.optional(),
 })
 
 export const exchangeRateSchema = z.object({

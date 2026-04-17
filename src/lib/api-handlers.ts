@@ -1,6 +1,7 @@
 import { eq, and, inArray, or, desc, isNull } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
+import type { SubscriptionTag } from '@/db/schema'
 import {
   createSubscription,
   getPendingBills,
@@ -11,6 +12,7 @@ import {
   changeSubscriptionPrice,
   generateMonthlyBills,
 } from './db-operations'
+import { normalizeTags } from './tags'
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
 import {
@@ -83,6 +85,7 @@ export async function handleCreateSubscription(
     url?: string
     notes?: string
     categoryId?: number
+    tags?: SubscriptionTag[]
   }
 ): Promise<Result<{ id: number; name: string }>> {
   const invitees = (input.members ?? []).filter((id) => id !== userId)
@@ -699,6 +702,7 @@ export async function handleUpdateSubscription(
     nextPayment?: string
     inactive?: boolean
     refundPolicy?: 'payer_absorbs' | 'redistribute'
+    tags?: SubscriptionTag[]
   }
 ): Promise<Result> {
   const [sub] = await db
@@ -708,11 +712,33 @@ export async function handleUpdateSubscription(
 
 
   if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
-  if (sub.ownerId !== userId) {
-    return {
-      success: false,
-      error: 'Only the owner can update this subscription',
-      code: 'FORBIDDEN',
+  // Ownership model: owner controls subscription details; owner *or* payer
+  // controls tags (because tags often carry payment-card info, which is
+  // the payer's domain — and in most subs owner === payer anyway).
+  //
+  // Whitelist, not inference: a payer-not-owner caller is allowed only if
+  // every submitted key is on the payer-allowed list. If the Zod schema
+  // later grows new fields, they default to owner-only rather than
+  // silently opening a hole.
+  const isOwner = sub.ownerId === userId
+  const isPayer = sub.payerId === userId
+  const PAYER_ALLOWED_KEYS = new Set(['tags'])
+  if (!isOwner) {
+    const keys = Object.keys(input)
+    const hasOwnerOnlyKey = keys.some((k) => !PAYER_ALLOWED_KEYS.has(k))
+    if (hasOwnerOnlyKey) {
+      return {
+        success: false,
+        error: 'Only the owner can update this subscription',
+        code: 'FORBIDDEN',
+      }
+    }
+    if (!isPayer) {
+      return {
+        success: false,
+        error: 'Only the owner or payer can edit tags',
+        code: 'FORBIDDEN',
+      }
     }
   }
 
@@ -729,6 +755,7 @@ export async function handleUpdateSubscription(
     if (input.nextPayment !== undefined) updates.nextPayment = input.nextPayment
     if (input.inactive !== undefined) updates.inactive = input.inactive
     if (input.refundPolicy !== undefined) updates.refundPolicy = input.refundPolicy
+    if (input.tags !== undefined) updates.tags = normalizeTags(input.tags)
 
     if (Object.keys(updates).length > 0) {
       await tx

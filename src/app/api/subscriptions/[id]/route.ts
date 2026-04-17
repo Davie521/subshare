@@ -11,6 +11,7 @@ import { handleUpdateSubscription, handleDeleteSubscription } from '@/lib/api-ha
 import { updateSubscriptionSchema } from '@/lib/validators'
 import { and, eq, inArray, isNull } from 'drizzle-orm'
 import * as schema from '@/db/schema'
+import { filterTagsForViewer } from '@/lib/tags'
 
 export async function GET(
   _req: Request,
@@ -42,6 +43,7 @@ export async function GET(
         payerId: schema.subscriptions.payerId,
         notify: schema.subscriptions.notify,
         notifyDaysBefore: schema.subscriptions.notifyDaysBefore,
+        tags: schema.subscriptions.tags,
       })
       .from(schema.subscriptions)
       .where(eq(schema.subscriptions.id, numId))
@@ -111,7 +113,8 @@ export async function GET(
       }
     })
 
-    return NextResponse.json({ ...sub, members })
+    const tags = filterTagsForViewer(sub.tags, userId, sub.payerId)
+    return NextResponse.json({ ...sub, tags, members })
   })
 }
 
