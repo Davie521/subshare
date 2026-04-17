@@ -113,7 +113,9 @@ export async function GET(
       }
     })
 
-    const tags = filterTagsForViewer(sub.tags, userId, sub.payerId)
+    const viewerIsPrivileged =
+      userId === sub.ownerId || userId === sub.payerId
+    const tags = filterTagsForViewer(sub.tags, viewerIsPrivileged)
     return NextResponse.json({ ...sub, tags, members })
   })
 }

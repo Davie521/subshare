@@ -621,6 +621,7 @@ export async function getSubscriptionsForUser(
       currency: schema.subscriptions.currency,
       nextPayment: schema.subscriptions.nextPayment,
       inactive: schema.subscriptions.inactive,
+      ownerId: schema.subscriptions.ownerId,
       payerId: schema.subscriptions.payerId,
       tags: schema.subscriptions.tags,
       memberCount: sql<number>`(
@@ -632,16 +633,19 @@ export async function getSubscriptionsForUser(
     .from(schema.subscriptions)
     .where(inArray(schema.subscriptions.id, subIds))
 
-  return rows.map((r) => ({
-    id: r.id,
-    name: r.name,
-    price: r.price,
-    currency: r.currency,
-    nextPayment: r.nextPayment,
-    inactive: r.inactive,
-    memberCount: r.memberCount,
-    tags: filterTagsForViewer(r.tags, userId, r.payerId),
-  }))
+  return rows.map((r) => {
+    const privileged = userId === r.ownerId || userId === r.payerId
+    return {
+      id: r.id,
+      name: r.name,
+      price: r.price,
+      currency: r.currency,
+      nextPayment: r.nextPayment,
+      inactive: r.inactive,
+      memberCount: r.memberCount,
+      tags: filterTagsForViewer(r.tags, privileged),
+    }
+  })
 }
 
 /**

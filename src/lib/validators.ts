@@ -4,7 +4,9 @@ export const CURRENCIES = ['CNY', 'USD', 'HKD', 'CAD', 'EUR', 'GBP', 'JPY'] as c
 const DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/
 
 export const tagSchema = z.object({
-  label: z.string().min(1).max(10),
+  // trim first so whitespace-only labels fail min(1) at the API boundary
+  // instead of silently being dropped by normalizeTags later.
+  label: z.string().trim().min(1).max(10),
   visibility: z.enum(['public', 'private']),
 })
 

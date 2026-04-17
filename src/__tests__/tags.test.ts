@@ -10,6 +10,7 @@ import {
   handleCreateSubscription,
   handleUpdateSubscription,
 } from '@/lib/api-handlers'
+import { getSubscriptionsForUser } from '@/lib/db-operations'
 
 describe('tagSchema', () => {
   it('accepts a valid public tag', () => {
@@ -64,24 +65,24 @@ describe('filterTagsForViewer', () => {
     { label: 'Work', visibility: 'public' },
   ]
 
-  it('payer sees all tags', () => {
-    expect(filterTagsForViewer(tags, 1, 1)).toEqual(tags)
+  it('privileged viewer sees all tags', () => {
+    expect(filterTagsForViewer(tags, true)).toEqual(tags)
   })
 
-  it('non-payer sees only public tags', () => {
-    expect(filterTagsForViewer(tags, 2, 1)).toEqual([
+  it('non-privileged viewer sees only public tags', () => {
+    expect(filterTagsForViewer(tags, false)).toEqual([
       { label: 'Family', visibility: 'public' },
       { label: 'Work', visibility: 'public' },
     ])
   })
 
   it('handles null/undefined tags gracefully', () => {
-    expect(filterTagsForViewer(null as unknown as SubscriptionTag[], 2, 1)).toEqual([])
-    expect(filterTagsForViewer(undefined as unknown as SubscriptionTag[], 2, 1)).toEqual([])
+    expect(filterTagsForViewer(null as unknown as SubscriptionTag[], false)).toEqual([])
+    expect(filterTagsForViewer(undefined as unknown as SubscriptionTag[], false)).toEqual([])
   })
 
   it('returns empty array when no tags exist', () => {
-    expect(filterTagsForViewer([], 1, 1)).toEqual([])
+    expect(filterTagsForViewer([], true)).toEqual([])
   })
 })
 
@@ -155,6 +156,56 @@ describe('handleUpdateSubscription tag permissions', () => {
       tags: [{ label: 'Family', visibility: 'public' }],
     })
     expect(res.success).toBe(true)
+  })
+
+  it('owner-not-payer sees private tags in list response (prevents overwrite bug)', async () => {
+    const { ownerId, payerId, subId } = await setupPayerNotOwner()
+    // Payer writes a private tag.
+    await handleUpdateSubscription(db, payerId, subId, {
+      tags: [
+        { label: 'Family', visibility: 'public' },
+        { label: 'Visa 1234', visibility: 'private' },
+      ],
+    })
+    // Owner (different user) reads the list — must also see private tag,
+    // otherwise editing would silently wipe the payer's private tag.
+    const ownerSubs = await getSubscriptionsForUser(db, ownerId)
+    const s = ownerSubs.find((x) => x.id === subId)
+    expect(s?.tags).toEqual([
+      { label: 'Family', visibility: 'public' },
+      { label: 'Visa 1234', visibility: 'private' },
+    ])
+  })
+
+  it('regular member does not see private tags in list response', async () => {
+    const a = await createUser(db, { email: 'a2@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b2@t.com', currency: 'CNY' })
+    const created = await handleCreateSubscription(db, a, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      members: [b],
+      tags: [
+        { label: 'Family', visibility: 'public' },
+        { label: 'Visa 1234', visibility: 'private' },
+      ],
+    })
+    if (!created.success) throw new Error(created.error)
+    const bSubs = await getSubscriptionsForUser(db, b)
+    const s = bSubs.find((x) => x.id === created.data!.id)
+    expect(s?.tags).toEqual([{ label: 'Family', visibility: 'public' }])
+  })
+})
+
+describe('tagSchema whitespace handling', () => {
+  it('rejects whitespace-only label (not silent drop)', () => {
+    expect(tagSchema.safeParse({ label: '   ', visibility: 'public' }).success).toBe(false)
+  })
+
+  it('trims leading/trailing whitespace', () => {
+    const parsed = tagSchema.parse({ label: '  Family  ', visibility: 'public' })
+    expect(parsed.label).toBe('Family')
   })
 })
 

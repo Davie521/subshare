@@ -3,19 +3,22 @@ import type { SubscriptionTag } from '@/db/schema'
 const MAX_TAGS = 5
 
 /**
- * Filter tags for a viewer. The payer authored the tags and always sees
- * the complete list; everyone else only sees tags marked 'public'.
+ * Filter tags for a viewer. Privileged viewers (owner / payer — whoever
+ * the caller has decided is allowed to edit tags) see the full list;
+ * everyone else only sees tags marked 'public'.
+ *
+ * The caller decides privilege because the ownership model may evolve;
+ * this function stays role-agnostic.
  *
  * Robust to null / undefined input — returns [] rather than throwing so
  * legacy rows (pre-tags column) don't blow up the UI.
  */
 export function filterTagsForViewer(
   tags: SubscriptionTag[] | null | undefined,
-  viewerId: number,
-  payerId: number
+  viewerIsPrivileged: boolean
 ): SubscriptionTag[] {
   if (!Array.isArray(tags)) return []
-  if (viewerId === payerId) return tags
+  if (viewerIsPrivileged) return tags
   return tags.filter((t) => t.visibility === 'public')
 }
 

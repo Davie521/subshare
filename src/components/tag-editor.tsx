@@ -73,7 +73,7 @@ export function TagEditor({
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
         Short labels (up to {MAX_LABEL} chars). Private tags are only visible
-        to you.
+        to the owner and payer.
       </p>
 
       {tags.length > 0 && (

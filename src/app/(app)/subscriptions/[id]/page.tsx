@@ -544,7 +544,7 @@ export default function SubscriptionDetailPage() {
                   Tags
                 </p>
                 <p className="text-[12px] text-muted-foreground mt-0.5">
-                  Private tags are only visible to you.
+                  Private tags are only visible to the owner and payer.
                 </p>
               </div>
               {!editingTags && (
