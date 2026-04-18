@@ -19,6 +19,7 @@ type SharedSub = {
   currency: string;
   memberCount: number;
   myShare: number;
+  logo: string | null;
 };
 
 type Friend = {
@@ -318,7 +319,7 @@ function FriendCard({
                     "transition-colors cursor-pointer"
                   )}
                 >
-                  <BrandIcon name={s.name} size={20} />
+                  <BrandIcon name={s.logo || s.name} size={20} />
                   <span className="text-[13px] font-medium truncate flex-1">
                     {s.name}
                   </span>

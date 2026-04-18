@@ -18,7 +18,7 @@ export async function createSubscription(
     nextPayment: string
     ownerId: number
     payerId?: number
-    logo?: string
+    logo?: string | null
     url?: string
     notes?: string
     categoryId?: number
@@ -596,6 +596,7 @@ export async function getSubscriptionsForUser(
   memberCount: number
   inactive: boolean
   tags: SubscriptionTag[]
+  logo: string | null
 }>> {
   // All subs the user is an active member of (subscription_members is
   // authoritative). Covers both owned personal subs (owner auto-added on
@@ -624,6 +625,7 @@ export async function getSubscriptionsForUser(
       ownerId: schema.subscriptions.ownerId,
       payerId: schema.subscriptions.payerId,
       tags: schema.subscriptions.tags,
+      logo: schema.subscriptions.logo,
       memberCount: sql<number>`(
         SELECT count(*)::int FROM subscription_members
         WHERE subscription_id = ${schema.subscriptions.id}
@@ -644,6 +646,7 @@ export async function getSubscriptionsForUser(
       inactive: r.inactive,
       memberCount: r.memberCount,
       tags: filterTagsForViewer(r.tags, privileged),
+      logo: r.logo,
     }
   })
 }
@@ -1013,6 +1016,7 @@ export async function getMonthlySpendingData(
   price: number
   currency: string
   memberCount: number
+  logo: string | null
 }>> {
   const subs = await getSubscriptionsForUser(db, userId)
   return subs
@@ -1023,6 +1027,7 @@ export async function getMonthlySpendingData(
       price: s.price,
       currency: s.currency,
       memberCount: s.memberCount,
+      logo: s.logo,
     }))
 }
 

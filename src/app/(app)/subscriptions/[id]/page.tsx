@@ -26,6 +26,7 @@ import { BrandIcon } from "@/components/brand-icon";
 import { UserAvatar } from "@/components/user-avatar";
 import { TagChipList } from "@/components/tag-chip";
 import { TagEditor } from "@/components/tag-editor";
+import { IconPicker } from "@/components/icon-picker";
 
 type Member = {
   userId: number;
@@ -89,6 +90,9 @@ export default function SubscriptionDetailPage() {
   const [editingTags, setEditingTags] = useState(false);
   const [tagsDraft, setTagsDraft] = useState<SubscriptionTag[]>([]);
   const [tagsError, setTagsError] = useState<string | null>(null);
+
+  const [iconPickerOpen, setIconPickerOpen] = useState(false);
+  const [iconError, setIconError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -292,6 +296,25 @@ export default function SubscriptionDetailPage() {
     await load();
   }
 
+  async function handleChangeLogo(newLogo: string | null) {
+    if (!sub) return;
+    setBusy(true);
+    setIconError(null);
+    try {
+      const res = await api.updateSubscription(sub.id, { logo: newLogo });
+      if (res.error) {
+        setIconError(res.error);
+        return;
+      }
+      setIconPickerOpen(false);
+      await load();
+    } catch (err) {
+      setIconError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   function startEditTags() {
     if (!sub) return;
     setTagsDraft(sub.tags);
@@ -359,7 +382,7 @@ export default function SubscriptionDetailPage() {
           {editing ? (
             <div className="space-y-4">
               <div className="flex items-center gap-4">
-                <BrandIcon name={editForm.name || sub.name} size={52} />
+                <BrandIcon name={sub.logo || editForm.name || sub.name} size={52} />
                 <div className="flex-1 space-y-1.5">
                   <Label htmlFor="sub-name" className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                     Name
@@ -493,7 +516,25 @@ export default function SubscriptionDetailPage() {
             </div>
           ) : (
             <div className="flex items-center gap-4">
-              <BrandIcon name={sub.name} size={52} />
+              {selfIsOwnerOrPayer ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIconError(null);
+                    setIconPickerOpen(true);
+                  }}
+                  className="relative group cursor-pointer rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+                  aria-label="Change icon"
+                  title="Change icon"
+                >
+                  <BrandIcon name={sub.logo || sub.name} size={52} />
+                  <span className="pointer-events-none absolute inset-0 rounded-md bg-foreground/0 group-hover:bg-foreground/20 transition-colors flex items-center justify-center">
+                    <Pencil className="size-4 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                  </span>
+                </button>
+              ) : (
+                <BrandIcon name={sub.logo || sub.name} size={52} />
+              )}
               <div className="min-w-0 flex-1">
                 <h1 className="text-[26px] font-bold tracking-[-0.022em] truncate">
                   {sub.name}
@@ -609,6 +650,9 @@ export default function SubscriptionDetailPage() {
 
       {actionError && (
         <p className="text-[13px] font-medium text-destructive">{actionError}</p>
+      )}
+      {iconError && (
+        <p className="text-[13px] font-medium text-destructive">{iconError}</p>
       )}
 
       {/* Members */}
@@ -922,6 +966,15 @@ export default function SubscriptionDetailPage() {
           </Card>
         )}
       </section>
+
+      {iconPickerOpen && (
+        <IconPicker
+          currentLogo={sub.logo}
+          onSelect={(name) => void handleChangeLogo(name)}
+          onReset={() => void handleChangeLogo(null)}
+          onClose={() => setIconPickerOpen(false)}
+        />
+      )}
     </div>
   );
 }

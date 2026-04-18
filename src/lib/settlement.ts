@@ -10,6 +10,7 @@ export interface SettlementBill {
   id: number
   subscriptionId: number
   subscriptionName: string
+  subscriptionLogo: string | null
   billingDate: string
   amount: number
   /** 'outgoing' = I owe counterparty; 'incoming' = counterparty owes me. */
@@ -35,6 +36,7 @@ interface BillRow {
   id: number
   subscriptionId: number
   subscriptionName: string
+  subscriptionLogo: string | null
   billingDate: string
   userId: number
   amount: number
@@ -50,6 +52,7 @@ async function fetchBills(db: DB, viewerId: number, paid: boolean): Promise<Bill
     id: schema.billingRecords.id,
     subscriptionId: schema.billingRecords.subscriptionId,
     subscriptionName: schema.subscriptions.name,
+    subscriptionLogo: schema.subscriptions.logo,
     billingDate: schema.billingRecords.billingDate,
     userId: schema.billingRecords.userId,
     amount: schema.billingRecords.amount,
@@ -131,6 +134,7 @@ function bucketByPairCurrency(
       id: b.id,
       subscriptionId: b.subscriptionId,
       subscriptionName: b.subscriptionName,
+      subscriptionLogo: b.subscriptionLogo,
       billingDate: b.billingDate,
       amount: b.amount,
       direction: iOwe ? 'outgoing' : 'incoming',
@@ -205,6 +209,7 @@ export interface NormalizedSettlementBill {
   id: number
   subscriptionId: number
   subscriptionName: string
+  subscriptionLogo: string | null
   billingDate: string
   /** Bill amount converted into `displayCurrency` (cents). */
   convertedAmount: number
@@ -322,6 +327,7 @@ export async function getNormalizedSettlement(
       id: b.id,
       subscriptionId: b.subscriptionId,
       subscriptionName: b.subscriptionName,
+      subscriptionLogo: b.subscriptionLogo,
       billingDate: b.billingDate,
       convertedAmount: converted,
       direction: iOwe ? 'outgoing' : 'incoming',

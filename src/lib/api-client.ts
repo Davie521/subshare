@@ -44,12 +44,12 @@ export const api = {
     request<{
       monthlyTotal: number;
       pendingBills: Array<{ id: number; subscriptionName: string; amount: number; currency: string }>;
-      subscriptions: Array<{ id: number; name: string; price: number; currency: string; memberCount: number }>;
+      subscriptions: Array<{ id: number; name: string; price: number; currency: string; memberCount: number; logo: string | null }>;
     }>("/api/dashboard"),
 
   // Subscriptions
   getSubscriptions: () =>
-    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: boolean; tags: SubscriptionTag[] }>>("/api/subscriptions"),
+    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: boolean; tags: SubscriptionTag[]; logo: string | null }>>("/api/subscriptions"),
   createSubscription: (body: {
     name: string;
     price: number;
@@ -59,6 +59,7 @@ export const api = {
     payerId?: number;
     refundPolicy?: "payer_absorbs" | "redistribute";
     tags?: SubscriptionTag[];
+    logo?: string | null;
   }) =>
     request<{ id: number; name: string }>(
       "/api/subscriptions",
@@ -129,6 +130,7 @@ export const api = {
           currency: string;
           memberCount: number;
           myShare: number;
+          logo: string | null;
         }>;
         nets: Array<{ currency: string; net: number }>;
         agreedCurrency: string | null;
@@ -153,6 +155,7 @@ export const api = {
           id: number;
           subscriptionId: number;
           subscriptionName: string;
+          subscriptionLogo: string | null;
           billingDate: string;
           convertedAmount: number;
           direction: "outgoing" | "incoming";

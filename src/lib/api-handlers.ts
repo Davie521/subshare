@@ -81,7 +81,7 @@ export async function handleCreateSubscription(
     members?: number[]
     payerId?: number
     refundPolicy?: 'payer_absorbs' | 'redistribute'
-    logo?: string
+    logo?: string | null
     url?: string
     notes?: string
     categoryId?: number
@@ -404,6 +404,7 @@ export interface FriendSharedSub {
   currency: string
   memberCount: number
   myShare: number
+  logo: string | null
 }
 
 export interface FriendNet {
@@ -500,6 +501,7 @@ export async function handleListFriends(
               price: schema.subscriptions.price,
               currency: schema.subscriptions.currency,
               inactive: schema.subscriptions.inactive,
+              logo: schema.subscriptions.logo,
             })
             .from(schema.subscriptions)
             .where(inArray(schema.subscriptions.id, mySubIds))
@@ -568,6 +570,7 @@ export async function handleListFriends(
           currency: sub.currency,
           memberCount,
           myShare: Math.floor(sub.price / memberCount),
+          logo: sub.logo,
         })
       }
 
@@ -703,6 +706,7 @@ export async function handleUpdateSubscription(
     inactive?: boolean
     refundPolicy?: 'payer_absorbs' | 'redistribute'
     tags?: SubscriptionTag[]
+    logo?: string | null
   }
 ): Promise<Result> {
   const [sub] = await db
@@ -713,8 +717,8 @@ export async function handleUpdateSubscription(
 
   if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
   // Ownership model: owner controls subscription details; owner *or* payer
-  // controls tags (because tags often carry payment-card info, which is
-  // the payer's domain — and in most subs owner === payer anyway).
+  // controls visual/metadata fields (tags carry card info; logo is the
+  // per-sub brand icon). In most subs owner === payer anyway.
   //
   // Whitelist, not inference: a payer-not-owner caller is allowed only if
   // every submitted key is on the payer-allowed list. If the Zod schema
@@ -722,7 +726,7 @@ export async function handleUpdateSubscription(
   // silently opening a hole.
   const isOwner = sub.ownerId === userId
   const isPayer = sub.payerId === userId
-  const PAYER_ALLOWED_KEYS = new Set(['tags'])
+  const PAYER_ALLOWED_KEYS = new Set(['tags', 'logo'])
   if (!isOwner) {
     const keys = Object.keys(input)
     const hasOwnerOnlyKey = keys.some((k) => !PAYER_ALLOWED_KEYS.has(k))
@@ -736,7 +740,7 @@ export async function handleUpdateSubscription(
     if (!isPayer) {
       return {
         success: false,
-        error: 'Only the owner or payer can edit tags',
+        error: 'Only the owner or payer can edit tags or logo',
         code: 'FORBIDDEN',
       }
     }
@@ -756,6 +760,7 @@ export async function handleUpdateSubscription(
     if (input.inactive !== undefined) updates.inactive = input.inactive
     if (input.refundPolicy !== undefined) updates.refundPolicy = input.refundPolicy
     if (input.tags !== undefined) updates.tags = normalizeTags(input.tags)
+    if (input.logo !== undefined) updates.logo = input.logo
 
     if (Object.keys(updates).length > 0) {
       await tx
@@ -836,6 +841,7 @@ export async function handleGetDashboard(
     price: number
     currency: string
     memberCount: number
+    logo: string | null
   }>
 }> {
   const spendingData = await getMonthlySpendingData(db, userId)

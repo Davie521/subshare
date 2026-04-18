@@ -25,6 +25,7 @@ type Dashboard = {
     price: number;
     currency: string;
     memberCount: number;
+    logo: string | null;
   }>;
 };
 
@@ -323,6 +324,7 @@ function SubRow({
     price: number;
     currency: string;
     memberCount: number;
+    logo: string | null;
   };
   shared?: boolean;
 }) {
@@ -335,7 +337,7 @@ function SubRow({
       href={`/subscriptions/${sub.id}`}
       className="group flex items-center gap-3 px-3.5 py-3 rounded-lg border border-transparent transition-colors cursor-pointer hover:bg-foreground/[0.025] hover:border-[rgba(0,0,0,0.06)] dark:hover:bg-white/[0.03] dark:hover:border-white/[0.06]"
     >
-      <BrandIcon name={sub.name} size={32} className="shrink-0" />
+      <BrandIcon name={sub.logo || sub.name} size={32} className="shrink-0" />
       <div className="min-w-0 flex-1">
         <p className="text-[14px] font-semibold truncate leading-tight">
           {sub.name}
