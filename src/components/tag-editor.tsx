@@ -5,7 +5,6 @@ import {
   forwardRef,
   useImperativeHandle,
   useRef,
-  useEffect,
 } from "react";
 import { Lock, Globe, X, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -34,6 +33,28 @@ export interface TagEditorHandle {
 }
 
 /**
+ * Pure helper — produces the tag array that would result from appending
+ * `rawLabel` (with `visibility`) to `current`, or `null` if the append
+ * isn't valid (empty / too long / duplicate / over cap). Both the
+ * Add-button path and the imperative commitPending() path go through
+ * this so their behaviour can't drift.
+ */
+function buildNextTags(
+  current: SubscriptionTag[],
+  rawLabel: string,
+  visibility: SubscriptionTag["visibility"]
+): SubscriptionTag[] | null {
+  const label = rawLabel.trim();
+  if (label.length === 0 || label.length > MAX_LABEL) return null;
+  if (current.length >= MAX_TAGS) return null;
+  const dup = current.some(
+    (t) => t.label.toLowerCase() === label.toLowerCase()
+  );
+  if (dup) return null;
+  return [...current, { label, visibility }];
+}
+
+/**
  * Tag editor — list existing tags as chips (removable), an input row to
  * add new ones with a visibility toggle (public / private). Caps at
  * MAX_TAGS; de-dupes on label (case-insensitive).
@@ -52,40 +73,43 @@ export const TagEditor = forwardRef<
   const [draftVisibility, setDraftVisibility] = useState<"public" | "private">(
     "private"
   );
-  // Refs mirroring props/state so imperative commitPending() can see the
-  // latest values without waiting for a re-render. Sync via useEffect
-  // rather than during render (React rule: refs aren't for render deps).
-  // This adds a one-tick lag, but commitPending is called from click
-  // handlers which fire after paint, so the refs are always fresh then.
+  // Refs synced inline with their setters (not via useEffect) so
+  // commitPending() always reads the latest values, even when the
+  // parent's Save click fires in the same tick as the last keystroke.
   const tagsRef = useRef(tags);
+  tagsRef.current = tags; // eslint-disable-line react-hooks/refs -- props mirror, see commitPending
   const draftLabelRef = useRef(draftLabel);
   const draftVisibilityRef = useRef(draftVisibility);
   const disabledRef = useRef(disabled);
-  useEffect(() => {
-    tagsRef.current = tags;
-  }, [tags]);
-  useEffect(() => {
-    draftLabelRef.current = draftLabel;
-  }, [draftLabel]);
-  useEffect(() => {
-    draftVisibilityRef.current = draftVisibility;
-  }, [draftVisibility]);
-  useEffect(() => {
-    disabledRef.current = disabled;
-  }, [disabled]);
+  disabledRef.current = disabled; // eslint-disable-line react-hooks/refs -- props mirror
 
-  const atCap = tags.length >= MAX_TAGS;
+  function updateDraftLabel(next: string) {
+    draftLabelRef.current = next;
+    setDraftLabel(next);
+  }
+  function updateDraftVisibility(next: "public" | "private") {
+    draftVisibilityRef.current = next;
+    setDraftVisibility(next);
+  }
+
   const trimmed = draftLabel.trim();
   const isDup = tags.some(
     (t) => t.label.toLowerCase() === trimmed.toLowerCase()
   );
+  const atCap = tags.length >= MAX_TAGS;
   const canAdd =
-    !disabled && !atCap && trimmed.length > 0 && trimmed.length <= MAX_LABEL && !isDup;
+    !disabled &&
+    !atCap &&
+    trimmed.length > 0 &&
+    trimmed.length <= MAX_LABEL &&
+    !isDup;
 
   function handleAdd() {
-    if (!canAdd) return;
-    onChange([...tags, { label: trimmed, visibility: draftVisibility }]);
-    setDraftLabel("");
+    if (disabled) return;
+    const next = buildNextTags(tags, draftLabel, draftVisibility);
+    if (!next) return;
+    onChange(next);
+    updateDraftLabel("");
   }
 
   function removeAt(idx: number) {
@@ -110,20 +134,14 @@ export const TagEditor = forwardRef<
     () => ({
       commitPending() {
         if (disabledRef.current) return null;
-        const label = draftLabelRef.current.trim();
-        if (label.length === 0 || label.length > MAX_LABEL) return null;
-        const current = tagsRef.current;
-        if (current.length >= MAX_TAGS) return null;
-        const dup = current.some(
-          (t) => t.label.toLowerCase() === label.toLowerCase()
+        const next = buildNextTags(
+          tagsRef.current,
+          draftLabelRef.current,
+          draftVisibilityRef.current
         );
-        if (dup) return null;
-        const next: SubscriptionTag[] = [
-          ...current,
-          { label, visibility: draftVisibilityRef.current },
-        ];
+        if (!next) return null;
         onChange(next);
-        setDraftLabel("");
+        updateDraftLabel("");
         return next;
       },
     }),
@@ -192,7 +210,7 @@ export const TagEditor = forwardRef<
         <div className="flex items-stretch gap-2">
           <Input
             value={draftLabel}
-            onChange={(e) => setDraftLabel(e.target.value.slice(0, MAX_LABEL))}
+            onChange={(e) => updateDraftLabel(e.target.value.slice(0, MAX_LABEL))}
             placeholder="e.g. Visa 1234"
             maxLength={MAX_LABEL}
             disabled={disabled}
@@ -207,7 +225,7 @@ export const TagEditor = forwardRef<
           <button
             type="button"
             onClick={() =>
-              setDraftVisibility((v) => (v === "public" ? "private" : "public"))
+              updateDraftVisibility(draftVisibility === "public" ? "private" : "public")
             }
             disabled={disabled}
             className={cn(
