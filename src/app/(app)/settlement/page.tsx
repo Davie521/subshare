@@ -15,6 +15,7 @@ type SettlementBill = {
   id: number;
   subscriptionId: number;
   subscriptionName: string;
+  subscriptionLogo: string | null;
   billingDate: string;
   convertedAmount: number;
   direction: "outgoing" | "incoming";
@@ -378,7 +379,7 @@ function BillRow({
           : "hover:bg-foreground/[0.02] dark:hover:bg-white/[0.02]"
       )}
     >
-      <BrandIcon name={bill.subscriptionName} size={20} />
+      <BrandIcon name={bill.subscriptionLogo || bill.subscriptionName} size={20} />
       <div className="flex-1 min-w-0 flex items-baseline gap-2">
         <p className="text-[13px] font-medium truncate">
           {bill.subscriptionName}

@@ -20,6 +20,7 @@ type Sub = {
   memberCount: number;
   inactive: boolean;
   tags: SubscriptionTag[];
+  logo: string | null;
 };
 
 export default function SubscriptionsPage() {
@@ -95,7 +96,7 @@ function SubCard({ sub }: { sub: Sub }) {
     <Card className="cursor-pointer hover:bg-muted/50 transition-colors duration-150">
       <CardContent className="pt-4 pb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <BrandIcon name={sub.name} size={24} />
+          <BrandIcon name={sub.logo || sub.name} size={24} />
           <div>
           <p className="font-medium">{sub.name}</p>
           <div className="flex items-center gap-2 mt-1 flex-wrap">

@@ -275,6 +275,10 @@ function SubscriptionForm({
       price,
       currency: form.currency,
       nextPayment: form.nextPayment,
+      // Lock the icon at creation: template picks → service key; custom → null.
+      // Decouples the rendered icon from later renames (e.g. "Netflix" →
+      // "家用 Netflix" must keep the Netflix logo).
+      ...(service ? { logo: service.name } : {}),
       ...(tags.length > 0 ? { tags } : {}),
       ...(mode === "shared"
         ? {

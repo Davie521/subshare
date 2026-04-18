@@ -32,11 +32,10 @@ export const createSubscriptionSchema = z.object({
   members: z.array(z.number().int().positive()).max(50).optional(),
   payerId: z.number().int().positive().optional(),
   refundPolicy: z.enum(['payer_absorbs', 'redistribute']).optional(),
-  logo: z
-    .string()
-    .max(500)
-    .regex(/^(https:\/\/|\/icons\/)/, 'Logo must be an https URL or /icons/ path')
-    .optional(),
+  // Accepts either a manifest key ("Netflix") or a path ("/icons/netflix.svg")
+  // or a full https URL. The former is what the template picker persists;
+  // the latter two are legacy shapes. BrandIcon resolves all three.
+  logo: z.string().max(100).nullable().optional(),
   url: z.string().url().max(500).optional().or(z.literal('')),
   notes: z.string().max(1000).optional(),
   categoryId: z.number().int().positive().optional(),
@@ -53,6 +52,7 @@ export const updateSubscriptionSchema = z.object({
     .optional(),
   refundPolicy: z.enum(['payer_absorbs', 'redistribute']).optional(),
   tags: tagArraySchema.optional(),
+  logo: z.string().max(100).nullable().optional(),
 })
 
 export const exchangeRateSchema = z.object({
