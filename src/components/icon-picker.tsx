@@ -35,6 +35,14 @@ export function IconPicker({
   const [search, setSearch] = useState("");
   const [activeCategory, setActiveCategory] = useState<string | null>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
+  // Stash onClose in a ref so the effect below doesn't re-bind a window
+  // listener on every parent render. Parents typically pass an inline
+  // `onClose={() => ...}`, so without this the keydown/listener pair
+  // would churn once per keystroke in the search input.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
 
   // Close on Escape for keyboard users; trap Tab inside the dialog so keyboard
   // users can't walk back into the underlying page while the modal is open.
@@ -54,7 +62,7 @@ export function IconPicker({
 
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== "Tab") return;
@@ -80,7 +88,7 @@ export function IconPicker({
         previouslyFocused.focus();
       }
     };
-  }, [onClose]);
+  }, []);
 
   const filtered = useMemo(() => {
     let list = POPULAR_SERVICES;

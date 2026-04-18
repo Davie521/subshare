@@ -12,6 +12,18 @@ export const tagSchema = z.object({
 
 export const tagArraySchema = z.array(tagSchema).max(5)
 
+// A manifest key ("Netflix") from the build-time icon bundle, or null.
+// `findBrandIcon` resolves manifest keys; unknown values render as a
+// generated first-letter SVG, so any stray value remains visually safe.
+// Empty / whitespace-only strings are rejected here — callers should
+// pass `null` for "no logo" instead of "".
+export const logoSchema = z
+  .string()
+  .max(100)
+  .refine((s) => s.trim().length > 0, 'Logo must not be empty')
+  .nullable()
+  .optional()
+
 export const createCircleSchema = z.object({
   name: z.string().min(1).max(60),
   memberIds: z.array(z.number().int().positive()).max(50).optional(),
@@ -32,10 +44,7 @@ export const createSubscriptionSchema = z.object({
   members: z.array(z.number().int().positive()).max(50).optional(),
   payerId: z.number().int().positive().optional(),
   refundPolicy: z.enum(['payer_absorbs', 'redistribute']).optional(),
-  // Accepts either a manifest key ("Netflix") or a path ("/icons/netflix.svg")
-  // or a full https URL. The former is what the template picker persists;
-  // the latter two are legacy shapes. BrandIcon resolves all three.
-  logo: z.string().max(100).nullable().optional(),
+  logo: logoSchema,
   url: z.string().url().max(500).optional().or(z.literal('')),
   notes: z.string().max(1000).optional(),
   categoryId: z.number().int().positive().optional(),
@@ -52,7 +61,7 @@ export const updateSubscriptionSchema = z.object({
     .optional(),
   refundPolicy: z.enum(['payer_absorbs', 'redistribute']).optional(),
   tags: tagArraySchema.optional(),
-  logo: z.string().max(100).nullable().optional(),
+  logo: logoSchema,
 })
 
 export const exchangeRateSchema = z.object({

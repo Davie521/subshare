@@ -10,7 +10,7 @@ import {
 } from '@/lib/api-handlers'
 import { getSubscriptionsForUser } from '@/lib/db-operations'
 
-describe('logo validator (loosened)', () => {
+describe('logo validator', () => {
   const valid = {
     name: 'Test',
     price: 1000,
@@ -18,30 +18,29 @@ describe('logo validator (loosened)', () => {
     nextPayment: '2026-06-01',
   } as const
 
-  it('accepts bare service key (manifest lookup)', () => {
+  it('accepts a manifest key (resolves via findBrandIcon)', () => {
     const r = createSubscriptionSchema.safeParse({ ...valid, logo: 'Netflix' })
-    expect(r.success).toBe(true)
-  })
-
-  it('accepts /icons/ path (legacy)', () => {
-    const r = createSubscriptionSchema.safeParse({
-      ...valid,
-      logo: '/icons/netflix.svg',
-    })
-    expect(r.success).toBe(true)
-  })
-
-  it('accepts https URL (legacy)', () => {
-    const r = createSubscriptionSchema.safeParse({
-      ...valid,
-      logo: 'https://example.com/logo.png',
-    })
     expect(r.success).toBe(true)
   })
 
   it('accepts null (reset path)', () => {
     const r = updateSubscriptionSchema.safeParse({ logo: null })
     expect(r.success).toBe(true)
+  })
+
+  it('accepts omitting the field entirely', () => {
+    const r = updateSubscriptionSchema.safeParse({})
+    expect(r.success).toBe(true)
+  })
+
+  it('rejects empty string — callers must pass null for "no logo"', () => {
+    const r = createSubscriptionSchema.safeParse({ ...valid, logo: '' })
+    expect(r.success).toBe(false)
+  })
+
+  it('rejects whitespace-only string', () => {
+    const r = createSubscriptionSchema.safeParse({ ...valid, logo: '   ' })
+    expect(r.success).toBe(false)
   })
 
   it('rejects string over 100 chars', () => {
