@@ -1,6 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import {
+  useState,
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+} from "react";
 import { Lock, Globe, X, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -11,6 +16,44 @@ import type { SubscriptionTag } from "@/lib/api-client";
 const MAX_TAGS = 5;
 const MAX_LABEL = 10;
 
+export interface TagEditorHandle {
+  /**
+   * Commit whatever is currently typed in the input row as a new tag,
+   * bypassing the need to click Add first. Parents should call this
+   * right before persisting (Save / Submit) so a user who typed a tag
+   * and clicked Save without pressing Add doesn't lose the text.
+   *
+   * Returns the post-commit tag list if a commit actually happened, or
+   * `null` when the input was empty / duplicate / disabled / at cap.
+   * Callers should use the returned array for persistence because
+   * React state updates scheduled from onChange won't be visible in the
+   * same synchronous click handler.
+   */
+  commitPending: () => SubscriptionTag[] | null;
+}
+
+/**
+ * Pure helper — produces the tag array that would result from appending
+ * `rawLabel` (with `visibility`) to `current`, or `null` if the append
+ * isn't valid (empty / too long / duplicate / over cap). Both the
+ * Add-button path and the imperative commitPending() path go through
+ * this so their behaviour can't drift.
+ */
+function buildNextTags(
+  current: SubscriptionTag[],
+  rawLabel: string,
+  visibility: SubscriptionTag["visibility"]
+): SubscriptionTag[] | null {
+  const label = rawLabel.trim();
+  if (label.length === 0 || label.length > MAX_LABEL) return null;
+  if (current.length >= MAX_TAGS) return null;
+  const dup = current.some(
+    (t) => t.label.toLowerCase() === label.toLowerCase()
+  );
+  if (dup) return null;
+  return [...current, { label, visibility }];
+}
+
 /**
  * Tag editor — list existing tags as chips (removable), an input row to
  * add new ones with a visibility toggle (public / private). Caps at
@@ -18,32 +61,55 @@ const MAX_LABEL = 10;
  *
  * Controlled: parent owns `tags` state and receives `onChange` updates.
  */
-export function TagEditor({
-  tags,
-  onChange,
-  disabled = false,
-}: {
-  tags: SubscriptionTag[];
-  onChange: (next: SubscriptionTag[]) => void;
-  disabled?: boolean;
-}) {
+export const TagEditor = forwardRef<
+  TagEditorHandle,
+  {
+    tags: SubscriptionTag[];
+    onChange: (next: SubscriptionTag[]) => void;
+    disabled?: boolean;
+  }
+>(function TagEditor({ tags, onChange, disabled = false }, ref) {
   const [draftLabel, setDraftLabel] = useState("");
   const [draftVisibility, setDraftVisibility] = useState<"public" | "private">(
     "private"
   );
+  // Refs synced inline with their setters (not via useEffect) so
+  // commitPending() always reads the latest values, even when the
+  // parent's Save click fires in the same tick as the last keystroke.
+  const tagsRef = useRef(tags);
+  tagsRef.current = tags; // eslint-disable-line react-hooks/refs -- props mirror, see commitPending
+  const draftLabelRef = useRef(draftLabel);
+  const draftVisibilityRef = useRef(draftVisibility);
+  const disabledRef = useRef(disabled);
+  disabledRef.current = disabled; // eslint-disable-line react-hooks/refs -- props mirror
 
-  const atCap = tags.length >= MAX_TAGS;
+  function updateDraftLabel(next: string) {
+    draftLabelRef.current = next;
+    setDraftLabel(next);
+  }
+  function updateDraftVisibility(next: "public" | "private") {
+    draftVisibilityRef.current = next;
+    setDraftVisibility(next);
+  }
+
   const trimmed = draftLabel.trim();
   const isDup = tags.some(
     (t) => t.label.toLowerCase() === trimmed.toLowerCase()
   );
+  const atCap = tags.length >= MAX_TAGS;
   const canAdd =
-    !disabled && !atCap && trimmed.length > 0 && trimmed.length <= MAX_LABEL && !isDup;
+    !disabled &&
+    !atCap &&
+    trimmed.length > 0 &&
+    trimmed.length <= MAX_LABEL &&
+    !isDup;
 
   function handleAdd() {
-    if (!canAdd) return;
-    onChange([...tags, { label: trimmed, visibility: draftVisibility }]);
-    setDraftLabel("");
+    if (disabled) return;
+    const next = buildNextTags(tags, draftLabel, draftVisibility);
+    if (!next) return;
+    onChange(next);
+    updateDraftLabel("");
   }
 
   function removeAt(idx: number) {
@@ -63,6 +129,25 @@ export function TagEditor({
     );
   }
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      commitPending() {
+        if (disabledRef.current) return null;
+        const next = buildNextTags(
+          tagsRef.current,
+          draftLabelRef.current,
+          draftVisibilityRef.current
+        );
+        if (!next) return null;
+        onChange(next);
+        updateDraftLabel("");
+        return next;
+      },
+    }),
+    [onChange]
+  );
+
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between">
@@ -73,7 +158,7 @@ export function TagEditor({
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
         Short labels (up to {MAX_LABEL} chars). Private tags are only visible
-        to the owner and payer.
+        to the owner and payer. Press Enter or click Add to add.
       </p>
 
       {tags.length > 0 && (
@@ -96,7 +181,7 @@ export function TagEditor({
                 aria-label={`Toggle visibility for ${t.label}`}
                 title={
                   t.visibility === "private"
-                    ? "Private — only you see this. Click to make public."
+                    ? "Private — only the owner and payer see this. Click to make public."
                     : "Public — all members see this. Click to make private."
                 }
               >
@@ -125,7 +210,7 @@ export function TagEditor({
         <div className="flex items-stretch gap-2">
           <Input
             value={draftLabel}
-            onChange={(e) => setDraftLabel(e.target.value.slice(0, MAX_LABEL))}
+            onChange={(e) => updateDraftLabel(e.target.value.slice(0, MAX_LABEL))}
             placeholder="e.g. Visa 1234"
             maxLength={MAX_LABEL}
             disabled={disabled}
@@ -140,7 +225,7 @@ export function TagEditor({
           <button
             type="button"
             onClick={() =>
-              setDraftVisibility((v) => (v === "public" ? "private" : "public"))
+              updateDraftVisibility(draftVisibility === "public" ? "private" : "public")
             }
             disabled={disabled}
             className={cn(
@@ -152,7 +237,7 @@ export function TagEditor({
             aria-label="Toggle tag visibility"
             title={
               draftVisibility === "private"
-                ? "Private — only you see it"
+                ? "Private — only the owner and payer see it"
                 : "Public — everyone sees it"
             }
           >
@@ -173,10 +258,11 @@ export function TagEditor({
             variant="outline"
             onClick={handleAdd}
             disabled={!canAdd}
-            className="cursor-pointer"
+            className="cursor-pointer gap-1.5"
             aria-label="Add tag"
           >
             <Plus className="h-4 w-4" />
+            Add
           </Button>
         </div>
       )}
@@ -185,4 +271,4 @@ export function TagEditor({
       )}
     </div>
   );
-}
+});

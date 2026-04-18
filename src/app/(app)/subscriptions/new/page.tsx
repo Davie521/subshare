@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Suspense, useMemo } from "react";
+import { useState, useEffect, Suspense, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,7 +12,7 @@ import { Users, Plus, Search, ArrowLeft, Pencil } from "lucide-react";
 import { api, type SubscriptionTag } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 import { BrandIcon } from "@/components/brand-icon";
-import { TagEditor } from "@/components/tag-editor";
+import { TagEditor, type TagEditorHandle } from "@/components/tag-editor";
 import { POPULAR_SERVICES, CATEGORIES, type ServiceTemplate } from "@/lib/popular-services";
 import { formatMoney } from "@/lib/format";
 
@@ -215,6 +215,7 @@ function SubscriptionForm({
   >("payer_absorbs");
   const [circles, setCircles] = useState<Array<{ id: number; name: string; memberIds: number[]; defaultPayerId: number | null }>>([]);
   const [tags, setTags] = useState<SubscriptionTag[]>([]);
+  const tagEditorRef = useRef<TagEditorHandle>(null);
 
   useEffect(() => {
     void api.me().then((r) => {
@@ -270,6 +271,13 @@ function SubscriptionForm({
     setSubmitting(true);
     setError("");
 
+    // Flush any text still in the TagEditor input so a user who typed a
+    // tag and clicked Add Subscription without clicking Add doesn't lose it.
+    // commitPending returns the post-commit array; fall back to the stale
+    // `tags` state when nothing was pending.
+    const committedTags = tagEditorRef.current?.commitPending();
+    const finalTags = committedTags ?? tags;
+
     const res = await api.createSubscription({
       name: form.name.trim(),
       price,
@@ -279,7 +287,7 @@ function SubscriptionForm({
       // Decouples the rendered icon from later renames (e.g. "Netflix" →
       // "家用 Netflix" must keep the Netflix logo).
       ...(service ? { logo: service.name } : {}),
-      ...(tags.length > 0 ? { tags } : {}),
+      ...(finalTags.length > 0 ? { tags: finalTags } : {}),
       ...(mode === "shared"
         ? {
             members: selectedMemberIds,
@@ -374,7 +382,7 @@ function SubscriptionForm({
               />
             </div>
 
-            <TagEditor tags={tags} onChange={setTags} />
+            <TagEditor ref={tagEditorRef} tags={tags} onChange={setTags} />
           </CardContent>
         </Card>
 

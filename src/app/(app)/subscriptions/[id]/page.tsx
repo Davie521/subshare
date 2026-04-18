@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { Card, CardContent } from "@/components/ui/card";
@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { BrandIcon } from "@/components/brand-icon";
 import { UserAvatar } from "@/components/user-avatar";
 import { TagChipList } from "@/components/tag-chip";
-import { TagEditor } from "@/components/tag-editor";
+import { TagEditor, type TagEditorHandle } from "@/components/tag-editor";
 import { IconPicker } from "@/components/icon-picker";
 
 type Member = {
@@ -90,6 +90,7 @@ export default function SubscriptionDetailPage() {
   const [editingTags, setEditingTags] = useState(false);
   const [tagsDraft, setTagsDraft] = useState<SubscriptionTag[]>([]);
   const [tagsError, setTagsError] = useState<string | null>(null);
+  const tagEditorRef = useRef<TagEditorHandle>(null);
 
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState<string | null>(null);
@@ -324,9 +325,16 @@ export default function SubscriptionDetailPage() {
 
   async function handleSaveTags() {
     if (!sub) return;
+    // Flush any text still in the TagEditor's input row so typed-but-not-
+    // yet-added tags aren't silently dropped on Save. commitPending returns
+    // the post-commit array; fall back to the stale draft when nothing was
+    // pending (React state updates from setState don't land in time for
+    // this same click tick).
+    const committed = tagEditorRef.current?.commitPending();
+    const finalTags = committed ?? tagsDraft;
     setBusy(true);
     setTagsError(null);
-    const res = await api.updateSubscription(sub.id, { tags: tagsDraft });
+    const res = await api.updateSubscription(sub.id, { tags: finalTags });
     setBusy(false);
     if (res.error) {
       setTagsError(res.error);
@@ -604,6 +612,7 @@ export default function SubscriptionDetailPage() {
             {editingTags ? (
               <>
                 <TagEditor
+                  ref={tagEditorRef}
                   tags={tagsDraft}
                   onChange={setTagsDraft}
                   disabled={busy}
