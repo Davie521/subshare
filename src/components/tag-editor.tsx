@@ -1,6 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import {
+  useState,
+  forwardRef,
+  useImperativeHandle,
+  useRef,
+  useEffect,
+} from "react";
 import { Lock, Globe, X, Plus } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -11,6 +17,22 @@ import type { SubscriptionTag } from "@/lib/api-client";
 const MAX_TAGS = 5;
 const MAX_LABEL = 10;
 
+export interface TagEditorHandle {
+  /**
+   * Commit whatever is currently typed in the input row as a new tag,
+   * bypassing the need to click Add first. Parents should call this
+   * right before persisting (Save / Submit) so a user who typed a tag
+   * and clicked Save without pressing Add doesn't lose the text.
+   *
+   * Returns the post-commit tag list if a commit actually happened, or
+   * `null` when the input was empty / duplicate / disabled / at cap.
+   * Callers should use the returned array for persistence because
+   * React state updates scheduled from onChange won't be visible in the
+   * same synchronous click handler.
+   */
+  commitPending: () => SubscriptionTag[] | null;
+}
+
 /**
  * Tag editor — list existing tags as chips (removable), an input row to
  * add new ones with a visibility toggle (public / private). Caps at
@@ -18,19 +40,39 @@ const MAX_LABEL = 10;
  *
  * Controlled: parent owns `tags` state and receives `onChange` updates.
  */
-export function TagEditor({
-  tags,
-  onChange,
-  disabled = false,
-}: {
-  tags: SubscriptionTag[];
-  onChange: (next: SubscriptionTag[]) => void;
-  disabled?: boolean;
-}) {
+export const TagEditor = forwardRef<
+  TagEditorHandle,
+  {
+    tags: SubscriptionTag[];
+    onChange: (next: SubscriptionTag[]) => void;
+    disabled?: boolean;
+  }
+>(function TagEditor({ tags, onChange, disabled = false }, ref) {
   const [draftLabel, setDraftLabel] = useState("");
   const [draftVisibility, setDraftVisibility] = useState<"public" | "private">(
     "private"
   );
+  // Refs mirroring props/state so imperative commitPending() can see the
+  // latest values without waiting for a re-render. Sync via useEffect
+  // rather than during render (React rule: refs aren't for render deps).
+  // This adds a one-tick lag, but commitPending is called from click
+  // handlers which fire after paint, so the refs are always fresh then.
+  const tagsRef = useRef(tags);
+  const draftLabelRef = useRef(draftLabel);
+  const draftVisibilityRef = useRef(draftVisibility);
+  const disabledRef = useRef(disabled);
+  useEffect(() => {
+    tagsRef.current = tags;
+  }, [tags]);
+  useEffect(() => {
+    draftLabelRef.current = draftLabel;
+  }, [draftLabel]);
+  useEffect(() => {
+    draftVisibilityRef.current = draftVisibility;
+  }, [draftVisibility]);
+  useEffect(() => {
+    disabledRef.current = disabled;
+  }, [disabled]);
 
   const atCap = tags.length >= MAX_TAGS;
   const trimmed = draftLabel.trim();
@@ -63,6 +105,31 @@ export function TagEditor({
     );
   }
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      commitPending() {
+        if (disabledRef.current) return null;
+        const label = draftLabelRef.current.trim();
+        if (label.length === 0 || label.length > MAX_LABEL) return null;
+        const current = tagsRef.current;
+        if (current.length >= MAX_TAGS) return null;
+        const dup = current.some(
+          (t) => t.label.toLowerCase() === label.toLowerCase()
+        );
+        if (dup) return null;
+        const next: SubscriptionTag[] = [
+          ...current,
+          { label, visibility: draftVisibilityRef.current },
+        ];
+        onChange(next);
+        setDraftLabel("");
+        return next;
+      },
+    }),
+    [onChange]
+  );
+
   return (
     <div className="space-y-2">
       <div className="flex items-baseline justify-between">
@@ -73,7 +140,7 @@ export function TagEditor({
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
         Short labels (up to {MAX_LABEL} chars). Private tags are only visible
-        to the owner and payer.
+        to the owner and payer. Press Enter or click Add to add.
       </p>
 
       {tags.length > 0 && (
@@ -96,7 +163,7 @@ export function TagEditor({
                 aria-label={`Toggle visibility for ${t.label}`}
                 title={
                   t.visibility === "private"
-                    ? "Private — only you see this. Click to make public."
+                    ? "Private — only the owner and payer see this. Click to make public."
                     : "Public — all members see this. Click to make private."
                 }
               >
@@ -152,7 +219,7 @@ export function TagEditor({
             aria-label="Toggle tag visibility"
             title={
               draftVisibility === "private"
-                ? "Private — only you see it"
+                ? "Private — only the owner and payer see it"
                 : "Public — everyone sees it"
             }
           >
@@ -173,10 +240,11 @@ export function TagEditor({
             variant="outline"
             onClick={handleAdd}
             disabled={!canAdd}
-            className="cursor-pointer"
+            className="cursor-pointer gap-1.5"
             aria-label="Add tag"
           >
             <Plus className="h-4 w-4" />
+            Add
           </Button>
         </div>
       )}
@@ -185,4 +253,4 @@ export function TagEditor({
       )}
     </div>
   );
-}
+});
