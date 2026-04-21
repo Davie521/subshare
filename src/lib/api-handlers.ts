@@ -707,6 +707,7 @@ export async function handleUpdateSubscription(
     refundPolicy?: 'payer_absorbs' | 'redistribute'
     tags?: SubscriptionTag[]
     logo?: string | null
+    personalTags?: SubscriptionTag[]
   }
 ): Promise<Result> {
   const [sub] = await db
@@ -716,32 +717,49 @@ export async function handleUpdateSubscription(
 
 
   if (!sub) return { success: false, error: 'Subscription not found', code: 'NOT_FOUND' }
-  // Ownership model: owner controls subscription details; owner *or* payer
-  // controls visual/metadata fields (tags carry card info; logo is the
-  // per-sub brand icon). In most subs owner === payer anyway.
-  //
-  // Whitelist, not inference: a payer-not-owner caller is allowed only if
-  // every submitted key is on the payer-allowed list. If the Zod schema
-  // later grows new fields, they default to owner-only rather than
-  // silently opening a hole.
+  // Three concentric permission scopes on this PATCH; each field lives in
+  // exactly one. Unknown keys default to OWNER_ONLY so a new Zod field
+  // can't silently open a hole.
+  //   OWNER_ONLY   — name, price, nextPayment, inactive, refundPolicy
+  //   PAYER_ALSO   — tags, logo (card-level metadata, owner or payer)
+  //   MEMBER_ALSO  — personalTags (caller writes their own member row)
   const isOwner = sub.ownerId === userId
   const isPayer = sub.payerId === userId
-  const PAYER_ALLOWED_KEYS = new Set(['tags', 'logo'])
+  const PAYER_ALLOWED_KEYS = new Set(['tags', 'logo', 'personalTags'])
+  const MEMBER_ALLOWED_KEYS = new Set(['personalTags'])
   if (!isOwner) {
     const keys = Object.keys(input)
-    const hasOwnerOnlyKey = keys.some((k) => !PAYER_ALLOWED_KEYS.has(k))
-    if (hasOwnerOnlyKey) {
+    const allowed = isPayer ? PAYER_ALLOWED_KEYS : MEMBER_ALLOWED_KEYS
+    const hasDisallowedKey = keys.some((k) => !allowed.has(k))
+    if (hasDisallowedKey) {
       return {
         success: false,
-        error: 'Only the owner can update this subscription',
+        error: isPayer
+          ? 'Only the owner can update this subscription'
+          : 'Only the owner or payer can edit tags or logo',
         code: 'FORBIDDEN',
       }
     }
     if (!isPayer) {
-      return {
-        success: false,
-        error: 'Only the owner or payer can edit tags or logo',
-        code: 'FORBIDDEN',
+      // Plain member path: verify an active membership row exists before
+      // letting them write personalTags. Outsiders and former members
+      // (leftAt set) fail here.
+      const [memberRow] = await db
+        .select({ userId: schema.subscriptionMembers.userId })
+        .from(schema.subscriptionMembers)
+        .where(
+          and(
+            eq(schema.subscriptionMembers.subscriptionId, subId),
+            eq(schema.subscriptionMembers.userId, userId),
+            isNull(schema.subscriptionMembers.leftAt)
+          )
+        )
+      if (!memberRow) {
+        return {
+          success: false,
+          error: 'Only active members can set personal tags',
+          code: 'FORBIDDEN',
+        }
       }
     }
   }
@@ -767,6 +785,19 @@ export async function handleUpdateSubscription(
         .update(schema.subscriptions)
         .set(updates)
         .where(eq(schema.subscriptions.id, subId))
+    }
+
+    if (input.personalTags !== undefined) {
+      await tx
+        .update(schema.subscriptionMembers)
+        .set({ personalTags: normalizeTags(input.personalTags) })
+        .where(
+          and(
+            eq(schema.subscriptionMembers.subscriptionId, subId),
+            eq(schema.subscriptionMembers.userId, userId),
+            isNull(schema.subscriptionMembers.leftAt)
+          )
+        )
     }
   })
 

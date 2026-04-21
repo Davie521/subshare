@@ -145,7 +145,11 @@ describe('handleUpdateSubscription personalTags write path', () => {
   it('former member (leftAt set) cannot set personalTags', async () => {
     const { shared, subId } = await setupTrio()
     // Shared leaves — leftAt set, row preserved.
-    await leaveSubscription(db, { subscriptionId: subId, userId: shared })
+    await leaveSubscription(db, {
+      subscriptionId: subId,
+      userId: shared,
+      leftAt: new Date().toISOString().slice(0, 10),
+    })
     const res = await handleUpdateSubscription(db, shared, subId, {
       personalTags: [{ label: 'ghost', visibility: 'private' }],
     })
