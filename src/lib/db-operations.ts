@@ -115,6 +115,10 @@ export async function addMemberToSubscription(
           addedAt: input.addedAt,
           addedBy: input.addedBy,
           leftAt: null,
+          // Fresh stint — clear the previous stint's personal tags. Same
+          // reasoning as resetting addedAt: the re-invited member is
+          // treated as a new arrival, not a continuation.
+          personalTags: [],
         })
         .where(
           and(
