@@ -4,6 +4,7 @@ import * as schema from '@/db/schema'
 import { setupTestDb, createUser } from './helpers'
 import {
   handleCreateSubscription,
+  handleGetSubscription,
   handleUpdateSubscription,
 } from '@/lib/api-handlers'
 import { leaveSubscription } from '@/lib/db-operations'
@@ -237,5 +238,97 @@ describe('handleUpdateSubscription personalTags write path', () => {
       personalTags: [],
     })
     expect(await readPersonalTags(subId, shared)).toEqual([])
+  })
+})
+
+describe('handleGetSubscription personalTags read path', () => {
+  let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+
+  beforeEach(async () => {
+    const setup = await setupTestDb()
+    db = setup.db
+  })
+
+  async function setupTwo() {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const created = await handleCreateSubscription(db, a, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      members: [b],
+    })
+    if (!created.success) throw new Error(created.error)
+    return { a, b, subId: created.data!.id }
+  }
+
+  it('returns empty personalTags when nothing set', async () => {
+    const { a, subId } = await setupTwo()
+    const res = await handleGetSubscription(db, a, subId)
+    expect(res.success).toBe(true)
+    if (!res.success) throw new Error('expected success')
+    expect(res.data!.personalTags).toEqual([])
+  })
+
+  it("returns the caller's own personalTags", async () => {
+    const { a, subId } = await setupTwo()
+    await handleUpdateSubscription(db, a, subId, {
+      personalTags: [{ label: 'mine', visibility: 'private' }],
+    })
+    const res = await handleGetSubscription(db, a, subId)
+    expect(res.success).toBe(true)
+    if (!res.success) throw new Error('expected success')
+    expect(res.data!.personalTags).toEqual([
+      { label: 'mine', visibility: 'private' },
+    ])
+  })
+
+  it("different users see only their own personalTags, not each other's", async () => {
+    const { a, b, subId } = await setupTwo()
+    await handleUpdateSubscription(db, a, subId, {
+      personalTags: [{ label: 'A-card', visibility: 'private' }],
+    })
+    await handleUpdateSubscription(db, b, subId, {
+      personalTags: [{ label: 'B-card', visibility: 'private' }],
+    })
+
+    const resA = await handleGetSubscription(db, a, subId)
+    const resB = await handleGetSubscription(db, b, subId)
+    if (!resA.success || !resB.success) throw new Error('expected success')
+    expect(resA.data!.personalTags).toEqual([
+      { label: 'A-card', visibility: 'private' },
+    ])
+    expect(resB.data!.personalTags).toEqual([
+      { label: 'B-card', visibility: 'private' },
+    ])
+  })
+
+  it('outsider cannot GET the subscription (404)', async () => {
+    const { subId } = await setupTwo()
+    const outsider = await createUser(db, { email: 'x@t.com' })
+    const res = await handleGetSubscription(db, outsider, subId)
+    expect(res.success).toBe(false)
+    if (res.success) throw new Error('expected failure')
+    expect(res.code).toBe('NOT_FOUND')
+  })
+
+  it('former member (leftAt set) no longer sees personalTags via GET', async () => {
+    const { b, subId } = await setupTwo()
+    // B sets personal tags while still a member.
+    await handleUpdateSubscription(db, b, subId, {
+      personalTags: [{ label: 'B-card', visibility: 'private' }],
+    })
+    // B leaves.
+    await leaveSubscription(db, {
+      subscriptionId: subId,
+      userId: b,
+      leftAt: new Date().toISOString().slice(0, 10),
+    })
+    // B's GET now 404s — former members don't see the sub at all.
+    const res = await handleGetSubscription(db, b, subId)
+    expect(res.success).toBe(false)
+    if (res.success) throw new Error('expected failure')
+    expect(res.code).toBe('NOT_FOUND')
   })
 })
