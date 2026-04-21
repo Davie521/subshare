@@ -2,7 +2,11 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { and, eq } from 'drizzle-orm'
 import * as schema from '@/db/schema'
 import { setupTestDb, createUser } from './helpers'
-import { handleCreateSubscription } from '@/lib/api-handlers'
+import {
+  handleCreateSubscription,
+  handleUpdateSubscription,
+} from '@/lib/api-handlers'
+import { leaveSubscription } from '@/lib/db-operations'
 
 describe('subscription_members.personalTags column', () => {
   let db: Awaited<ReturnType<typeof setupTestDb>>['db']
@@ -47,5 +51,187 @@ describe('subscription_members.personalTags column', () => {
         )
       )
     expect(memberRow?.personalTags).toEqual([])
+  })
+})
+
+describe('handleUpdateSubscription personalTags write path', () => {
+  let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+
+  beforeEach(async () => {
+    const setup = await setupTestDb()
+    db = setup.db
+  })
+
+  /**
+   * Three distinct users, three distinct roles:
+   *   owner   — created the sub, is the owner
+   *   payer   — is the payer (not the owner)
+   *   shared  — plain member (not owner, not payer)
+   *   outsider — not a member at all
+   */
+  async function setupTrio() {
+    const owner = await createUser(db, { email: 'o@t.com' })
+    const payer = await createUser(db, { email: 'p@t.com' })
+    const shared = await createUser(db, { email: 's@t.com' })
+    const outsider = await createUser(db, { email: 'x@t.com' })
+    const created = await handleCreateSubscription(db, owner, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      members: [payer, shared],
+      payerId: payer,
+    })
+    if (!created.success) throw new Error(created.error)
+    return { owner, payer, shared, outsider, subId: created.data!.id }
+  }
+
+  async function readPersonalTags(subId: number, userId: number) {
+    const [row] = await db
+      .select({ personalTags: schema.subscriptionMembers.personalTags })
+      .from(schema.subscriptionMembers)
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, subId),
+          eq(schema.subscriptionMembers.userId, userId)
+        )
+      )
+    return row?.personalTags
+  }
+
+  it('shared member (not owner, not payer) can set their own personalTags', async () => {
+    const { shared, subId } = await setupTrio()
+    const res = await handleUpdateSubscription(db, shared, subId, {
+      personalTags: [{ label: 'Visa 1234', visibility: 'private' }],
+    })
+    expect(res.success).toBe(true)
+    expect(await readPersonalTags(subId, shared)).toEqual([
+      { label: 'Visa 1234', visibility: 'private' },
+    ])
+  })
+
+  it('owner can set their own personalTags', async () => {
+    const { owner, subId } = await setupTrio()
+    const res = await handleUpdateSubscription(db, owner, subId, {
+      personalTags: [{ label: 'Amex 5678', visibility: 'private' }],
+    })
+    expect(res.success).toBe(true)
+    expect(await readPersonalTags(subId, owner)).toEqual([
+      { label: 'Amex 5678', visibility: 'private' },
+    ])
+  })
+
+  it('payer (not owner) can set their own personalTags', async () => {
+    const { payer, subId } = await setupTrio()
+    const res = await handleUpdateSubscription(db, payer, subId, {
+      personalTags: [{ label: 'Card X', visibility: 'private' }],
+    })
+    expect(res.success).toBe(true)
+    expect(await readPersonalTags(subId, payer)).toEqual([
+      { label: 'Card X', visibility: 'private' },
+    ])
+  })
+
+  it('outsider cannot set personalTags', async () => {
+    const { outsider, subId } = await setupTrio()
+    const res = await handleUpdateSubscription(db, outsider, subId, {
+      personalTags: [{ label: 'intruder', visibility: 'private' }],
+    })
+    expect(res.success).toBe(false)
+    if (res.success) throw new Error('expected failure')
+    expect(res.code).toBe('FORBIDDEN')
+  })
+
+  it('former member (leftAt set) cannot set personalTags', async () => {
+    const { shared, subId } = await setupTrio()
+    // Shared leaves — leftAt set, row preserved.
+    await leaveSubscription(db, { subscriptionId: subId, userId: shared })
+    const res = await handleUpdateSubscription(db, shared, subId, {
+      personalTags: [{ label: 'ghost', visibility: 'private' }],
+    })
+    expect(res.success).toBe(false)
+    if (res.success) throw new Error('expected failure')
+    expect(res.code).toBe('FORBIDDEN')
+  })
+
+  it('shared member sending { personalTags, name } is rejected (name is owner-only)', async () => {
+    const { shared, subId } = await setupTrio()
+    const res = await handleUpdateSubscription(db, shared, subId, {
+      personalTags: [{ label: 'ok', visibility: 'private' }],
+      name: 'HIJACKED',
+    })
+    expect(res.success).toBe(false)
+    if (res.success) throw new Error('expected failure')
+    expect(res.code).toBe('FORBIDDEN')
+    // Ensure the personalTags side-effect didn't land either.
+    expect(await readPersonalTags(subId, shared)).toEqual([])
+  })
+
+  it('shared member sending { personalTags, tags } is rejected (tags is payer-only)', async () => {
+    const { shared, subId } = await setupTrio()
+    const res = await handleUpdateSubscription(db, shared, subId, {
+      personalTags: [{ label: 'ok', visibility: 'private' }],
+      tags: [{ label: 'sneaky', visibility: 'public' }],
+    })
+    expect(res.success).toBe(false)
+    if (res.success) throw new Error('expected failure')
+    expect(res.code).toBe('FORBIDDEN')
+  })
+
+  it('personalTags are normalized — trim, dedupe, cap at 5', async () => {
+    const { shared, subId } = await setupTrio()
+    const res = await handleUpdateSubscription(db, shared, subId, {
+      personalTags: [
+        { label: '  Spacey  ', visibility: 'private' },
+        { label: 'spacey', visibility: 'private' }, // dup (case-insensitive)
+        { label: 't1', visibility: 'private' },
+        { label: 't2', visibility: 'private' },
+        { label: 't3', visibility: 'private' },
+        { label: 't4', visibility: 'private' },
+        { label: 't5', visibility: 'private' }, // overflow — capped
+      ],
+    })
+    expect(res.success).toBe(true)
+    const stored = await readPersonalTags(subId, shared)
+    expect(stored).toEqual([
+      { label: 'Spacey', visibility: 'private' },
+      { label: 't1', visibility: 'private' },
+      { label: 't2', visibility: 'private' },
+      { label: 't3', visibility: 'private' },
+      { label: 't4', visibility: 'private' },
+    ])
+  })
+
+  it("user A's personalTags write does not affect user B's row", async () => {
+    const { shared, payer, subId } = await setupTrio()
+    // B (shared) writes first.
+    await handleUpdateSubscription(db, shared, subId, {
+      personalTags: [{ label: 'B-tag', visibility: 'private' }],
+    })
+    // A (payer) writes their own.
+    await handleUpdateSubscription(db, payer, subId, {
+      personalTags: [{ label: 'A-tag', visibility: 'private' }],
+    })
+    // Both rows independent.
+    expect(await readPersonalTags(subId, shared)).toEqual([
+      { label: 'B-tag', visibility: 'private' },
+    ])
+    expect(await readPersonalTags(subId, payer)).toEqual([
+      { label: 'A-tag', visibility: 'private' },
+    ])
+  })
+
+  it('empty personalTags array clears the bucket', async () => {
+    const { shared, subId } = await setupTrio()
+    await handleUpdateSubscription(db, shared, subId, {
+      personalTags: [{ label: 'temp', visibility: 'private' }],
+    })
+    const afterSet = await readPersonalTags(subId, shared)
+    expect(afterSet).toEqual([{ label: 'temp', visibility: 'private' }])
+
+    await handleUpdateSubscription(db, shared, subId, {
+      personalTags: [],
+    })
+    expect(await readPersonalTags(subId, shared)).toEqual([])
   })
 })
