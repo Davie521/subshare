@@ -37,6 +37,8 @@
   "devDependencies": {
     "@electric-sql/pglite": "^0.4.4",
     "@tailwindcss/postcss": "^4",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
