@@ -8,6 +8,7 @@ import {
   handleUpdateSubscription,
 } from '@/lib/api-handlers'
 import {
+  addMemberToSubscription,
   getSubscriptionsForUser,
   leaveSubscription,
 } from '@/lib/db-operations'
@@ -399,5 +400,74 @@ describe('getSubscriptionsForUser personalTags on list rows', () => {
     expect(subB?.personalTags).toEqual([
       { label: 'B-card', visibility: 'private' },
     ])
+  })
+})
+
+describe('rejoin clears personalTags (fresh-stint semantics)', () => {
+  let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+
+  beforeEach(async () => {
+    const setup = await setupTestDb()
+    db = setup.db
+  })
+
+  it("rejoining after leave starts with an empty personalTags bucket", async () => {
+    const owner = await createUser(db, { email: 'o@t.com' })
+    const member = await createUser(db, { email: 'm@t.com' })
+    const created = await handleCreateSubscription(db, owner, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      members: [member],
+    })
+    if (!created.success) throw new Error(created.error)
+    const subId = created.data!.id
+
+    // Stint 1: member sets personal tags.
+    await handleUpdateSubscription(db, member, subId, {
+      personalTags: [{ label: 'old-card', visibility: 'private' }],
+    })
+    const [before] = await db
+      .select({ personalTags: schema.subscriptionMembers.personalTags })
+      .from(schema.subscriptionMembers)
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, subId),
+          eq(schema.subscriptionMembers.userId, member)
+        )
+      )
+    expect(before?.personalTags).toEqual([
+      { label: 'old-card', visibility: 'private' },
+    ])
+
+    // Member leaves.
+    await leaveSubscription(db, {
+      subscriptionId: subId,
+      userId: member,
+      leftAt: '2026-04-15',
+    })
+
+    // Stint 2: owner re-invites. The same subscription_members row is
+    // reused (PK is (sub, user)), but the rejoin path must reset
+    // personal_tags to [] — otherwise the member's old labels silently
+    // resurrect on the new stint.
+    await addMemberToSubscription(db, {
+      subscriptionId: subId,
+      userId: member,
+      addedBy: owner,
+      addedAt: '2026-05-01',
+    })
+
+    const [after] = await db
+      .select({ personalTags: schema.subscriptionMembers.personalTags })
+      .from(schema.subscriptionMembers)
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, subId),
+          eq(schema.subscriptionMembers.userId, member)
+        )
+      )
+    expect(after?.personalTags).toEqual([])
   })
 })
