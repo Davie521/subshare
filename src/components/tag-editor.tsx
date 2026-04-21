@@ -56,10 +56,18 @@ function buildNextTags(
 
 /**
  * Tag editor — list existing tags as chips (removable), an input row to
- * add new ones with a visibility toggle (public / private). Caps at
- * MAX_TAGS; de-dupes on label (case-insensitive).
+ * add new ones with an optional visibility toggle (public / private).
+ * Caps at MAX_TAGS; de-dupes on label (case-insensitive).
  *
  * Controlled: parent owns `tags` state and receives `onChange` updates.
+ *
+ * `showVisibilityToggle` (default `true`) controls whether the
+ * public/private axis is surfaced. When `false`, no per-chip or
+ * add-row toggle is rendered and every emitted tag is stamped
+ * `visibility: 'private'`. Used in two contexts:
+ *   - personal-tags (always private to the member)
+ *   - solo (1-member) subs, where there is no "other member" to show a
+ *     public tag to
  */
 export const TagEditor = forwardRef<
   TagEditorHandle,
@@ -67,9 +75,16 @@ export const TagEditor = forwardRef<
     tags: SubscriptionTag[];
     onChange: (next: SubscriptionTag[]) => void;
     disabled?: boolean;
+    showVisibilityToggle?: boolean;
   }
->(function TagEditor({ tags, onChange, disabled = false }, ref) {
+>(function TagEditor(
+  { tags, onChange, disabled = false, showVisibilityToggle = true },
+  ref
+) {
   const [draftLabel, setDraftLabel] = useState("");
+  // When the toggle is hidden the draft visibility is locked to
+  // 'private'; surfacing it through state anyway keeps the rest of the
+  // component (buildNextTags, commitPending) uniform across modes.
   const [draftVisibility, setDraftVisibility] = useState<"public" | "private">(
     "private"
   );
@@ -157,8 +172,11 @@ export const TagEditor = forwardRef<
         </span>
       </div>
       <p className="text-[12px] text-muted-foreground leading-relaxed">
-        Short labels (up to {MAX_LABEL} chars). Private tags are only visible
-        to the owner and payer. Press Enter or click Add to add.
+        Short labels (up to {MAX_LABEL} chars).
+        {showVisibilityToggle
+          ? " Private tags are only visible to the owner and payer."
+          : ""}{" "}
+        Press Enter or click Add to add.
       </p>
 
       {tags.length > 0 && (
@@ -173,24 +191,26 @@ export const TagEditor = forwardRef<
                   : "border-transparent bg-accent text-accent-foreground"
               )}
             >
-              <button
-                type="button"
-                onClick={() => toggleVisibility(i)}
-                disabled={disabled}
-                className="cursor-pointer"
-                aria-label={`Toggle visibility for ${t.label}`}
-                title={
-                  t.visibility === "private"
-                    ? "Private — only the owner and payer see this. Click to make public."
-                    : "Public — all members see this. Click to make private."
-                }
-              >
-                {t.visibility === "private" ? (
-                  <Lock className="h-3 w-3" />
-                ) : (
-                  <Globe className="h-3 w-3" />
-                )}
-              </button>
+              {showVisibilityToggle && (
+                <button
+                  type="button"
+                  onClick={() => toggleVisibility(i)}
+                  disabled={disabled}
+                  className="cursor-pointer"
+                  aria-label={`Toggle visibility for ${t.label}`}
+                  title={
+                    t.visibility === "private"
+                      ? "Private — only the owner and payer see this. Click to make public."
+                      : "Public — all members see this. Click to make private."
+                  }
+                >
+                  {t.visibility === "private" ? (
+                    <Lock className="h-3 w-3" />
+                  ) : (
+                    <Globe className="h-3 w-3" />
+                  )}
+                </button>
+              )}
               <span>{t.label}</span>
               <button
                 type="button"
@@ -222,37 +242,41 @@ export const TagEditor = forwardRef<
             }}
             className="flex-1"
           />
-          <button
-            type="button"
-            onClick={() =>
-              updateDraftVisibility(draftVisibility === "public" ? "private" : "public")
-            }
-            disabled={disabled}
-            className={cn(
-              "cursor-pointer flex items-center gap-1 rounded-md border px-2.5 text-[12px] font-medium transition-colors",
-              draftVisibility === "private"
-                ? "border-border bg-muted/60 text-muted-foreground"
-                : "border-transparent bg-accent text-accent-foreground"
-            )}
-            aria-label="Toggle tag visibility"
-            title={
-              draftVisibility === "private"
-                ? "Private — only the owner and payer see it"
-                : "Public — everyone sees it"
-            }
-          >
-            {draftVisibility === "private" ? (
-              <>
-                <Lock className="h-3 w-3" />
-                Private
-              </>
-            ) : (
-              <>
-                <Globe className="h-3 w-3" />
-                Public
-              </>
-            )}
-          </button>
+          {showVisibilityToggle && (
+            <button
+              type="button"
+              onClick={() =>
+                updateDraftVisibility(
+                  draftVisibility === "public" ? "private" : "public"
+                )
+              }
+              disabled={disabled}
+              className={cn(
+                "cursor-pointer flex items-center gap-1 rounded-md border px-2.5 text-[12px] font-medium transition-colors",
+                draftVisibility === "private"
+                  ? "border-border bg-muted/60 text-muted-foreground"
+                  : "border-transparent bg-accent text-accent-foreground"
+              )}
+              aria-label="Toggle tag visibility"
+              title={
+                draftVisibility === "private"
+                  ? "Private — only the owner and payer see it"
+                  : "Public — everyone sees it"
+              }
+            >
+              {draftVisibility === "private" ? (
+                <>
+                  <Lock className="h-3 w-3" />
+                  Private
+                </>
+              ) : (
+                <>
+                  <Globe className="h-3 w-3" />
+                  Public
+                </>
+              )}
+            </button>
+          )}
           <Button
             type="button"
             variant="outline"
