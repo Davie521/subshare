@@ -80,6 +80,7 @@ export const api = {
       inactive: boolean;
       refundPolicy: "payer_absorbs" | "redistribute";
       tags: SubscriptionTag[];
+      personalTags: SubscriptionTag[];
       members: Array<{
         userId: number;
         displayName: string;

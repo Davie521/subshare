@@ -12,7 +12,7 @@ import {
   changeSubscriptionPrice,
   generateMonthlyBills,
 } from './db-operations'
-import { normalizeTags } from './tags'
+import { normalizeTags, filterTagsForViewer } from './tags'
 import { calculateMonthlySpending } from './billing'
 import { getRate } from './fx-cache'
 import {
@@ -693,6 +693,166 @@ export async function handleMarkAllNotificationsRead(
 ): Promise<Result> {
   await markAllNotificationsRead(db, userId)
   return { success: true }
+}
+
+export type SubscriptionDetailMember = {
+  userId: number
+  displayName: string
+  email?: string
+  addedAt: string
+  isPayer: boolean
+  isOwner: boolean
+  isSelf: boolean
+}
+
+export type SubscriptionDetail = {
+  id: number
+  name: string
+  logo: string | null
+  url: string | null
+  notes: string | null
+  price: number
+  currency: string
+  nextPayment: string
+  startDate: string
+  autoRenew: boolean
+  inactive: boolean
+  categoryId: number | null
+  ownerId: number
+  payerId: number
+  notify: boolean
+  notifyDaysBefore: number
+  tags: SubscriptionTag[]
+  personalTags: SubscriptionTag[]
+  members: SubscriptionDetailMember[]
+}
+
+/**
+ * Fetch a single subscription with members + tag visibility applied
+ * for `userId`. Returns NOT_FOUND if the sub doesn't exist OR the
+ * caller isn't an active member / owner / payer (we deliberately do
+ * not distinguish "forbidden" from "missing" so we don't leak the
+ * existence of subs the viewer shouldn't know about).
+ *
+ * `personalTags` is scoped to the caller's own `subscription_members`
+ * row — no cross-user leakage.
+ */
+export async function handleGetSubscription(
+  db: DB,
+  userId: number,
+  subId: number
+): Promise<Result<SubscriptionDetail>> {
+  const [sub] = await db
+    .select({
+      id: schema.subscriptions.id,
+      name: schema.subscriptions.name,
+      logo: schema.subscriptions.logo,
+      url: schema.subscriptions.url,
+      notes: schema.subscriptions.notes,
+      price: schema.subscriptions.price,
+      currency: schema.subscriptions.currency,
+      nextPayment: schema.subscriptions.nextPayment,
+      startDate: schema.subscriptions.startDate,
+      autoRenew: schema.subscriptions.autoRenew,
+      inactive: schema.subscriptions.inactive,
+      categoryId: schema.subscriptions.categoryId,
+      ownerId: schema.subscriptions.ownerId,
+      payerId: schema.subscriptions.payerId,
+      notify: schema.subscriptions.notify,
+      notifyDaysBefore: schema.subscriptions.notifyDaysBefore,
+      refundPolicy: schema.subscriptions.refundPolicy,
+      tags: schema.subscriptions.tags,
+    })
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subId))
+
+  if (!sub) return { success: false, error: 'Not found', code: 'NOT_FOUND' }
+
+  // Authorization: owner, payer, or an active subscription_members row.
+  let allowed = sub.ownerId === userId || sub.payerId === userId
+  if (!allowed) {
+    const [membership] = await db
+      .select({ userId: schema.subscriptionMembers.userId })
+      .from(schema.subscriptionMembers)
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, subId),
+          eq(schema.subscriptionMembers.userId, userId),
+          isNull(schema.subscriptionMembers.leftAt)
+        )
+      )
+    if (membership) allowed = true
+  }
+  if (!allowed) {
+    return { success: false, error: 'Not found', code: 'NOT_FOUND' }
+  }
+
+  const memberRows = await db
+    .select({
+      userId: schema.subscriptionMembers.userId,
+      addedAt: schema.subscriptionMembers.addedAt,
+      addedBy: schema.subscriptionMembers.addedBy,
+      leftAt: schema.subscriptionMembers.leftAt,
+    })
+    .from(schema.subscriptionMembers)
+    .where(
+      and(
+        eq(schema.subscriptionMembers.subscriptionId, subId),
+        isNull(schema.subscriptionMembers.leftAt)
+      )
+    )
+
+  const memberIds = memberRows.map((m) => m.userId)
+  const users =
+    memberIds.length > 0
+      ? await db
+          .select({
+            id: schema.users.id,
+            name: schema.users.name,
+            displayName: schema.users.displayName,
+            email: schema.users.email,
+            showEmail: schema.users.showEmail,
+          })
+          .from(schema.users)
+          .where(inArray(schema.users.id, memberIds))
+      : []
+  const byId = new Map(users.map((u) => [u.id, u]))
+
+  const members: SubscriptionDetailMember[] = memberRows.map((m) => {
+    const u = byId.get(m.userId)
+    return {
+      userId: m.userId,
+      displayName: (u?.displayName?.trim() || u?.name) ?? `User #${m.userId}`,
+      email: u?.showEmail ? u?.email : undefined,
+      addedAt: m.addedAt,
+      isPayer: m.userId === sub.payerId,
+      isOwner: m.userId === sub.ownerId,
+      isSelf: m.userId === userId,
+    }
+  })
+
+  const viewerIsPrivileged = userId === sub.ownerId || userId === sub.payerId
+  const tags = filterTagsForViewer(sub.tags, viewerIsPrivileged)
+
+  // Fetch caller's personal tags — null-safe against former-stint rows
+  // (the membership check above already guarantees an active row, but
+  // the `.find` is still defensive).
+  const [selfRow] = await db
+    .select({ personalTags: schema.subscriptionMembers.personalTags })
+    .from(schema.subscriptionMembers)
+    .where(
+      and(
+        eq(schema.subscriptionMembers.subscriptionId, subId),
+        eq(schema.subscriptionMembers.userId, userId),
+        isNull(schema.subscriptionMembers.leftAt)
+      )
+    )
+  const personalTags = selfRow?.personalTags ?? []
+
+  return {
+    success: true,
+    data: { ...sub, tags, personalTags, members },
+  }
 }
 
 export async function handleUpdateSubscription(
