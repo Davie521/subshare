@@ -382,7 +382,12 @@ function SubscriptionForm({
               />
             </div>
 
-            <TagEditor ref={tagEditorRef} tags={tags} onChange={setTags} />
+            <TagEditor
+              ref={tagEditorRef}
+              tags={tags}
+              onChange={setTags}
+              showVisibilityToggle={mode === "shared"}
+            />
           </CardContent>
         </Card>
 

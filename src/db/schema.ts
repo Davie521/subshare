@@ -118,6 +118,18 @@ export const subscriptionMembers = pgTable(
       .notNull()
       .references(() => users.id),
     leftAt: text('left_at'),
+    /**
+     * Per-member private tags — only the row's user_id can read or
+     * write these. Separate bucket from `subscriptions.tags` (which is
+     * owner/payer-authored with a public/private visibility axis).
+     * Max 5 enforced at the app layer. Shape mirrors `subscriptions.tags`
+     * (SubscriptionTag[]) so helpers like `normalizeTags` can be reused;
+     * the visibility field is always `'private'` here.
+     */
+    personalTags: jsonb('personal_tags')
+      .$type<SubscriptionTag[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
   },
   (t) => [
     primaryKey({ columns: [t.subscriptionId, t.userId] }),

@@ -115,6 +115,10 @@ export async function addMemberToSubscription(
           addedAt: input.addedAt,
           addedBy: input.addedBy,
           leftAt: null,
+          // Fresh stint — clear the previous stint's personal tags. Same
+          // reasoning as resetting addedAt: the re-invited member is
+          // treated as a new arrival, not a continuation.
+          personalTags: [],
         })
         .where(
           and(
@@ -596,13 +600,17 @@ export async function getSubscriptionsForUser(
   memberCount: number
   inactive: boolean
   tags: SubscriptionTag[]
+  personalTags: SubscriptionTag[]
   logo: string | null
 }>> {
   // All subs the user is an active member of (subscription_members is
   // authoritative). Covers both owned personal subs (owner auto-added on
   // create) and shared subs where the user was added later.
-  const subIds = (await db
-    .select({ subscriptionId: schema.subscriptionMembers.subscriptionId })
+  const memberRows = await db
+    .select({
+      subscriptionId: schema.subscriptionMembers.subscriptionId,
+      personalTags: schema.subscriptionMembers.personalTags,
+    })
     .from(schema.subscriptionMembers)
     .where(
       and(
@@ -610,7 +618,10 @@ export async function getSubscriptionsForUser(
         isNull(schema.subscriptionMembers.leftAt)
       )
     )
-  ).map((r) => r.subscriptionId)
+  const subIds = memberRows.map((r) => r.subscriptionId)
+  const personalTagsBySub = new Map(
+    memberRows.map((r) => [r.subscriptionId, r.personalTags])
+  )
 
   if (subIds.length === 0) return []
 
@@ -646,6 +657,7 @@ export async function getSubscriptionsForUser(
       inactive: r.inactive,
       memberCount: r.memberCount,
       tags: filterTagsForViewer(r.tags, privileged),
+      personalTags: personalTagsBySub.get(r.id) ?? [],
       logo: r.logo,
     }
   })

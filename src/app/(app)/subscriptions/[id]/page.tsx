@@ -50,6 +50,7 @@ type Sub = {
   inactive: boolean;
   refundPolicy: "payer_absorbs" | "redistribute";
   tags: SubscriptionTag[];
+  personalTags: SubscriptionTag[];
   members: Member[];
 };
 
@@ -92,6 +93,11 @@ export default function SubscriptionDetailPage() {
   const [tagsError, setTagsError] = useState<string | null>(null);
   const tagEditorRef = useRef<TagEditorHandle>(null);
 
+  const [editingPersonalTags, setEditingPersonalTags] = useState(false);
+  const [personalTagsDraft, setPersonalTagsDraft] = useState<SubscriptionTag[]>([]);
+  const [personalTagsError, setPersonalTagsError] = useState<string | null>(null);
+  const personalTagEditorRef = useRef<TagEditorHandle>(null);
+
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [iconError, setIconError] = useState<string | null>(null);
 
@@ -114,6 +120,7 @@ export default function SubscriptionDetailPage() {
           inactive: d.inactive,
           refundPolicy: d.refundPolicy,
           tags: d.tags ?? [],
+          personalTags: d.personalTags ?? [],
           members: d.members,
         });
         setLoadError(null);
@@ -341,6 +348,32 @@ export default function SubscriptionDetailPage() {
       return;
     }
     setEditingTags(false);
+    await load();
+  }
+
+  function startEditPersonalTags() {
+    if (!sub) return;
+    setPersonalTagsDraft(sub.personalTags);
+    setPersonalTagsError(null);
+    setEditingPersonalTags(true);
+  }
+
+  async function handleSavePersonalTags() {
+    if (!sub) return;
+    // Mirrors handleSaveTags — flush pending input before persisting.
+    const committed = personalTagEditorRef.current?.commitPending();
+    const finalTags = committed ?? personalTagsDraft;
+    setBusy(true);
+    setPersonalTagsError(null);
+    const res = await api.updateSubscription(sub.id, {
+      personalTags: finalTags,
+    });
+    setBusy(false);
+    if (res.error) {
+      setPersonalTagsError(res.error);
+      return;
+    }
+    setEditingPersonalTags(false);
     await load();
   }
 
@@ -583,7 +616,10 @@ export default function SubscriptionDetailPage() {
         </CardContent>
       </Card>
 
-      {/* Tags — owner or payer can edit */}
+      {/* Tags — owner or payer can edit. Public/private distinction only
+          shows up on multi-member subs; on a 1-member sub there is no-one
+          else for a "public" tag to be public TO, so the toggle is
+          hidden and new tags default to private. */}
       {selfIsOwnerOrPayer && (
         <Card>
           <CardContent className="space-y-3">
@@ -593,7 +629,9 @@ export default function SubscriptionDetailPage() {
                   Tags
                 </p>
                 <p className="text-[12px] text-muted-foreground mt-0.5">
-                  Private tags are only visible to the owner and payer.
+                  {sub.members.length > 1
+                    ? "Private tags are only visible to the owner and payer."
+                    : "Short labels for this subscription."}
                 </p>
               </div>
               {!editingTags && (
@@ -616,6 +654,7 @@ export default function SubscriptionDetailPage() {
                   tags={tagsDraft}
                   onChange={setTagsDraft}
                   disabled={busy}
+                  showVisibilityToggle={sub.members.length > 1}
                 />
                 {tagsError && (
                   <p className="text-[13px] font-medium text-destructive">
@@ -652,6 +691,83 @@ export default function SubscriptionDetailPage() {
               </p>
             ) : (
               <TagChipList tags={sub.tags} />
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Your tags — per-member personal bucket. Only surfaced on shared
+          subs; on a solo sub the main Tags card is the only tag surface
+          (no distinction between "my tags" and "everyone's tags"). */}
+      {sub.members.length > 1 && selfMember && (
+        <Card>
+          <CardContent className="space-y-3">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground">
+                  Your tags
+                </p>
+                <p className="text-[12px] text-muted-foreground mt-0.5">
+                  Only you can see these.
+                </p>
+              </div>
+              {!editingPersonalTags && (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={startEditPersonalTags}
+                  className="cursor-pointer gap-1.5"
+                >
+                  <Pencil className="size-3.5" />
+                  {sub.personalTags.length > 0 ? "Edit" : "Add"}
+                </Button>
+              )}
+            </div>
+
+            {editingPersonalTags ? (
+              <>
+                <TagEditor
+                  ref={personalTagEditorRef}
+                  tags={personalTagsDraft}
+                  onChange={setPersonalTagsDraft}
+                  disabled={busy}
+                  showVisibilityToggle={false}
+                />
+                {personalTagsError && (
+                  <p className="text-[13px] font-medium text-destructive">
+                    {personalTagsError}
+                  </p>
+                )}
+                <div className="flex items-center justify-end gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => {
+                      setEditingPersonalTags(false);
+                      setPersonalTagsError(null);
+                    }}
+                    className="cursor-pointer gap-1.5"
+                  >
+                    <X className="size-3.5" />
+                    Cancel
+                  </Button>
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    onClick={handleSavePersonalTags}
+                    className="cursor-pointer"
+                  >
+                    {busy ? "Saving…" : "Save tags"}
+                  </Button>
+                </div>
+              </>
+            ) : sub.personalTags.length === 0 ? (
+              <p className="text-[13px] text-muted-foreground">
+                No personal tags yet.
+              </p>
+            ) : (
+              <TagChipList tags={sub.personalTags} />
             )}
           </CardContent>
         </Card>

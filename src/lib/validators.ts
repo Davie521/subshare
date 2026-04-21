@@ -62,6 +62,12 @@ export const updateSubscriptionSchema = z.object({
   refundPolicy: z.enum(['payer_absorbs', 'redistribute']).optional(),
   tags: tagArraySchema.optional(),
   logo: logoSchema,
+  /**
+   * Caller's own personal-tags bucket. Authorization checked by the
+   * handler; any active member of the sub can set this, and the write
+   * is scoped to their own `subscription_members` row.
+   */
+  personalTags: tagArraySchema.optional(),
 })
 
 export const exchangeRateSchema = z.object({
