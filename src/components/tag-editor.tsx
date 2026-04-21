@@ -97,6 +97,22 @@ export const TagEditor = forwardRef<
   const draftVisibilityRef = useRef(draftVisibility);
   const disabledRef = useRef(disabled);
   disabledRef.current = disabled; // eslint-disable-line react-hooks/refs -- props mirror
+  const showVisibilityToggleRef = useRef(showVisibilityToggle);
+  showVisibilityToggleRef.current = showVisibilityToggle; // eslint-disable-line react-hooks/refs -- props mirror
+
+  // When the toggle is hidden, the draft visibility is meaningless —
+  // the user has no way to observe or change it. Always emit 'private'
+  // in that case, even if a stale 'public' value was left behind by an
+  // earlier session where the toggle was visible (e.g. the new-sub
+  // Personal/Shared mode flip).
+  function effectiveDraftVisibility(): "public" | "private" {
+    return showVisibilityToggle ? draftVisibility : "private";
+  }
+  function effectiveDraftVisibilityRef(): "public" | "private" {
+    return showVisibilityToggleRef.current
+      ? draftVisibilityRef.current
+      : "private";
+  }
 
   function updateDraftLabel(next: string) {
     draftLabelRef.current = next;
@@ -121,7 +137,7 @@ export const TagEditor = forwardRef<
 
   function handleAdd() {
     if (disabled) return;
-    const next = buildNextTags(tags, draftLabel, draftVisibility);
+    const next = buildNextTags(tags, draftLabel, effectiveDraftVisibility());
     if (!next) return;
     onChange(next);
     updateDraftLabel("");
@@ -152,7 +168,7 @@ export const TagEditor = forwardRef<
         const next = buildNextTags(
           tagsRef.current,
           draftLabelRef.current,
-          draftVisibilityRef.current
+          effectiveDraftVisibilityRef()
         );
         if (!next) return null;
         onChange(next);

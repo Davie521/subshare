@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import * as React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -106,5 +107,62 @@ describe('TagEditor — showVisibilityToggle=false', () => {
     expect(onChange).toHaveBeenCalledWith([
       { label: 'Visa', visibility: 'private' },
     ])
+  })
+})
+
+describe('TagEditor — prop flipped mid-session (draftVisibility staleness)', () => {
+  /**
+   * Regression guard: in the new-sub form, a user can
+   *   1. pick Shared mode   — visibility toggle appears
+   *   2. toggle draft to Public
+   *   3. switch to Personal mode — toggle disappears, BUT the internal
+   *      draftVisibility state is still 'public'
+   *   4. type a label and submit
+   * The emitted tag must be 'private' regardless of stale draft state,
+   * because the user has no way to observe/change the hidden toggle.
+   */
+  function ControlledEditor({
+    initialShow,
+  }: {
+    initialShow: boolean
+  }) {
+    const [show, setShow] = React.useState(initialShow)
+    const [tags, setTags] = React.useState<SubscriptionTag[]>([])
+    return (
+      <>
+        <button type="button" onClick={() => setShow(false)}>
+          hide-toggle
+        </button>
+        <TagEditor
+          tags={tags}
+          onChange={setTags}
+          showVisibilityToggle={show}
+        />
+        <output data-testid="latest">{JSON.stringify(tags)}</output>
+      </>
+    )
+  }
+
+  it("flipping showVisibilityToggle from true to false after user set public forces private on next add", async () => {
+    const user = userEvent.setup()
+    render(<ControlledEditor initialShow={true} />)
+
+    // Step 1: user is in shared mode, flips draft visibility to public
+    await user.click(
+      screen.getByRole('button', { name: /toggle tag visibility/i })
+    )
+
+    // Step 2: host flips showVisibilityToggle to false (simulating mode
+    // switch on the new-sub page)
+    await user.click(screen.getByRole('button', { name: /hide-toggle/i }))
+
+    // Step 3: user types a label and hits Enter. Must come out private.
+    const input = screen.getByPlaceholderText(/e.g./i)
+    await user.type(input, 'Visa 1234{Enter}')
+
+    const latest = JSON.parse(
+      screen.getByTestId('latest').textContent ?? '[]'
+    )
+    expect(latest).toEqual([{ label: 'Visa 1234', visibility: 'private' }])
   })
 })
