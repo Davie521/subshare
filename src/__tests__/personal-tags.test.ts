@@ -7,7 +7,10 @@ import {
   handleGetSubscription,
   handleUpdateSubscription,
 } from '@/lib/api-handlers'
-import { leaveSubscription } from '@/lib/db-operations'
+import {
+  getSubscriptionsForUser,
+  leaveSubscription,
+} from '@/lib/db-operations'
 
 describe('subscription_members.personalTags column', () => {
   let db: Awaited<ReturnType<typeof setupTestDb>>['db']
@@ -330,5 +333,71 @@ describe('handleGetSubscription personalTags read path', () => {
     expect(res.success).toBe(false)
     if (res.success) throw new Error('expected failure')
     expect(res.code).toBe('NOT_FOUND')
+  })
+})
+
+describe('getSubscriptionsForUser personalTags on list rows', () => {
+  let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+
+  beforeEach(async () => {
+    const setup = await setupTestDb()
+    db = setup.db
+  })
+
+  it('defaults personalTags to [] on every returned row', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const s1 = await handleCreateSubscription(db, a, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      members: [b],
+    })
+    const s2 = await handleCreateSubscription(db, a, {
+      name: 'Spotify',
+      price: 5000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+    })
+    if (!s1.success || !s2.success) throw new Error('setup failed')
+
+    const rows = await getSubscriptionsForUser(db, a)
+    expect(rows).toHaveLength(2)
+    for (const r of rows) {
+      expect(r.personalTags).toEqual([])
+    }
+  })
+
+  it("returns the caller's personalTags per sub (user-scoped, not leaked)", async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const created = await handleCreateSubscription(db, a, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      members: [b],
+    })
+    if (!created.success) throw new Error(created.error)
+    const subId = created.data!.id
+
+    await handleUpdateSubscription(db, a, subId, {
+      personalTags: [{ label: 'A-card', visibility: 'private' }],
+    })
+    await handleUpdateSubscription(db, b, subId, {
+      personalTags: [{ label: 'B-card', visibility: 'private' }],
+    })
+
+    const rowsA = await getSubscriptionsForUser(db, a)
+    const rowsB = await getSubscriptionsForUser(db, b)
+    const subA = rowsA.find((r) => r.id === subId)
+    const subB = rowsB.find((r) => r.id === subId)
+    expect(subA?.personalTags).toEqual([
+      { label: 'A-card', visibility: 'private' },
+    ])
+    expect(subB?.personalTags).toEqual([
+      { label: 'B-card', visibility: 'private' },
+    ])
   })
 })
