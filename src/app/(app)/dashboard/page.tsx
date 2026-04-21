@@ -113,10 +113,6 @@ export default function DashboardPage() {
 
   const personalSubs = data.subscriptions.filter((s) => s.memberCount === 1);
   const sharedSubs = data.subscriptions.filter((s) => s.memberCount > 1);
-  const sharedSavings = sharedSubs.reduce(
-    (acc, s) => acc + (s.price - Math.floor(s.price / s.memberCount)),
-    0
-  );
 
   return (
     <div className="space-y-8">
@@ -131,7 +127,6 @@ export default function DashboardPage() {
       <div className="grid gap-3 md:grid-cols-3">
         <SpendingCard
           total={data.monthlyTotal}
-          savings={sharedSavings}
           subscriptionCount={data.subscriptions.length}
         />
         <StatCard
@@ -224,11 +219,9 @@ export default function DashboardPage() {
 
 function SpendingCard({
   total,
-  savings,
   subscriptionCount,
 }: {
   total: number;
-  savings: number;
   subscriptionCount: number;
 }) {
   return (
@@ -249,16 +242,7 @@ function SpendingCard({
           {formatMoney(total)}
         </p>
         <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
-          {savings > 0 ? (
-            <>
-              <span className="inline-flex items-center rounded-full bg-[#1aae39]/10 text-[#1aae39] dark:bg-[#10b981]/15 dark:text-[#10b981] px-1.5 py-[1px] font-semibold text-[10px]">
-                −{formatMoney(savings)}
-              </span>
-              <span>saved by sharing</span>
-            </>
-          ) : (
-            <span>across {subscriptionCount} subscriptions</span>
-          )}
+          <span>across {subscriptionCount} subscriptions</span>
         </div>
       </CardContent>
     </Card>
