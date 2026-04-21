@@ -1,81 +1,288 @@
-# 任务计划 — 链接邀请功能（Link-based Invites）
+# Implementation Plan: Personal tags for every member
 
-## 目标
+## Overview
 
-让订阅创建者生成一个 URL，任何人点开 → Google 登录（新用户首次注册）→ 自动加入订阅 → 开始分摊。
+Shared (non-owner/non-payer) members currently can't add tags at all.
+Fix by introducing per-member personal tags stored on
+`subscription_members.personal_tags`, visible and editable only to that
+member. Existing `subscriptions.tags` (public/private-to-privileged)
+stays unchanged.
 
-## 当前状态
+## Requirements
 
-- 基础设施齐全：Google OAuth ✓、auto-friendship ✓、`addMemberToSubscription` ✓
-- 缺：邀请 token 表、邀请路由、邀请落地页、OAuth state 里透传 token 的钩子
+- Every active member of a subscription can add/remove up to 5 personal
+  tags on that sub.
+- Personal tags are visible ONLY to the authoring member.
+- Existing shared-tags card (owner/payer only) keeps its current
+  behaviour — no regressions on `src/__tests__/tags.test.ts`.
+- Deleting a sub wipes personal tags (cascade already covers this).
+- Rejoining a sub starts with an empty personal-tags bucket.
+- Personal tags do NOT appear on the subscription list page (scope
+  discipline — see open question 2 in findings).
 
-## 分阶段实施
+## Architecture changes
 
-### Phase 1 — 数据层（约 1 commit）
-- [ ] 在 `src/db/schema.ts` 新增 `invites` 表：
-  - `token` (text, unique, random 32 chars)
-  - `subscriptionId` (FK cascade)
-  - `inviterId` (FK users)
-  - `expiresAt` (ISO, 默认 +7 天)
-  - `maxUses` (int, null = 无限)
-  - `usedCount` (int default 0)
-  - `revokedAt` (ISO nullable)
-- [ ] 在 `src/db/migrate.ts` 加对应 `CREATE TABLE IF NOT EXISTS`
-- [ ] 更新 `docs/CLAUDE.md` 架构段落提到新表
+- `subscription_members.personal_tags JSONB NOT NULL DEFAULT '[]'::jsonb`
+  — new column (`src/db/schema.ts`, `src/db/migrate.ts`).
+- `PATCH /api/subscriptions/[id]` gains optional `personalTags` field;
+  when present, writes the caller's `subscription_members.personal_tags`
+  only. No owner/payer check on this field.
+- `GET /api/subscriptions/[id]` returns `personalTags: SubscriptionTag[]`
+  sourced from caller's row.
+- `TagEditor` gains `mode: 'shared' | 'personal'` prop; personal mode
+  hides visibility toggle and forces `visibility: 'private'` on emitted
+  tags.
+- `src/app/(app)/subscriptions/[id]/page.tsx` adds a "Your tags" card
+  below the existing "Tags" card, visible to every active member.
+- `addMemberToSubscription` rejoin path (`src/lib/db-operations.ts:111`)
+  resets `personal_tags` to `[]` alongside clearing `leftAt`.
 
-### Phase 2 — 后端路由（约 2 commits）
-- [ ] `POST /api/subscriptions/[id]/invites` — 创建邀请
-  - 权限：仅订阅 member 可创建
-  - 返回：`{ token, url, expiresAt }`
-  - 速率限制：每用户每分钟 10 次
-- [ ] `GET /api/invites/[token]` — 获取邀请元数据（公开，不需登录）
-  - 返回：订阅名、logo、inviter 名、是否过期
-- [ ] `POST /api/invites/[token]/accept` — 登录后接受
-  - 校验：token 有效、未过期、未超 maxUses、用户不在 sub 里
-  - 执行：`addMemberToSubscription` + `usedCount++`
-  - 返回：`{ subscriptionId }` 便于前端跳转
+## Implementation phases (RED/GREEN per this repo's convention)
 
-### Phase 3 — 邀请落地页（约 1 commit）
-- [ ] 新建 `src/app/invite/[token]/page.tsx`（注意：**不在** `(app)` 分组，因为要支持未登录访问）
-  - 未登录 → 显示订阅卡片 + "Sign in with Google to join"，CTA 点击跳 `/api/auth/google?invite={token}`
-  - 已登录 → 直接调 `POST /api/invites/[token]/accept` → 跳 `/subscriptions/{id}`
+Each phase is two commits: `test(…): RED for X` (failing tests first),
+then `fix(…): X` (implementation to green).
 
-### Phase 4 — OAuth 透传 invite token（约 1 commit）
-- [ ] `src/app/api/auth/google/route.ts` 读取 `?invite=` query
-- [ ] 把 invite token 塞进 OAuth `state`（和 CSRF state 一起 base64 编码）或塞进 httpOnly cookie
-- [ ] `src/app/api/auth/google/callback/route.ts` 登录成功后检查是否有 pending invite → auto-accept
+### Phase 1 — Schema + migration (T-PTAGS-1)
 
-### Phase 5 — 前端触发点（约 1 commit）
-- [ ] `src/app/(app)/subscriptions/[id]/page.tsx` 加 "Invite" 按钮
-  - 点击 → 调 create-invite API → 显示 Modal：链接 + 复制按钮 + 二维码（可选）
-- [ ] `new/page.tsx` 的 "Email invites coming soon" 替换成 "After creating, share the invite link"
+1. **Schema column** (File: `src/db/schema.ts`)
+   - Action: add `personalTags: jsonb('personal_tags').$type<SubscriptionTag[]>().notNull().default(sql\`'[]'::jsonb\`)` to `subscriptionMembers` pgTable.
+   - Why: one bucket per (sub, user) — PK already enforces that shape.
+   - Risk: Low. Matches existing `subscriptions.tags` pattern exactly.
 
-### Phase 6 — 测试（约 1-2 commits）
-RED/GREEN 对：
-- [ ] `invites.test.ts` — 创建 / 过期 / maxUses / revoke
-- [ ] `invite-accept.test.ts` — 成功接受、重复接受（no-op）、自接受、已离开用户重新加入
-- [ ] `invite-oauth-flow.test.ts` — state 透传、登录后自动 accept
+2. **Idempotent migration** (File: `src/db/migrate.ts`)
+   - Action: append
+     ```sql
+     ALTER TABLE subscription_members
+       ADD COLUMN IF NOT EXISTS personal_tags JSONB NOT NULL DEFAULT '[]'::jsonb
+     ```
+     to the `ddl` array.
+   - Why: existing DBs (prod) get the column on next boot without a
+     manual step. Pattern mirrors `subscriptions.tags` DDL already in
+     the file.
+   - Risk: Low.
 
-### Phase 7 — 验证
-- [ ] 本地：A 用户创建 sub 并生成邀请 → 无痕浏览器打开链接 → Google 登录（新账号）→ 自动加入 sub → dashboard 显示
-- [ ] Railway 部署后重复一次端到端
+3. **RED test** (File: `src/__tests__/personal-tags.test.ts` — new)
+   - Action: write failing test that reads `subscription_members.personalTags` via Drizzle on a freshly-created member and asserts `[]`.
+   - Depends on: setupTestDb helper already running `migrate()`.
 
-## 决策（2026-04-16 用户确认）
+4. **GREEN** — phase 1 commit above makes it pass.
 
-1. **邀请范围**：针对单个订阅（auto-friendship 顺带）
-2. **过期时间**：7 天（硬编码，不做成可配置）
-3. **maxUses**：1（单次使用）
-4. **中转页**：不做，直接跳 Google 登录 → 登录成功后自动 accept → 跳 `/subscriptions/{id}`
+### Phase 2 — Validator + API write path (T-PTAGS-2)
 
-## 简化影响
+5. **Validator** (File: `src/lib/validators.ts`)
+   - Action: add `personalTags: tagArraySchema.optional()` to
+     `updateSubscriptionSchema`.
+   - Why: same shape/cap/validation as shared tags. No new schema
+     needed.
+   - Risk: Low.
 
-- Phase 3（邀请落地页）简化为：`/invite/[token]` 直接重定向到 `/api/auth/google?invite={token}`，不渲染 UI
-- Schema 里 `maxUses` 可以直接默认 1，不暴露给 UI
-- 不需要 "revoke" 按钮（7 天自然过期 + 单次用完即废）—— 但数据库字段保留以备未来
+6. **Handler** (File: `src/lib/api-handlers.ts` —
+   `handleUpdateSubscription`, line 729 block)
+   - Action: treat `personalTags` as a third permission class alongside
+     `tags` + `logo`:
+     - If input contains ONLY `personalTags` (+ nothing else), allow any
+       active `subscription_members` row for `(subId, userId)` with
+       `leftAt IS NULL`. Return 403 if not a member.
+     - If input mixes `personalTags` with owner-only or payer-only keys,
+       keep existing ownership gate logic (owner passes everything;
+       payer-not-owner only for tags/logo).
+     - Write: `UPDATE subscription_members SET personal_tags = normalizeTags(input.personalTags) WHERE subscription_id = $1 AND user_id = $2 AND left_at IS NULL`.
+   - Why: least-surface-area — reuse the one existing PATCH route.
+   - Risk: Medium — auth branching in an already-dense block. Mitigation: comprehensive RED tests (see step 7) before implementation.
 
-## 不做的事
+7. **RED tests** (File: `src/__tests__/personal-tags.test.ts`)
+   - Case: shared member (not owner, not payer) can set personalTags.
+   - Case: owner can set their own personalTags.
+   - Case: payer can set their own personalTags.
+   - Case: non-member gets 403 (matches existing outsider test shape).
+   - Case: `{ personalTags, name }` mixed payload from a shared member
+     returns `FORBIDDEN` (because `name` is owner-only).
+   - Case: personalTags normalized — dedup, trim, cap at 5.
+   - Case: user A's personalTags write does not affect user B's row.
 
-- 不做 email 邀请（需要 SMTP / SES 集成，额外基础设施）
-- 不做 SMS 邀请
-- 不改动 `friendships` 表的语义
-- 不做 "邀请待审批"（owner 审核）—— token 本身就是授权凭证
+8. **GREEN** — handler change passes the tests.
+
+### Phase 3 — API read path (T-PTAGS-3)
+
+9. **GET response** (File: `src/app/api/subscriptions/[id]/route.ts`)
+   - Action: after the `memberRows` query, look up the caller's
+     `subscription_members.personal_tags` (already fetched if we widen
+     the select, otherwise one more tiny query). Return `personalTags`
+     on the response alongside `tags`, `members`. For outsiders (not
+     allowed) no change — they 404 before reaching this point.
+   - Why: client needs read access to render "Your tags" chips.
+   - Risk: Low.
+
+10. **API client types** (File: `src/lib/api-client.ts`)
+    - Action: add `personalTags: SubscriptionTag[]` to
+      `getSubscription` return type and
+      `updateSubscription` is already `Record<string, unknown>` — no
+      change needed there. (Consider typed helper but out of scope.)
+    - Risk: Low.
+
+11. **RED test** for GET (File:
+    `src/__tests__/personal-tags.test.ts`)
+    - Case: user A sees own personalTags in response.
+    - Case: user B viewing the same sub sees B's personalTags, not A's.
+    - Case: absent personal tags → `personalTags: []`.
+
+12. **GREEN** — GET route change.
+
+### Phase 4 — TagEditor no-lock mode (T-PTAGS-4)
+
+13. **TagEditor prop** (File: `src/components/tag-editor.tsx`)
+    - Action: add `showVisibilityToggle?: boolean` prop (default `true`).
+      When false:
+      - Don't render the lock/globe toggle on existing chips.
+      - Don't render the toggle button in the add-row.
+      - Force `draftVisibility = 'private'` internally.
+      - Adapt helper text (no "Private tags are only visible to…"
+        line).
+    - Why: reuses all existing logic (cap, dedupe, commitPending,
+      buildNextTags). A single flag covers both the new "Your tags"
+      card (always personal) and the main Tags card on 1-member subs
+      (no-one-else-exists).
+    - Risk: Low.
+
+14. **Unit test** (File: `src/__tests__/tag-editor.test.tsx` if it
+    exists, else skip — this repo's test surface is API-level, not DOM)
+    - Check if a component-level test file exists. If not, skip DOM
+      testing for this component; rely on manual verification.
+
+### Phase 5 — Detail-page UI (T-PTAGS-5)
+
+15. **Main "Tags" card — adapt for 1-member subs** (File:
+    `src/app/(app)/subscriptions/[id]/page.tsx`)
+    - Action: when `sub.members.length === 1`, render `<TagEditor
+      showVisibilityToggle={false} …>` and swap the description copy
+      ("Private tags are only visible to the owner and payer." → just
+      "Short labels for this subscription." or similar).
+    - The save path still PATCHes `tags` (unchanged); normalizeTags
+      preserves whatever visibility the stored tags had, but new
+      additions come through with `visibility: 'private'` from the
+      editor.
+    - Risk: Low — single boolean toggles the UI.
+
+16. **"Your tags" card** (File:
+    `src/app/(app)/subscriptions/[id]/page.tsx`)
+    - Action: render a new Card below the existing Tags card ONLY when
+      `sub.members.length > 1`. Visible to every active member.
+    - Uses `<TagEditor showVisibilityToggle={false} …>` + `<TagChipList>`
+      in view mode.
+    - Save handler: `api.updateSubscription(subId, { personalTags: draft })`.
+    - Mirrors the existing Tags card's busy / error / editingTags state
+      pattern for consistency.
+    - Risk: Medium — the existing Tags card handler is non-trivial
+      (tagEditorRef.commitPending, busy state). Copy-adapt carefully or
+      extract a shared `<TagEditCard>` sub-component if the duplication
+      grows. Recommend inline copy first; extract only if a third
+      variant is added later.
+
+17. **State plumbing**
+    - Add `personalTagsDraft`, `editingPersonalTags`,
+      `personalTagsError`, `personalTagEditorRef`.
+    - Extend `Sub` type to include `personalTags: SubscriptionTag[]`.
+    - Extend `load()` setter to populate from API response.
+
+18. **List-page merge render** (File:
+    `src/app/(app)/subscriptions/page.tsx` + `src/lib/db-operations.ts`
+    `getSubscriptionsForUser`)
+    - Action: extend `getSubscriptionsForUser` to also fetch the
+      caller's `subscription_members.personal_tags` for each sub. Add
+      `personalTags: SubscriptionTag[]` to the result row.
+    - In the list card, render `[...sub.tags, ...sub.personalTags].slice(0, 5)`
+      through `<TagChipList>` — shared-first, cap at 5 total.
+    - Risk: Low. One extra join; result shape additive.
+
+### Phase 6 — Rejoin behaviour (T-PTAGS-6)
+
+19. **Reset on rejoin** (File: `src/lib/db-operations.ts` —
+    `addMemberToSubscription`, line 111-128 isRejoin block)
+    - Action: add `personalTags: []` to the SET clause.
+    - Why: fresh stint semantics — matches how addedAt / addedBy / leftAt
+      are reset.
+    - Risk: Low.
+
+20. **RED test** (File: `src/__tests__/personal-tags.test.ts`)
+    - Case: user joins, sets personalTags, leaves, rejoins — personalTags
+      is empty after rejoin.
+
+21. **GREEN** — SET clause change passes.
+
+## Testing strategy
+
+- Unit tests: `normalizeTags` + `tagArraySchema` already covered; no
+  new unit tests required for those.
+- Integration tests: `src/__tests__/personal-tags.test.ts` — new file,
+  covers phases 1-3 and 6 via API handler calls against `setupTestDb`.
+- No e2e — repo has none.
+- Coverage: 80% thresholds enforced; new handler branches need explicit
+  tests (see Phase 2 step 7 — covers every branch).
+
+## Risks & mitigations
+
+- **Risk**: Auth branching in `handleUpdateSubscription` gets harder to
+  read.
+  - Mitigation: comprehensive RED tests first (Phase 2 step 7).
+  - Mitigation: a comment above the block listing the three allowed
+    paths (owner-anything, payer-tags/logo, member-personalTags-own).
+- **Risk**: TagEditor `mode='personal'` still emits
+  `visibility: 'private'` — if a caller accidentally sends it to the
+  shared-tags PATCH, it becomes a private shared tag instead of a
+  personal tag.
+  - Mitigation: detail page keeps two distinct save handlers (one PATCH
+    with `tags`, one PATCH with `personalTags`). Field name is the
+    source of truth, not the `visibility` flag.
+- **Risk**: Rejoin wipe surprises users who re-invite a member and
+  expected their old personal labels.
+  - Mitigation: document in commit message; easy to flip the policy
+    later since `personal_tags` simply isn't touched on rejoin in that
+    case.
+- **Risk**: migrate.ts ALTER fails on prod because existing rows need a
+  default.
+  - Mitigation: `DEFAULT '[]'::jsonb NOT NULL` handles existing rows —
+    idempotent pattern already proven on `subscriptions.tags` (PR #13).
+
+## Explicitly NOT doing
+
+- Cross-user personal-tag sharing (contradiction in terms).
+- Personal tags on the list page (open question 2 — default: skip).
+- Changing shared-tag semantics (`filterTagsForViewer`).
+- Transferring personal tags between subs.
+- Importing/exporting tags.
+
+## Decisions (user-confirmed 2026-04-20)
+
+1. **Owner + payer also get personal tags** — only in multi-member subs.
+   In 1-member subs there's no shared/personal distinction (see decision 5).
+2. **List page merges shared + personal**, shared-first, cap at 5 total.
+3. **Rejoin resets personal tags** to `[]` on `addMemberToSubscription`
+   rejoin path.
+4. **Max 5 personal tags** (matches shared cap).
+5. **Public/private distinction only exists in shared subs.** In a
+   1-member (non-shared) sub:
+   - The existing "Tags" card renders without the lock/globe toggle.
+   - New tags default to `visibility: 'private'` on write.
+   - The new "Your tags" card is hidden (no one else to be personal from).
+   - Storage unchanged — still `subscriptions.tags`. When the sub later
+     gains members, existing tags stay as they were (private-to-privileged
+     by default); the toggle reappears and the owner/payer can promote
+     them to public.
+
+## Success criteria
+
+- [ ] Shared member can add and see their own personal tags on the
+      subscription detail page.
+- [ ] Owner and payer can still see and edit the shared Tags card
+      unchanged.
+- [ ] User A's personal tags invisible to user B on the same sub.
+- [ ] Rejoining a sub clears personal tags.
+- [ ] Existing `src/__tests__/tags.test.ts` passes unchanged.
+- [ ] `npm run lint` clean.
+- [ ] `npm test` passes with coverage ≥ 80%.
+
+## Estimate
+
+~60-90 min of focused work spread across 6 small commits (RED/GREEN
+pairs for phases 1, 2-3, 5-6; Phase 4 is tooling). Matches the PR-13
+tag-feature scope.
