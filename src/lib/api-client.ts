@@ -49,7 +49,7 @@ export const api = {
 
   // Subscriptions
   getSubscriptions: () =>
-    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: boolean; tags: SubscriptionTag[]; logo: string | null }>>("/api/subscriptions"),
+    request<Array<{ id: number; name: string; price: number; currency: string; nextPayment: string; memberCount: number; inactive: boolean; tags: SubscriptionTag[]; personalTags: SubscriptionTag[]; logo: string | null }>>("/api/subscriptions"),
   createSubscription: (body: {
     name: string;
     price: number;

@@ -20,6 +20,7 @@ type Sub = {
   memberCount: number;
   inactive: boolean;
   tags: SubscriptionTag[];
+  personalTags: SubscriptionTag[];
   logo: string | null;
 };
 
@@ -108,9 +109,18 @@ function SubCard({ sub }: { sub: Sub }) {
             <span className="text-xs text-muted-foreground">
               Next: {sub.nextPayment}
             </span>
-            {sub.tags?.length > 0 && (
-              <TagChipList tags={sub.tags} max={2} />
-            )}
+            {(() => {
+              // List-page merge: shared (subscription.tags) first, then
+              // caller's personal tags. Capped at 5 total per the design;
+              // stays within SubCard row budget.
+              const merged = [
+                ...(sub.tags ?? []),
+                ...(sub.personalTags ?? []),
+              ].slice(0, 5);
+              return merged.length > 0 ? (
+                <TagChipList tags={merged} max={2} />
+              ) : null;
+            })()}
           </div>
         </div>
         </div>
