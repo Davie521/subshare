@@ -50,7 +50,11 @@ export async function POST(req: NextRequest) {
     .where(
       and(
         sql`${schema.subscriptions.nextPayment} <= ${today}`,
-        eq(schema.subscriptions.autoRenew, true)
+        eq(schema.subscriptions.autoRenew, true),
+        // Dormant subs (flagged cancelled in the seed/legacy path) must not
+        // auto-advance their nextPayment or they'd silently roll forward
+        // month after month.
+        eq(schema.subscriptions.inactive, false)
       )
     )
 

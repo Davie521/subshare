@@ -30,7 +30,13 @@ export async function generateMonthlyBills(
 ): Promise<number> {
   const billingDate = `${yearMonth}-01`
 
-  const subs = await db.select().from(schema.subscriptions)
+  // `inactive = true` flags a cancelled sub whose row is kept for history.
+  // Skip it — otherwise the seed/legacy path (seed-dummy sets the flag on
+  // cancelled Adobe) would silently start regenerating R1 bills here.
+  const subs = await db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.inactive, false))
 
   let inserted = 0
 

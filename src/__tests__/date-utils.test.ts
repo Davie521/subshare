@@ -33,4 +33,13 @@ describe('todayInAppTz', () => {
     expect(todayInAppTz(d2, 'UTC')).toBe('2026-04-30')
     expect(todayInAppTz(d2, 'Asia/Shanghai')).toBe('2026-05-01')
   })
+
+  it('falls back to the resolved app tz when given an invalid IANA string', () => {
+    // A typo like "Asia/Shanhgai" would otherwise throw RangeError from
+    // Intl.DateTimeFormat and crash every caller (cron route included).
+    const d = new Date('2026-04-30T22:30:00Z')
+    // App default is Asia/Shanghai → +08 → 2026-05-01 local.
+    expect(() => todayInAppTz(d, 'Not/A_Real_Zone')).not.toThrow()
+    expect(todayInAppTz(d, 'Not/A_Real_Zone')).toBe('2026-05-01')
+  })
 })
