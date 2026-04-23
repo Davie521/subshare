@@ -2,10 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import {
   createSubscription,
-  addMemberToSubscription,
-  leaveSubscription,
   getActiveMembersAt,
 } from '@/lib/db-operations'
+import { addMemberToSubscription, leaveSubscription } from '@/lib/membership'
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']
 

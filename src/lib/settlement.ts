@@ -214,6 +214,8 @@ export interface NormalizedSettlementBill {
   /** Bill amount converted into `displayCurrency` (cents). */
   convertedAmount: number
   direction: 'outgoing' | 'incoming'
+  /** True when the FX lookup failed — `convertedAmount` is 0 as fallback. */
+  fxIncomplete: boolean
 }
 
 export interface NormalizedSettlementRow {
@@ -225,6 +227,12 @@ export interface NormalizedSettlementRow {
   billCount: number
   /** Per-bill detail with converted amounts, sorted oldest first. */
   bills: NormalizedSettlementBill[]
+  /**
+   * True when ANY bill in this bucket couldn't be converted to
+   * `displayCurrency` — callers should warn before "settle all" and suppress
+   * `netAmount` as a trusted total.
+   */
+  fxIncomplete: boolean
 }
 
 /**
@@ -265,17 +273,52 @@ export async function getAgreedCurrencyMap(
  * Convert one bill amount to `displayCurrency` (cents).
  *  - Hot path: bill.localCurrency === displayCurrency → use stored localAmount
  *  - Cold path: live FX from bill.currency → displayCurrency
- *  - Fallback (FX unavailable): treat as zero so we never silently inflate.
+ *  - Fallback (FX unavailable): amount=0 with fxAvailable=false so callers
+ *    can warn the user before treating the net as trustworthy.
+ *
+ * Accepts a pre-fetched rate map (see `prefetchRates`) so callers batching
+ * over many bills avoid N serial `await getRate` hops.
  */
-async function convertBillToDisplay(
+function convertBillToDisplay(
   bill: BillRow,
-  displayCurrency: string
-): Promise<number> {
-  if (bill.localCurrency === displayCurrency) return bill.localAmount
-  if (bill.currency === displayCurrency) return bill.amount
-  const rate = await getRate(bill.currency, displayCurrency)
-  if (rate === null) return 0
-  return Math.round(bill.amount * rate)
+  displayCurrency: string,
+  rateMap: Map<string, number | null>
+): { amount: number; fxAvailable: boolean } {
+  if (bill.localCurrency === displayCurrency) {
+    return { amount: bill.localAmount, fxAvailable: true }
+  }
+  if (bill.currency === displayCurrency) {
+    return { amount: bill.amount, fxAvailable: true }
+  }
+  const rate = rateMap.get(`${bill.currency}_${displayCurrency}`) ?? null
+  if (rate === null) return { amount: 0, fxAvailable: false }
+  // Floor (not round) to match how localAmount is stored at bill
+  // generation (`Math.floor(amount * rate)`). Keeps dashboard and
+  // settlement totals consistent for the same underlying bill.
+  return { amount: Math.floor(bill.amount * rate), fxAvailable: true }
+}
+
+/**
+ * Pre-fetch every (from, to) FX rate a caller will need in one
+ * Promise.all batch. Missing rates land in the map as `null` so the
+ * consumer can distinguish "not looked up" (absent key) from "lookup
+ * failed" (null).
+ */
+async function prefetchRates(
+  pairs: Iterable<{ from: string; to: string }>
+): Promise<Map<string, number | null>> {
+  const unique = new Set<string>()
+  for (const p of pairs) {
+    if (p.from !== p.to) unique.add(`${p.from}_${p.to}`)
+  }
+  const entries = await Promise.all(
+    Array.from(unique).map(async (key) => {
+      const [from, to] = key.split('_')
+      const rate = await getRate(from, to)
+      return [key, rate] as const
+    })
+  )
+  return new Map(entries)
 }
 
 /**
@@ -297,11 +340,27 @@ export async function getNormalizedSettlement(
   const resolve =
     resolveDisplayCurrency ?? (() => fallbackCurrency)
 
+  // Batch every FX pair we'll need up front. One Promise.all round-trip
+  // beats N serial awaits inside the per-bill loop, even with the cache.
+  const pairs = bills
+    .map((b) => {
+      const iOwe = b.userId === viewerId
+      const counterparty = iOwe ? b.payerId : b.userId
+      if (counterparty === viewerId) return null
+      const displayCurrency = resolve(counterparty) || fallbackCurrency
+      if (b.localCurrency === displayCurrency) return null
+      if (b.currency === displayCurrency) return null
+      return { from: b.currency, to: displayCurrency }
+    })
+    .filter((p): p is { from: string; to: string } => p !== null)
+  const rateMap = await prefetchRates(pairs)
+
   type Bucket = {
     counterpartyUserId: number
     displayCurrency: string
     netAmount: number
     bills: NormalizedSettlementBill[]
+    fxIncomplete: boolean
   }
   const buckets = new Map<number, Bucket>()
 
@@ -311,7 +370,11 @@ export async function getNormalizedSettlement(
     if (counterparty === viewerId) continue
 
     const displayCurrency = resolve(counterparty) || fallbackCurrency
-    const converted = await convertBillToDisplay(b, displayCurrency)
+    const { amount: converted, fxAvailable } = convertBillToDisplay(
+      b,
+      displayCurrency,
+      rateMap
+    )
     let bucket = buckets.get(counterparty)
     if (!bucket) {
       bucket = {
@@ -319,10 +382,12 @@ export async function getNormalizedSettlement(
         displayCurrency,
         netAmount: 0,
         bills: [],
+        fxIncomplete: false,
       }
       buckets.set(counterparty, bucket)
     }
     bucket.netAmount += iOwe ? -converted : converted
+    if (!fxAvailable) bucket.fxIncomplete = true
     bucket.bills.push({
       id: b.id,
       subscriptionId: b.subscriptionId,
@@ -331,6 +396,7 @@ export async function getNormalizedSettlement(
       billingDate: b.billingDate,
       convertedAmount: converted,
       direction: iOwe ? 'outgoing' : 'incoming',
+      fxIncomplete: !fxAvailable,
     })
   }
 
@@ -342,5 +408,6 @@ export async function getNormalizedSettlement(
     bills: b.bills
       .slice()
       .sort((x, y) => x.billingDate.localeCompare(y.billingDate)),
+    fxIncomplete: b.fxIncomplete,
   }))
 }

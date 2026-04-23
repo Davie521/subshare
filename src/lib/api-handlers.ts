@@ -7,13 +7,13 @@ import {
   getPendingBills,
   markBillPaid,
   getMonthlySpendingData,
-  addMemberToSubscription,
-  leaveSubscription,
-  changeSubscriptionPrice,
-  generateMonthlyBills,
 } from './db-operations'
+import { addMembersToSubscription, leaveSubscription } from './membership'
+import { changeSubscriptionPrice } from './billing-ops'
+import { generateMonthlyBills } from './cron-billing'
 import { normalizeTags, filterTagsForViewer } from './tags'
 import { calculateMonthlySpending } from './billing'
+import { todayInAppTz } from './date-utils'
 import { getRate } from './fx-cache'
 import {
   getNormalizedSettlement,
@@ -106,22 +106,21 @@ export async function handleCreateSubscription(
     payerId,
   })
 
-  // Seed invitees. Rates are needed for cross-currency R2 bills.
+  // Seed invitees as a SINGLE batch so every invitee's R2 bill is
+  // computed against the same final member count — otherwise the first
+  // invitee sees n=2, the second sees n=3, etc., and amounts diverge.
   if (invitees.length > 0) {
     const rates = await fetchRatesForUsers(db, invitees, input.currency)
-    const today = new Date().toISOString().slice(0, 10)
-    for (const uid of invitees) {
-      await addMemberToSubscription(
-        db,
-        {
-          subscriptionId: sub.id,
-          userId: uid,
-          addedBy: userId,
-          addedAt: today,
-        },
-        rates
-      )
-    }
+    await addMembersToSubscription(
+      db,
+      {
+        subscriptionId: sub.id,
+        invitees,
+        addedBy: userId,
+        addedAt: todayInAppTz(),
+      },
+      rates
+    )
   }
 
   return { success: true, data: sub }
@@ -180,53 +179,33 @@ export async function handleAddMembers(
   }
 
   const rates = await fetchRatesForUsers(db, invitees, sub.currency)
-  const today = new Date().toISOString().slice(0, 10)
-  let added = 0
-  let reactivated = 0
+  const today = todayInAppTz()
   const errors: Array<{ userId: number; error: string }> = []
 
-  for (const uid of invitees) {
-    try {
-      const [existing] = await db
-        .select({ leftAt: schema.subscriptionMembers.leftAt })
-        .from(schema.subscriptionMembers)
-        .where(
-          and(
-            eq(schema.subscriptionMembers.subscriptionId, subId),
-            eq(schema.subscriptionMembers.userId, uid)
-          )
-        )
+  // Batch path: addMembersToSubscription handles the whole group in one
+  // transaction and generates each R2 bill against the FINAL member
+  // count — so two invitees added together always owe the same amount.
+  let perInvitee: Array<{ userId: number; status: 'added' | 'rejoin' | 'noop' }> = []
+  try {
+    const res = await addMembersToSubscription(
+      db,
+      { subscriptionId: subId, invitees, addedBy: actorId, addedAt: today },
+      rates
+    )
+    perInvitee = res.perInvitee
+  } catch (err) {
+    // Whole-batch failure (e.g. missing FX). Report once under the first
+    // invitee so the caller sees it; individual members are either all
+    // inserted or all rolled back thanks to the single outer tx.
+    const message = err instanceof Error ? err.message : String(err)
+    errors.push({ userId: invitees[0], error: message })
+  }
 
-      if (existing && existing.leftAt === null) {
-        // Genuinely active member — nothing to do.
-        continue
-      }
-
-      if (existing && existing.leftAt !== null) {
-        // Reactivate a departed member: clear leftAt, refresh addedAt/addedBy.
-        await db
-          .update(schema.subscriptionMembers)
-          .set({ leftAt: null, addedAt: today, addedBy: actorId })
-          .where(
-            and(
-              eq(schema.subscriptionMembers.subscriptionId, subId),
-              eq(schema.subscriptionMembers.userId, uid)
-            )
-          )
-        reactivated++
-        continue
-      }
-
-      await addMemberToSubscription(
-        db,
-        { subscriptionId: subId, userId: uid, addedBy: actorId, addedAt: today },
-        rates
-      )
-      added++
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      errors.push({ userId: uid, error: message })
-    }
+  let added = 0
+  let reactivated = 0
+  for (const r of perInvitee) {
+    if (r.status === 'added') added++
+    else if (r.status === 'rejoin') reactivated++
   }
 
   return { success: true, data: { added, reactivated, errors } }
@@ -258,7 +237,7 @@ export async function handleRemoveMember(
     await leaveSubscription(db, {
       subscriptionId: subId,
       userId: targetUserId,
-      leftAt: new Date().toISOString().slice(0, 10),
+      leftAt: todayInAppTz(),
       actorId,
     })
   } catch (err) {
@@ -280,12 +259,13 @@ export async function runBillingCron(
   db: DB,
   opts: { today?: string } = {}
 ): Promise<Result<{ monthlyBillsGenerated: number }>> {
-  const today = opts.today ?? new Date().toISOString().slice(0, 10)
-  const [year, month, day] = today.split('-').map(Number)
-  if (day !== 1) {
-    return { success: true, data: { monthlyBillsGenerated: 0 } }
-  }
+  const today = opts.today ?? todayInAppTz()
+  const [year, month] = today.split('-').map(Number)
 
+  // No day-1 gate: runs every day and relies on the UNIQUE
+  // (sub, user, billing_date) index in generateMonthlyBills for
+  // idempotency. This keeps the month's R1 bills reachable even if the
+  // day-1 cron itself failed (server outage, CI delay, etc.).
   const yearMonth = `${year}-${String(month).padStart(2, '0')}`
 
   // Pre-load rates for every (sub.currency, member.preferredCurrency) pair.
@@ -303,8 +283,6 @@ export async function runBillingCron(
       schema.users,
       eq(schema.subscriptionMembers.userId, schema.users.id)
     )
-    .where(eq(schema.subscriptions.inactive, false))
-    
 
   const need = new Set<string>()
   for (const p of pairs) {
@@ -493,19 +471,17 @@ export async function handleListFriends(
 
   const subRows =
     mySubIds.length > 0
-      ? (
-          await db
-            .select({
-              id: schema.subscriptions.id,
-              name: schema.subscriptions.name,
-              price: schema.subscriptions.price,
-              currency: schema.subscriptions.currency,
-              inactive: schema.subscriptions.inactive,
-              logo: schema.subscriptions.logo,
-            })
-            .from(schema.subscriptions)
-            .where(inArray(schema.subscriptions.id, mySubIds))
-        ).filter((s) => !s.inactive)
+      ? await db
+          .select({
+            id: schema.subscriptions.id,
+            name: schema.subscriptions.name,
+            price: schema.subscriptions.price,
+            currency: schema.subscriptions.currency,
+            logo: schema.subscriptions.logo,
+            payerId: schema.subscriptions.payerId,
+          })
+          .from(schema.subscriptions)
+          .where(inArray(schema.subscriptions.id, mySubIds))
       : []
   const subById = new Map(subRows.map((s) => [s.id, s]))
 
@@ -563,13 +539,21 @@ export async function handleListFriends(
         if (!subMembers || !sub) continue
         if (!subMembers.has(other)) continue
         const memberCount = subMembers.size
+        // Viewer's actual out-of-pocket cost. Payer covers the whole
+        // price and collects shares from everyone else, absorbing the
+        // floor-division remainder; non-payer owes the split share.
+        const perHead = Math.floor(sub.price / memberCount)
+        const myShare =
+          sub.payerId === userId
+            ? sub.price - perHead * (memberCount - 1)
+            : perHead
         sharedSubs.push({
           id: sub.id,
           name: sub.name,
           price: sub.price,
           currency: sub.currency,
           memberCount,
-          myShare: Math.floor(sub.price / memberCount),
+          myShare,
           logo: sub.logo,
         })
       }
@@ -716,7 +700,6 @@ export type SubscriptionDetail = {
   nextPayment: string
   startDate: string
   autoRenew: boolean
-  inactive: boolean
   categoryId: number | null
   ownerId: number
   payerId: number
@@ -754,7 +737,6 @@ export async function handleGetSubscription(
       nextPayment: schema.subscriptions.nextPayment,
       startDate: schema.subscriptions.startDate,
       autoRenew: schema.subscriptions.autoRenew,
-      inactive: schema.subscriptions.inactive,
       categoryId: schema.subscriptions.categoryId,
       ownerId: schema.subscriptions.ownerId,
       payerId: schema.subscriptions.payerId,
@@ -863,7 +845,6 @@ export async function handleUpdateSubscription(
     name?: string
     price?: number
     nextPayment?: string
-    inactive?: boolean
     refundPolicy?: 'payer_absorbs' | 'redistribute'
     tags?: SubscriptionTag[]
     logo?: string | null
@@ -880,7 +861,7 @@ export async function handleUpdateSubscription(
   // Three concentric permission scopes on this PATCH; each field lives in
   // exactly one. Unknown keys default to OWNER_ONLY so a new Zod field
   // can't silently open a hole.
-  //   OWNER_ONLY   — name, price, nextPayment, inactive, refundPolicy
+  //   OWNER_ONLY   — name, price, nextPayment, refundPolicy
   //   PAYER_ALSO   — tags, logo (card-level metadata, owner or payer)
   //   MEMBER_ALSO  — personalTags (caller writes their own member row)
   const isOwner = sub.ownerId === userId
@@ -935,7 +916,6 @@ export async function handleUpdateSubscription(
     const updates: Record<string, unknown> = {}
     if (input.name !== undefined) updates.name = input.name
     if (input.nextPayment !== undefined) updates.nextPayment = input.nextPayment
-    if (input.inactive !== undefined) updates.inactive = input.inactive
     if (input.refundPolicy !== undefined) updates.refundPolicy = input.refundPolicy
     if (input.tags !== undefined) updates.tags = normalizeTags(input.tags)
     if (input.logo !== undefined) updates.logo = input.logo

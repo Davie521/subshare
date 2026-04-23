@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import {
   createSubscription,
-  addMemberToSubscription,
-  generateMonthlyBills,
 } from '@/lib/db-operations'
+import { addMemberToSubscription } from '@/lib/membership'
+import { generateMonthlyBills } from '@/lib/cron-billing'
 import {
   getSettlementSummary,
   markPairSettled,

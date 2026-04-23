@@ -5,7 +5,7 @@ import {
   handleGetSettlement,
   handleMarkPairSettled,
 } from '@/lib/api-handlers'
-import { generateMonthlyBills } from '@/lib/db-operations'
+import { generateMonthlyBills } from '@/lib/cron-billing'
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']
 let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']

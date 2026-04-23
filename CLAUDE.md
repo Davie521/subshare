@@ -66,6 +66,7 @@ See `.env.example` for the full template.
 - `DATABASE_URL` — Postgres connection string (required).
 - `SESSION_SECRET` — HMAC key for session cookies, 32+ chars. Required in production (dev has insecure fallback).
 - `CRON_SECRET` — Bearer token for `POST /api/cron/billing`.
+- `APP_TIMEZONE` — IANA timezone for calendar-date semantics (billing_date, addedAt/leftAt, cron's "today"). Defaults to `Asia/Shanghai`. Set to match your user base — UTC on a non-UTC user base will shift date boundaries and can make the 1st-of-month R1 cron miss its window.
 
 ## Architecture — **subscription-centric**
 
@@ -81,7 +82,11 @@ Each **subscription** is the primitive. It has its own `payer_id` (the person wh
   - `activity` — unified "everything happening" feed: Action needed / Incoming / Updates
   - `settlement` — Mark-settled workspace with Unpaid / Paid toggle
   - `friends` — people you've co-subscribed with
-  - `settings` — profile, display name, email visibility, sign out
+  - `settings` — profile, display name, email visibility, sign out; includes `settings/circles` (see below)
+
+**Circles** (`src/app/api/circles`, `src/app/(app)/settings/circles`) are user-defined member templates — a named group like "Family" with a preset `memberIds` + optional `defaultPayerId`. The "new subscription" form exposes them as a one-tap member picker. They are an orthogonal UI helper — the billing/friendship model is still subscription-centric (circles don't create any shared state).
+
+The legacy `groups` / `group_members` tables in `schema.ts` are unused except as the source for the one-shot `backfillFromGroups()` migration (kept for anyone upgrading from the pre-refactor DB).
 - `(auth)/` — login / register
 - `api/` — route handlers grouped by resource: `auth`, `dashboard`, `subscriptions/[id]` (+ `members`), `billing/[id]/paid`, `settlement`, `friends`, `notifications`, `exchange-rate`, `cron/billing`
 

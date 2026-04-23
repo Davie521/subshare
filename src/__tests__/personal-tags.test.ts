@@ -8,10 +8,9 @@ import {
   handleUpdateSubscription,
 } from '@/lib/api-handlers'
 import {
-  addMemberToSubscription,
   getSubscriptionsForUser,
-  leaveSubscription,
 } from '@/lib/db-operations'
+import { addMemberToSubscription, leaveSubscription } from '@/lib/membership'
 
 describe('subscription_members.personalTags column', () => {
   let db: Awaited<ReturnType<typeof setupTestDb>>['db']

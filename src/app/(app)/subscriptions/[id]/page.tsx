@@ -47,7 +47,6 @@ type Sub = {
   ownerId: number;
   payerId: number;
   logo: string | null;
-  inactive: boolean;
   refundPolicy: "payer_absorbs" | "redistribute";
   tags: SubscriptionTag[];
   personalTags: SubscriptionTag[];
@@ -117,7 +116,6 @@ export default function SubscriptionDetailPage() {
           ownerId: d.ownerId,
           payerId: d.payerId,
           logo: d.logo,
-          inactive: d.inactive,
           refundPolicy: d.refundPolicy,
           tags: d.tags ?? [],
           personalTags: d.personalTags ?? [],

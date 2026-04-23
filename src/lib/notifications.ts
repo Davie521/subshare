@@ -17,6 +17,12 @@ export interface SettlementDuePayload {
   oldestBillingDate: string
   /** 'outgoing' = viewer owes counterparty; 'incoming' = counterparty owes viewer. */
   direction: 'outgoing' | 'incoming'
+  /**
+   * True when FX lookup failed for at least one bill in this bucket, so
+   * `amount` can't be fully trusted. Callers should render a "check
+   * settlement page" hint rather than exposing the raw number.
+   */
+  fxIncomplete?: boolean
 }
 
 export interface NotificationRecord<P = unknown> {
@@ -159,13 +165,26 @@ export async function syncSettlementDueNotifications(
     (counterparty) => agreedMap.get(counterparty) ?? displayCurrency
   )
 
-  // One desired notification per counterparty (skip if net is zero).
+  // One desired notification per counterparty. Skip rows with a clean
+  // zero net (fully settled), BUT keep rows whose net computed to zero
+  // only because FX was unavailable — those still have unpaid bills the
+  // user needs to know about.
   type Desired = { key: number; payload: SettlementDuePayload }
   const desired: Desired[] = []
   for (const r of rows) {
-    if (r.netAmount === 0) continue
-    const direction: 'outgoing' | 'incoming' =
-      r.netAmount < 0 ? 'outgoing' : 'incoming'
+    if (r.netAmount === 0 && !r.fxIncomplete) continue
+
+    // Net sign is unreliable when FX is incomplete. Fall back to the
+    // dominant bill direction in that bucket.
+    let direction: 'outgoing' | 'incoming'
+    if (r.netAmount !== 0) {
+      direction = r.netAmount < 0 ? 'outgoing' : 'incoming'
+    } else {
+      const outgoing = r.bills.filter((b) => b.direction === 'outgoing').length
+      const incoming = r.bills.length - outgoing
+      direction = outgoing >= incoming ? 'outgoing' : 'incoming'
+    }
+
     const oldestBillingDate = r.bills
       .map((b) => b.billingDate)
       .slice()
@@ -180,6 +199,7 @@ export async function syncSettlementDueNotifications(
         billCount: r.billCount,
         oldestBillingDate,
         direction,
+        ...(r.fxIncomplete ? { fxIncomplete: true } : {}),
       },
     })
   }

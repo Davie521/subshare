@@ -229,7 +229,8 @@ export async function migrate(db: Db): Promise<void> {
  * groups/group_members structures. Idempotent.
  */
 export async function backfillFromGroups(db: Db): Promise<number> {
-  const today = new Date().toISOString().slice(0, 10)
+  const { todayInAppTz } = await import('@/lib/date-utils')
+  const today = todayInAppTz()
 
   const sharedResult = await db.execute(sql`
     INSERT INTO subscription_members

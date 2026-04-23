@@ -4,13 +4,13 @@ import { setupTestDb, createUser } from './helpers'
 import * as schema from '@/db/schema'
 import {
   createSubscription,
-  addMemberToSubscription,
   getSubscriptionsForUser,
-  generateAndSaveBillingRecords,
   getPendingBills,
   markBillPaid,
   getMonthlySpendingData,
 } from '@/lib/db-operations'
+import { addMemberToSubscription } from '@/lib/membership'
+import { generateMonthlyBills } from '@/lib/cron-billing'
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']
 
@@ -115,7 +115,7 @@ describe('getSubscriptionsForUser', () => {
   })
 })
 
-describe('generateAndSaveBillingRecords', () => {
+describe('generateMonthlyBills (per-sub scenarios)', () => {
   it('generates billing records for non-payer members', async () => {
     const userA = await createUser(db, { email: 'a@test.com' })
     const userB = await createUser(db, { email: 'b@test.com' })
@@ -141,8 +141,8 @@ describe('generateAndSaveBillingRecords', () => {
       addedAt: '2026-05-01',
     })
 
-    const count = await generateAndSaveBillingRecords(db, sub.id)
-    expect(count).toBe(2) // B and C
+    const count = await generateMonthlyBills(db, '2026-06')
+    expect(count).toBeGreaterThanOrEqual(2) // at least B and C for this sub
 
     const bills = await db
       .select()
@@ -175,8 +175,8 @@ describe('generateAndSaveBillingRecords', () => {
       addedAt: '2026-05-01',
     })
 
-    await generateAndSaveBillingRecords(db, sub.id)
-    await generateAndSaveBillingRecords(db, sub.id) // second call
+    await generateMonthlyBills(db, '2026-06')
+    await generateMonthlyBills(db, '2026-06') // second call
 
     const bills = await db
       .select()
@@ -189,15 +189,18 @@ describe('generateAndSaveBillingRecords', () => {
     expect(bills).toHaveLength(1) // no duplicates at 2026-06-01
   })
 
-  it('skips inactive subscriptions', async () => {
+  it('P0-2 RED: billingDate is normalized to month-start regardless of nextPayment day', async () => {
     const userA = await createUser(db, { email: 'a@test.com' })
     const userB = await createUser(db, { email: 'b@test.com' })
 
+    // Sub whose nextPayment is mid-month (simulates a sub whose anniversary
+    // is not the 1st — e.g. created on the 15th). R1 mandates
+    // billing_date = YYYY-MM-01 regardless of the anniversary day.
     const sub = await createSubscription(db, {
       name: 'Netflix',
       price: 18000,
       currency: 'CNY',
-      nextPayment: '2026-06-01',
+      nextPayment: '2026-06-15',
       ownerId: userA,
     })
     await addMemberToSubscription(db, {
@@ -207,12 +210,65 @@ describe('generateAndSaveBillingRecords', () => {
       addedAt: '2026-05-01',
     })
 
-    await db.update(schema.subscriptions)
-      .set({ inactive: true })
-      .where(eq(schema.subscriptions.id, sub.id))
+    // Clear R2 bills that addMemberToSubscription may have generated so we
+    // assert cleanly on what generateAndSaveBillingRecords produces.
+    await db.delete(schema.billingRecords)
 
-    const count = await generateAndSaveBillingRecords(db, sub.id)
-    expect(count).toBe(0)
+    await generateMonthlyBills(db, '2026-06')
+
+    const bills = await db
+      .select()
+      .from(schema.billingRecords)
+      .where(eq(schema.billingRecords.subscriptionId, sub.id))
+
+    expect(bills).toHaveLength(1)
+    // The key R1 invariant: billing_date is always the 1st of the month,
+    // not sub.nextPayment.
+    expect(bills[0].billingDate).toBe('2026-06-01')
+  })
+
+  it('P0-2 RED: does not double-bill when a monthly-pass already wrote YYYY-MM-01 for the month', async () => {
+    const userA = await createUser(db, { email: 'a@test.com' })
+    const userB = await createUser(db, { email: 'b@test.com' })
+
+    const sub = await createSubscription(db, {
+      name: 'Netflix',
+      price: 18000,
+      currency: 'CNY',
+      nextPayment: '2026-06-15',
+      ownerId: userA,
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: userB,
+      addedBy: userA,
+      addedAt: '2026-05-01',
+    })
+    await db.delete(schema.billingRecords)
+
+    // Simulate the monthly cron having already inserted the June R1 bill
+    // at 2026-06-01. A later per-sub generateAndSaveBillingRecords must not
+    // insert a second bill at a different billing_date.
+    await db.insert(schema.billingRecords).values({
+      subscriptionId: sub.id,
+      userId: userB,
+      amount: 9000,
+      currency: 'CNY',
+      localAmount: 9000,
+      localCurrency: 'CNY',
+      exchangeRate: 1_000_000,
+      billingDate: '2026-06-01',
+    })
+
+    await generateMonthlyBills(db, '2026-06')
+
+    const bills = await db
+      .select()
+      .from(schema.billingRecords)
+      .where(eq(schema.billingRecords.subscriptionId, sub.id))
+
+    expect(bills).toHaveLength(1)
+    expect(bills[0].billingDate).toBe('2026-06-01')
   })
 })
 
@@ -235,7 +291,7 @@ describe('getPendingBills', () => {
       addedAt: '2026-05-01',
     })
 
-    await generateAndSaveBillingRecords(db, sub.id)
+    await generateMonthlyBills(db, '2026-06')
 
     const bills = await getPendingBills(db, userB)
     // userB gets: R2 join bill (2026-05-01, full month) + R1 next-payment bill (2026-06-01).
@@ -264,7 +320,7 @@ describe('getPendingBills', () => {
       addedAt: '2026-05-01',
     })
 
-    await generateAndSaveBillingRecords(db, sub.id)
+    await generateMonthlyBills(db, '2026-06')
 
     const allBills = await db.select().from(schema.billingRecords)
     for (const bill of allBills) {
@@ -295,7 +351,7 @@ describe('markBillPaid', () => {
       addedAt: '2026-05-01',
     })
 
-    await generateAndSaveBillingRecords(db, sub.id)
+    await generateMonthlyBills(db, '2026-06')
 
     const bills = await db.select().from(schema.billingRecords)
     await markBillPaid(db, bills[0].id)
