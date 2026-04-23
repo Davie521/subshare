@@ -10,7 +10,9 @@ import {
   handleCreateSubscription,
   handleUpdateSubscription,
 } from '@/lib/api-handlers'
-import { getSubscriptionsForUser } from '@/lib/db-operations'
+import {
+  getSubscriptionsForUser,
+} from '@/lib/db-operations'
 
 describe('tagSchema', () => {
   it('accepts a valid public tag', () => {

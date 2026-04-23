@@ -32,11 +32,10 @@ import { migrate } from '../src/db/migrate'
 import * as schema from '../src/db/schema'
 import {
   createSubscription,
-  addMemberToSubscription,
-  generateMonthlyBills,
-  changeSubscriptionPrice,
-  leaveSubscription,
 } from '../src/lib/db-operations'
+import { addMemberToSubscription, leaveSubscription } from '../src/lib/membership'
+import { changeSubscriptionPrice } from '../src/lib/billing-ops'
+import { generateMonthlyBills } from '../src/lib/cron-billing'
 import { insertNotification } from '../src/lib/notifications'
 
 const args = new Set(process.argv.slice(2))

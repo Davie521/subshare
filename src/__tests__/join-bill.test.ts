@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import {
   createSubscription,
-  addMemberToSubscription,
 } from '@/lib/db-operations'
+import { addMemberToSubscription } from '@/lib/membership'
 
 /**
  * T9 — addMemberToSubscription auto-generates a pro-rated join bill (R2).
@@ -228,5 +228,36 @@ describe('T9 generateJoinBill on addMember (R2)', () => {
     })
 
     expect(await allBills()).toHaveLength(1)
+  })
+
+  it('P1 RED: amount=0 (price too small for pro-rata to be ≥ 1 cent) skips bill silently', async () => {
+    // price=1, n=2 → share=0 → any prorate = 0 → no bill inserted.
+    // This is the `if (amount <= 0) return` branch in createR2JoinBill.
+    const a = await createUser(db, { email: 'a@t.com' })
+    const b = await createUser(db, { email: 'b@t.com' })
+    const sub = await createSubscription(db, {
+      name: 'Tiny',
+      price: 1, // 1 cent total price — nothing left after n=2 split
+      currency: 'CNY',
+      nextPayment: '2026-05-01',
+      startDate: '2026-04-01',
+      ownerId: a,
+    })
+
+    await addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-04-15',
+    })
+
+    // Member was inserted but no R2 bill (amount would be 0).
+    const members = await sqlite
+      .prepare('SELECT COUNT(*) AS n FROM subscription_members WHERE subscription_id = ?')
+      .get(sub.id) as { n: number }
+    expect(members.n).toBe(2) // owner + b
+
+    const bills = await allBills()
+    expect(bills.filter((r) => r.subscriptionId === sub.id)).toHaveLength(0)
   })
 })

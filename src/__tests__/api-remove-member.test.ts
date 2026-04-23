@@ -4,7 +4,9 @@ import {
   handleCreateSubscription,
   handleRemoveMember,
 } from '@/lib/api-handlers'
-import { getMembersOfSubscription } from '@/lib/db-operations'
+import {
+  getMembersOfSubscription,
+} from '@/lib/db-operations'
 import { listNotifications } from '@/lib/notifications'
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']

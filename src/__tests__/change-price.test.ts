@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import {
   createSubscription,
-  addMemberToSubscription,
-  generateMonthlyBills,
-  changeSubscriptionPrice,
 } from '@/lib/db-operations'
+import { addMemberToSubscription, leaveSubscription } from '@/lib/membership'
+import { changeSubscriptionPrice } from '@/lib/billing-ops'
+import { generateMonthlyBills } from '@/lib/cron-billing'
 import { listNotifications } from '@/lib/notifications'
 
 /**
@@ -305,5 +305,191 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
         newPrice: 'abc',
       })
     ).rejects.toThrow()
+  })
+
+  it('P0-1 RED: preserves R11 redistribute delta on R1 bills when price changes', async () => {
+    // A (payer), B, C, D. Price 1000 → R1 share = 250 each.
+    // C leaves mid-month with refund_policy=redistribute → B/D each absorb
+    // part of C's released amount. Later the payer changes the price. The
+    // R11 delta must survive the rewrite; otherwise the payer silently
+    // re-absorbs the cost that R11 had intentionally pushed onto others.
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
+    const d = await createUser(db, { email: 'd@t.com', currency: 'CNY' })
+    const sub = await createSubscription(db, {
+      name: 'Netflix',
+      price: 1000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+      refundPolicy: 'redistribute',
+    })
+    for (const uid of [b, c, d]) {
+      await addMemberToSubscription(db, {
+        subscriptionId: sub.id,
+        userId: uid,
+        addedBy: a,
+        addedAt: '2026-03-10',
+      })
+    }
+    await generateMonthlyBills(db, '2026-05')
+
+    // Sanity: R1 bills at 250 each for B/C/D.
+    const r1Before = await sqlite
+      .prepare(
+        "SELECT user_id, amount FROM billing_records WHERE billing_date = '2026-05-01' ORDER BY user_id"
+      )
+      .all() as Array<{ user_id: number; amount: number }>
+    expect(r1Before).toHaveLength(3)
+    expect(r1Before.every((r) => r.amount === 250)).toBe(true)
+
+    // C leaves on 5/11 (usage=10, coverage=31 → 80 kept; diff=170 redistributed
+    // to B,D → addPer=85, remainder=0 → B=335, D=335, C=80).
+    await leaveSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      leftAt: '2026-05-11',
+    })
+
+    const bBillPreR5 = await sqlite
+      .prepare('SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = \'2026-05-01\'')
+      .get(b) as { amount: number }
+    const dBillPreR5 = await sqlite
+      .prepare('SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = \'2026-05-01\'')
+      .get(d) as { amount: number }
+    const cBillPreR5 = await sqlite
+      .prepare('SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = \'2026-05-01\'')
+      .get(c) as { amount: number }
+    expect(bBillPreR5.amount).toBe(335) // 250 + 85
+    expect(dBillPreR5.amount).toBe(335) // 250 + 85
+    expect(cBillPreR5.amount).toBe(80)
+
+    // Payer bumps price to 1600. n_today = 3 (A, B, D) → newShare = 533.
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 1600 })
+
+    const bAfter = await sqlite
+      .prepare('SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = \'2026-05-01\'')
+      .get(b) as { amount: number }
+    const dAfter = await sqlite
+      .prepare('SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = \'2026-05-01\'')
+      .get(d) as { amount: number }
+    const cAfter = await sqlite
+      .prepare('SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = \'2026-05-01\'')
+      .get(c) as { amount: number }
+
+    // Expected (method A): new bill = newShare + r11_delta. B/D each had
+    // an R11 delta of 85 locked in when C left; that 85 is independent of
+    // the later price change and must persist.
+    expect(bAfter.amount).toBe(618) // 533 + 85
+    expect(dAfter.amount).toBe(618) // 533 + 85
+    // C is no longer active and must not be touched by R5.
+    expect(cAfter.amount).toBe(80)
+  })
+
+  it('P1-6 RED: leaver with unpaid current-month bill also receives price_changed', async () => {
+    // A=payer, B, C. C leaves mid-month, C's R3-adjusted bill is unpaid.
+    // Payer changes price. C's bill is NOT modified (R5 skips non-active
+    // users), but C should still be notified so they understand the sub's
+    // state they're still on the hook to settle.
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
+    const sub = await createSubscription(db, {
+      name: 'Netflix',
+      price: 3000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-03-10',
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      addedBy: a,
+      addedAt: '2026-03-10',
+    })
+    await generateMonthlyBills(db, '2026-05')
+
+    // C leaves on 5/11 — their bill gets prorated but stays unpaid.
+    await leaveSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      leftAt: '2026-05-11',
+    })
+
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 6000 })
+
+    const priceNotifsFor = async (uid: number) =>
+      (await listNotifications(db, uid)).filter((n) => n.type === 'price_changed')
+    expect(await priceNotifsFor(b)).toHaveLength(1) // active member
+    expect(await priceNotifsFor(c)).toHaveLength(1) // leaver with unpaid bill
+    expect(await priceNotifsFor(a)).toHaveLength(0) // payer
+  })
+
+  it('P1-6 RED: leaver with ZERO unpaid bills gets no price_changed notice', async () => {
+    // If C left and has no remaining unpaid bills (e.g. leftAt = month-start
+    // day so R3 deleted the bill), notifying them is just noise.
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
+    const sub = await createSubscription(db, {
+      name: 'Netflix',
+      price: 3000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: b,
+      addedBy: a,
+      addedAt: '2026-03-10',
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      addedBy: a,
+      addedAt: '2026-03-10',
+    })
+    await generateMonthlyBills(db, '2026-05')
+
+    // Leaving on 5/1 means usage=0 → bill is deleted by R3.
+    await leaveSubscription(db, {
+      subscriptionId: sub.id,
+      userId: c,
+      leftAt: '2026-05-01',
+    })
+
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 6000 })
+
+    const priceNotifsFor = async (uid: number) =>
+      (await listNotifications(db, uid)).filter((n) => n.type === 'price_changed')
+    expect(await priceNotifsFor(c)).toHaveLength(0)
+  })
+
+  it('P0-1 RED: no R11 delta → R5 behaves as before (newShare exactly)', async () => {
+    const { sub, b, c } = await setup3()
+    await generateMonthlyBills(db, '2026-05') // 2 bills of 5000 each (15000/3)
+
+    await changeSubscriptionPrice(db, { subscriptionId: sub.id, newPrice: 30000 })
+
+    const bBill = await sqlite
+      .prepare('SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = \'2026-05-01\'')
+      .get(b) as { amount: number }
+    const cBill = await sqlite
+      .prepare('SELECT amount FROM billing_records WHERE user_id = ? AND billing_date = \'2026-05-01\'')
+      .get(c) as { amount: number }
+    // No redistribute happened, so delta = 0 → new bill = exact newShare.
+    expect(bBill.amount).toBe(10000) // floor(30000/3)
+    expect(cBill.amount).toBe(10000)
   })
 })

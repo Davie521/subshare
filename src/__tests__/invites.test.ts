@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { eq } from 'drizzle-orm'
 import { setupTestDb, createUser } from './helpers'
-import { createSubscription } from '@/lib/db-operations'
+import {
+  createSubscription,
+} from '@/lib/db-operations'
 import {
   createInvite,
   getInviteMetadata,

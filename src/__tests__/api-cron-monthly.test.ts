@@ -47,7 +47,12 @@ describe('A10 runBillingCron', () => {
     expect(await billsForDate('2026-05-01')).toBeGreaterThan(0)
   })
 
-  it('on non-1st days, does NOT run the monthly generator', async () => {
+  it('P0-5: on non-1st days, backfills the month if not yet generated', async () => {
+    // Previously this test asserted "day != 1 returns 0". That behaviour
+    // was a latent bug: if day-1 cron failed, the month's R1 bills were
+    // never created. New contract: runBillingCron is idempotent (UNIQUE
+    // constraint handles dups) and can safely run on any day; if the
+    // 1st was missed, a later run still creates the missing bills.
     const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
     const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
     await handleCreateSubscription(db, a, {
@@ -64,8 +69,36 @@ describe('A10 runBillingCron', () => {
     const result = await runBillingCron(db, { today: '2026-05-15' })
     expect(result.success).toBe(true)
     if (!result.success) return
-    expect(result.data!.monthlyBillsGenerated).toBe(0)
-    expect(await billsForDate('2026-05-01')).toBe(0)
+    expect(result.data!.monthlyBillsGenerated).toBeGreaterThan(0)
+    expect(await billsForDate('2026-05-01')).toBeGreaterThan(0)
+  })
+
+  it('P0-5: running on non-1st with month already billed is a no-op', async () => {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
+    await handleCreateSubscription(db, a, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-05-01',
+      members: [b],
+    })
+    await sqlite.prepare("UPDATE subscription_members SET added_at = '2026-04-01'")
+      .run()
+    await sqlite.prepare('DELETE FROM billing_records').run()
+
+    // Day-1 succeeded.
+    const first = await runBillingCron(db, { today: '2026-05-01' })
+    expect(first.success).toBe(true)
+    if (!first.success) return
+    expect(first.data!.monthlyBillsGenerated).toBeGreaterThan(0)
+
+    // A day-15 tick later in the same month must not generate more —
+    // UNIQUE on (sub, user, billing_date) keeps it idempotent.
+    const second = await runBillingCron(db, { today: '2026-05-15' })
+    expect(second.success).toBe(true)
+    if (!second.success) return
+    expect(second.data!.monthlyBillsGenerated).toBe(0)
   })
 
   it('is idempotent on 1st — second run adds zero new bills', async () => {

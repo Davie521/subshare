@@ -46,31 +46,98 @@ export function calculateJoinProRata(
 }
 
 /**
- * Pre-paid mid-cycle leave pro-rata.
+ * Pre-paid mid-cycle leave pro-rata (R3).
+ *
+ * `amount` is the bill amount being prorated — for R1 bills this is the
+ * full-month share; for R2 bills it is the already-prorated join amount.
+ * `coverageDays` is how many days the bill covers:
+ *   - R1: coverageDays = daysInMonth (bill covers the whole month)
+ *   - R2: coverageDays = daysInMonth − joinDay + 1
  *
  * `usageDays` is inclusive of the cycle-start day but EXCLUSIVE of the
- * leave day (a member with leftAt = cycleStart used 0 days). Caller
- * must compute `usageDays = leftAt_day - cycleStart_day`, where
- * cycleStart = 1 for R1 bills and cycleStart = joinDate for R2 bills.
+ * leave day (a member who leaves on the cycle-start day used 0 days).
+ * Caller computes `usageDays = leftAt_day − cycleStart_day`.
  *
  * Rules:
  *   - usageDays ≤ 0  → 0 (caller should delete the bill row)
- *   - usageDays ≥ daysInMonth → full share (last-day leave counts as
- *     a full month per product spec)
- *   - otherwise floor(share × usageDays / daysInMonth)
+ *   - usageDays ≥ coverageDays → full amount (last-day leave override)
+ *   - otherwise floor(amount × usageDays / coverageDays)
  */
 export function calculateLeaveProRata(
-  share: number,
+  amount: number,
   usageDays: number,
-  daysInMonth: number
+  coverageDays: number
 ): number {
-  if (share < 0) throw new Error('share must be non-negative')
-  if (daysInMonth < 28 || daysInMonth > 31) {
-    throw new Error('daysInMonth must be 28–31')
+  if (amount < 0) throw new Error('amount must be non-negative')
+  if (!Number.isInteger(coverageDays) || coverageDays < 1 || coverageDays > 31) {
+    throw new Error('coverageDays must be an integer 1–31')
   }
   if (usageDays <= 0) return 0
-  if (usageDays >= daysInMonth) return share
-  return Math.floor((share * usageDays) / daysInMonth)
+  if (usageDays >= coverageDays) return amount
+  return Math.floor((amount * usageDays) / coverageDays)
+}
+
+/**
+ * Recompute a bill's localAmount from its stored exchange rate. Used
+ * anywhere `amount` gets rewritten (R3 prorate, R5 price change) to keep
+ * `localAmount` consistent with `amount` without calling the live FX API.
+ *
+ * Rates are stored as integer × 1_000_000 for precision; result is cents.
+ */
+export function recomputeLocalAmount(
+  amount: number,
+  exchangeRate: number
+): number {
+  return Math.floor((amount * exchangeRate) / 1_000_000)
+}
+
+/**
+ * Distribute an integer `total` across `parts` recipients using
+ * round-robin remainder — the first (total mod parts) recipients each
+ * get one extra cent, the rest get `floor(total / parts)`. Guarantees
+ * Σ(result) === total and |max − min| ≤ 1.
+ *
+ * Used by R11 redistribute (splits the leaver's refunded diff across
+ * remaining non-payer bills).
+ */
+export function distributeDiff(total: number, parts: number): number[] {
+  if (parts <= 0) return []
+  if (total < 0) throw new Error('total must be non-negative')
+  const base = Math.floor(total / parts)
+  let remainder = total - base * parts
+  const out: number[] = []
+  for (let i = 0; i < parts; i++) {
+    out.push(base + (remainder > 0 ? 1 : 0))
+    if (remainder > 0) remainder--
+  }
+  return out
+}
+
+/**
+ * R5 new-amount calculator — computes what `amount` should become after
+ * a price change, preserving any R11 redistribute delta that's already
+ * been baked into the current amount.
+ *
+ * The current amount equals `baseline(oldShare) + r11Delta` where
+ * baseline is what the bill would be at the billing time under the old
+ * price. We recover `r11Delta` and carry it forward onto the new
+ * baseline.
+ *
+ * `daysCovered === daysInMonth` → R1 bill (whole month).
+ * `daysCovered < daysInMonth`   → R2 bill (joined mid-month).
+ */
+export function calculateR5NewAmount(input: {
+  currentAmount: number
+  oldShare: number
+  newShare: number
+  daysCovered: number
+  daysInMonth: number
+}): number {
+  const { currentAmount, oldShare, newShare, daysCovered, daysInMonth } = input
+  const oldBaseline = Math.floor((oldShare * daysCovered) / daysInMonth)
+  const r11Delta = currentAmount - oldBaseline
+  const newBaseline = Math.floor((newShare * daysCovered) / daysInMonth)
+  return newBaseline + r11Delta
 }
 
 /**

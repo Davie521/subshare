@@ -18,7 +18,6 @@ type Sub = {
   currency: string;
   nextPayment: string;
   memberCount: number;
-  inactive: boolean;
   tags: SubscriptionTag[];
   personalTags: SubscriptionTag[];
   logo: string | null;
@@ -45,8 +44,8 @@ export default function SubscriptionsPage() {
     );
   }
 
-  const personal = subs.filter((s) => s.memberCount <= 1 && !s.inactive);
-  const shared = subs.filter((s) => s.memberCount > 1 && !s.inactive);
+  const personal = subs.filter((s) => s.memberCount <= 1);
+  const shared = subs.filter((s) => s.memberCount > 1);
 
   return (
     <div className="space-y-6">

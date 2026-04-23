@@ -8,7 +8,9 @@ import {
   handleCreateSubscription,
   handleUpdateSubscription,
 } from '@/lib/api-handlers'
-import { getSubscriptionsForUser } from '@/lib/db-operations'
+import {
+  getSubscriptionsForUser,
+} from '@/lib/db-operations'
 
 describe('logo validator', () => {
   const valid = {

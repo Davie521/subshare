@@ -4,9 +4,9 @@ import { setupTestDb, createUser, addSubMember } from './helpers'
 import * as schema from '@/db/schema'
 import {
   createSubscription,
-  addMemberToSubscription,
-  generateAndSaveBillingRecords,
 } from '@/lib/db-operations'
+import { addMemberToSubscription } from '@/lib/membership'
+import { generateMonthlyBills } from '@/lib/cron-billing'
 import {
   handleCreateSubscription,
   handleUpdateSubscription,
@@ -170,7 +170,7 @@ describe('handleDeleteSubscription', () => {
       ownerId: userA,
     })
     await addSubMember(sqlite, sub.id, userB)
-    await generateAndSaveBillingRecords(db, sub.id)
+    await generateMonthlyBills(db, '2026-06')
 
     const result = await handleDeleteSubscription(db, userA, sub.id)
     expect(result.success).toBe(true)
@@ -189,6 +189,42 @@ describe('handleDeleteSubscription', () => {
       .where(eq(schema.billingRecords.subscriptionId, sub.id))
     expect(bills).toHaveLength(0)
   })
+
+  it('P2-7: cascade-deletes notifications tied to the sub', async () => {
+    const userA = await createUser(db, { email: 'a@test.com' })
+    const userB = await createUser(db, { email: 'b@test.com' })
+
+    const sub = await createSubscription(db, {
+      name: 'Netflix',
+      price: 18000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      ownerId: userA,
+    })
+    // A plain added_to_sub-style notification tied to this sub.
+    await db.insert(schema.notifications).values({
+      userId: userB,
+      type: 'added_to_sub',
+      subscriptionId: sub.id,
+      payload: JSON.stringify({ sub_name: 'Netflix' }),
+    })
+
+    const before = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.subscriptionId, sub.id))
+    expect(before).toHaveLength(1)
+
+    await handleDeleteSubscription(db, userA, sub.id)
+
+    // R6 "forgive debts" — deleting the sub wipes the whole history,
+    // notifications included. No lingering breadcrumbs.
+    const after = await db
+      .select()
+      .from(schema.notifications)
+      .where(eq(schema.notifications.subscriptionId, sub.id))
+    expect(after).toHaveLength(0)
+  })
 })
 
 // --- Billing ---
@@ -206,7 +242,7 @@ describe('handleMarkPaid', () => {
       ownerId: userA,
     })
     await addSubMember(sqlite, sub.id, userB)
-    await generateAndSaveBillingRecords(db, sub.id)
+    await generateMonthlyBills(db, '2026-06')
 
     const bills = await db.select().from(schema.billingRecords)
     const result = await handleMarkPaid(db, userB, bills[0].id)
@@ -233,7 +269,7 @@ describe('handleMarkPaid', () => {
       ownerId: userA,
     })
     await addSubMember(sqlite, sub.id, userB)
-    await generateAndSaveBillingRecords(db, sub.id)
+    await generateMonthlyBills(db, '2026-06')
 
     const bills = await db.select().from(schema.billingRecords)
     const result = await handleMarkPaid(db, userC, bills[0].id)
@@ -271,7 +307,7 @@ describe('handleGetDashboard', () => {
       addedBy: userA,
       addedAt: '2026-06-01',
     })
-    await generateAndSaveBillingRecords(db, shared.id)
+    await generateMonthlyBills(db, '2026-06')
 
     const result = await handleGetDashboard(db, userB)
     expect(result.monthlyTotal).toBe(10500) // 1500 + 18000/2

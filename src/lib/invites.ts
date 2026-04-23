@@ -1,8 +1,9 @@
 import { eq, and, isNull, sql } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
-import { addMemberToSubscription } from './db-operations'
+import { addMemberToSubscription } from './membership'
 import { fetchRatesForUsers, type Result } from './api-handlers'
+import { todayInAppTz } from './date-utils'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
@@ -180,7 +181,7 @@ export async function acceptInvite(
   }
 
   const rates = await fetchRatesForUsers(db, [userId], inviteRow.subCurrency)
-  const today = new Date().toISOString().slice(0, 10)
+  const today = todayInAppTz()
 
   try {
     await db.transaction(async (tx) => {

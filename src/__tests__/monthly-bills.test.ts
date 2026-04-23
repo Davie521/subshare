@@ -2,10 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import {
   createSubscription,
-  addMemberToSubscription,
-  leaveSubscription,
-  generateMonthlyBills,
 } from '@/lib/db-operations'
+import { addMemberToSubscription, leaveSubscription } from '@/lib/membership'
+import { generateMonthlyBills } from '@/lib/cron-billing'
 
 /**
  * T8 — R1 monthly cron.
@@ -200,30 +199,6 @@ describe('T8 generateMonthlyBills (R1)', () => {
     expect(await allBills()).toHaveLength(0)
   })
 
-  it('skips inactive subscriptions', async () => {
-    const a = await createUser(db, { email: 'a@t.com' })
-    const b = await createUser(db, { email: 'b@t.com' })
-    const sub = await createSubscription(db, {
-      name: 'Netflix',
-      price: 10000,
-      currency: 'CNY',
-      nextPayment: '2026-06-01',
-      startDate: '2026-03-01',
-      ownerId: a,
-    })
-    await addMemberToSubscription(db, {
-      subscriptionId: sub.id,
-      userId: b,
-      addedBy: a,
-      addedAt: '2026-03-10',
-    })
-    await sqlite.prepare('UPDATE subscriptions SET inactive = true WHERE id = ?')
-      .run(sub.id)
-
-    await generateMonthlyBills(db, '2026-05')
-    expect(await billsForMonth('2026-05')).toHaveLength(0)
-  })
-
   it('stores local_amount in each member preferred currency', async () => {
     const a = await createUser(db, { email: 'a@t.com', currency: 'USD' })
     const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
@@ -255,5 +230,82 @@ describe('T8 generateMonthlyBills (R1)', () => {
     // share = floor(1500/2) = 750 cents. 750 * 7.2 = 5400.
     expect(row.local_amount).toBe(5400)
     expect(row.local_currency).toBe('CNY')
+  })
+
+  it('P1 RED: FX missing on one sub rolls back only that sub; other subs proceed', async () => {
+    const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
+    const b = await createUser(db, { email: 'b@t.com', currency: 'JPY' })
+    const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
+
+    // Sub 1: CNY sub with a JPY member → needs CNY_JPY rate (will be missing).
+    const sub1 = await createSubscription(db, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    await addMemberToSubscription(
+      db,
+      { subscriptionId: sub1.id, userId: b, addedBy: a, addedAt: '2026-03-10' },
+      { CNY_JPY: 18 }
+    )
+
+    // Sub 2: CNY sub with a CNY member → no FX needed, should succeed.
+    const sub2 = await createSubscription(db, {
+      name: 'Spotify',
+      price: 2000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub2.id,
+      userId: c,
+      addedBy: a,
+      addedAt: '2026-03-10',
+    })
+
+    // Wipe R2 bills so we cleanly measure R1 output.
+    await sqlite.prepare('DELETE FROM billing_records').run()
+
+    // Call generateMonthlyBills WITHOUT providing CNY_JPY → sub1 throws,
+    // sub2 still succeeds.
+    await generateMonthlyBills(db, '2026-05', {})
+
+    // Sub1 has no May-1 bill (tx rolled back).
+    const sub1Bills = (await sqlite
+      .prepare('SELECT COUNT(*) AS n FROM billing_records WHERE subscription_id = ?')
+      .get(sub1.id)) as { n: number }
+    expect(sub1Bills.n).toBe(0)
+
+    // Sub2 generated its May-1 bill (tx committed).
+    const sub2Bills = (await sqlite
+      .prepare('SELECT COUNT(*) AS n FROM billing_records WHERE subscription_id = ?')
+      .get(sub2.id)) as { n: number }
+    expect(sub2Bills.n).toBe(1)
+  })
+
+  it('P1 RED: payer-only sub (n < 2) generates no bills', async () => {
+    const a = await createUser(db, { email: 'a@t.com' })
+    await createSubscription(db, {
+      name: 'Netflix',
+      price: 10000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    // Only owner/payer is a member; no non-payers.
+
+    const inserted = await generateMonthlyBills(db, '2026-05')
+    expect(inserted).toBe(0)
+
+    const bills = (await sqlite
+      .prepare('SELECT COUNT(*) AS n FROM billing_records')
+      .get()) as { n: number }
+    expect(bills.n).toBe(0)
   })
 })

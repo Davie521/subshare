@@ -19,6 +19,7 @@ type SettlementBill = {
   billingDate: string;
   convertedAmount: number;
   direction: "outgoing" | "incoming";
+  fxIncomplete?: boolean;
 };
 
 type SettlementRow = {
@@ -28,6 +29,7 @@ type SettlementRow = {
   netAmount: number;
   billCount: number;
   bills: SettlementBill[];
+  fxIncomplete?: boolean;
 };
 
 type Direction = "owe" | "owed";
@@ -316,14 +318,34 @@ function PersonCard({
                 {row.billCount === 1 ? "bill" : "bills"}
               </p>
             </div>
-            <p className="text-[20px] font-bold tabular-nums tracking-[-0.012em] leading-tight shrink-0 sm:hidden">
-              {formatMoney(total, row.displayCurrency)}
-            </p>
+            <div className="shrink-0 sm:hidden flex flex-col items-end">
+              <p className="text-[20px] font-bold tabular-nums tracking-[-0.012em] leading-tight">
+                {formatMoney(total, row.displayCurrency)}
+              </p>
+              {row.fxIncomplete && (
+                <p
+                  className="text-[11px] text-[var(--brand)] font-medium"
+                  title="Some bills couldn't be converted to your display currency — total may be incomplete"
+                >
+                  FX incomplete
+                </p>
+              )}
+            </div>
           </div>
           <div className="flex items-center justify-between gap-3 sm:justify-end sm:shrink-0">
-            <p className="hidden sm:block text-[20px] font-bold tabular-nums tracking-[-0.012em] leading-tight">
-              {formatMoney(total, row.displayCurrency)}
-            </p>
+            <div className="hidden sm:flex flex-col items-end">
+              <p className="text-[20px] font-bold tabular-nums tracking-[-0.012em] leading-tight">
+                {formatMoney(total, row.displayCurrency)}
+              </p>
+              {row.fxIncomplete && (
+                <p
+                  className="text-[11px] text-[var(--brand)] font-medium"
+                  title="Some bills couldn't be converted to your display currency — total may be incomplete"
+                >
+                  FX incomplete
+                </p>
+              )}
+            </div>
             <Button
               size="sm"
               variant={direction === "owe" ? "default" : "outline"}

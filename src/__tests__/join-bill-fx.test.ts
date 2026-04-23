@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import {
   createSubscription,
-  addMemberToSubscription,
 } from '@/lib/db-operations'
+import { addMemberToSubscription } from '@/lib/membership'
 
 /**
  * T18 / M5 — R2 join bills must convert to the invitee's preferred

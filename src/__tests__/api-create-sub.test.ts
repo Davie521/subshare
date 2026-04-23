@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import { handleCreateSubscription } from '@/lib/api-handlers'
-import { getMembersOfSubscription } from '@/lib/db-operations'
+import {
+  getMembersOfSubscription,
+} from '@/lib/db-operations'
 
 /**
  * A1 — handleCreateSubscription accepts members + payerId, seeding the

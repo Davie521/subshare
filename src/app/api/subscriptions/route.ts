@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth, readJson, resultResponse, rateLimitUser, guard } from '@/lib/api-utils'
-import { getSubscriptionsForUser } from '@/lib/db-operations'
+import {
+  getSubscriptionsForUser,
+} from '@/lib/db-operations'
 import { handleCreateSubscription } from '@/lib/api-handlers'
 import { createSubscriptionSchema } from '@/lib/validators'
 

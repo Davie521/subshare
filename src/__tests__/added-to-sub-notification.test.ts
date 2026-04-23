@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import {
   createSubscription,
-  addMemberToSubscription,
 } from '@/lib/db-operations'
+import { addMemberToSubscription } from '@/lib/membership'
 import { listNotifications } from '@/lib/notifications'
 
 /**

@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import { setupTestDb, createUser } from './helpers'
 import {
   createSubscription,
-  addMemberToSubscription,
   getMembersOfSubscription,
 } from '@/lib/db-operations'
+import { addMemberToSubscription } from '@/lib/membership'
 
 /**
  * T4 — addMemberToSubscription writes rows only.
