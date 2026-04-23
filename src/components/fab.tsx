@@ -7,7 +7,8 @@ import { Plus } from "lucide-react";
 /**
  * Floating Action Button — bottom-right persistent CTA.
  * Primary brand indigo, 56px, offset 24px from edges.
- * Hidden on the /subscriptions/new route itself to avoid self-reference.
+ * Hidden on routes where "new subscription" has no semantic purpose:
+ * /subscriptions/new (self-reference), /settlement, /settings.
  */
 export function Fab() {
   const pathname = usePathname();

@@ -16,11 +16,17 @@ const TITLES: Record<string, string> = {
 
 function titleFor(pathname: string): string | null {
   if (TITLES[pathname]) return TITLES[pathname];
-  // Subscription detail / dynamic routes fall through to logo-only
+  // Dynamic routes inherit their section's title via longest-prefix match
+  // (e.g. /subscriptions/[id] → "Subscriptions", /settings/circles/[id] → "Member templates").
+  let best: string | null = null;
+  let bestLen = 0;
   for (const [prefix, title] of Object.entries(TITLES)) {
-    if (pathname.startsWith(prefix + "/")) return title;
+    if (pathname.startsWith(prefix + "/") && prefix.length > bestLen) {
+      best = title;
+      bestLen = prefix.length;
+    }
   }
-  return null;
+  return best;
 }
 
 export function MobileHeader() {
