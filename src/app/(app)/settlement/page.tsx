@@ -236,7 +236,7 @@ function TabButton({
       aria-selected={active}
       onClick={onClick}
       className={cn(
-        "group inline-flex items-center gap-2 px-3 h-8 rounded-md text-[13px] font-medium transition-all cursor-pointer",
+        "group inline-flex items-center gap-2 px-3 h-11 md:h-8 rounded-md text-[13px] font-medium transition-all cursor-pointer",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40",
         active
           ? "bg-background text-foreground shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-none dark:bg-white/[0.06]"
@@ -303,11 +303,11 @@ function PersonCard({
       )}
     >
       <CardContent className="p-0">
-        {/* Header */}
-        <div className="flex items-center justify-between gap-4 px-5 py-4 border-b border-border">
+        {/* Header — reflows on mobile so the action button drops below */}
+        <div className="flex flex-col gap-3 px-5 py-4 border-b border-border sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <div className="flex items-center gap-3 min-w-0">
             <UserAvatar name={row.counterpartyName} size="lg" />
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <p className="text-[15px] font-semibold truncate">
                 {row.counterpartyName}
               </p>
@@ -316,9 +316,12 @@ function PersonCard({
                 {row.billCount === 1 ? "bill" : "bills"}
               </p>
             </div>
+            <p className="text-[20px] font-bold tabular-nums tracking-[-0.012em] leading-tight shrink-0 sm:hidden">
+              {formatMoney(total, row.displayCurrency)}
+            </p>
           </div>
-          <div className="flex items-center gap-3 shrink-0">
-            <p className="text-[20px] font-bold tabular-nums tracking-[-0.012em] leading-tight">
+          <div className="flex items-center justify-between gap-3 sm:justify-end sm:shrink-0">
+            <p className="hidden sm:block text-[20px] font-bold tabular-nums tracking-[-0.012em] leading-tight">
               {formatMoney(total, row.displayCurrency)}
             </p>
             <Button
@@ -326,7 +329,7 @@ function PersonCard({
               variant={direction === "owe" ? "default" : "outline"}
               disabled={settling}
               onClick={() => onSettle(row)}
-              className="cursor-pointer gap-1.5"
+              className="cursor-pointer gap-1.5 w-full sm:w-auto"
             >
               {settling ? (
                 "Settling…"

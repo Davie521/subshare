@@ -104,7 +104,7 @@ function ServicePicker({
       <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1 scrollbar-none">
         <button
           onClick={() => setActiveCategory(null)}
-          className="cursor-pointer"
+          className="cursor-pointer inline-flex items-center min-h-11 md:min-h-0 py-2 md:py-0"
         >
           <Badge
             variant={activeCategory === null ? "default" : "secondary"}
@@ -117,7 +117,7 @@ function ServicePicker({
           <button
             key={cat}
             onClick={() => setActiveCategory(activeCategory === cat ? null : cat)}
-            className="cursor-pointer"
+            className="cursor-pointer inline-flex items-center min-h-11 md:min-h-0 py-2 md:py-0"
           >
             <Badge
               variant={activeCategory === cat ? "default" : "secondary"}
@@ -340,7 +340,7 @@ function SubscriptionForm({
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="space-y-2">
                 <Label htmlFor="price">Price / month</Label>
                 <Input
@@ -357,7 +357,7 @@ function SubscriptionForm({
                 <Label htmlFor="currency">Currency</Label>
                 <select
                   id="currency"
-                  className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm cursor-pointer"
+                  className="flex h-11 md:h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm cursor-pointer"
                   value={form.currency}
                   onChange={(e) => setForm({ ...form, currency: e.target.value })}
                 >
@@ -504,7 +504,7 @@ function SubscriptionForm({
                     <Label htmlFor="payer">Payer</Label>
                     <select
                       id="payer"
-                      className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm cursor-pointer"
+                      className="flex h-11 md:h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base md:text-sm cursor-pointer"
                       value={payerId ?? selfId}
                       onChange={(e) => setPayerId(Number(e.target.value))}
                     >

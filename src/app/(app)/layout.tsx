@@ -14,7 +14,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Main content */}
       <main className="lg:pl-60">
-        <div className="max-w-5xl mx-auto px-4 py-6 lg:px-10 lg:py-10 pb-24 lg:pb-16">
+        <div className="max-w-5xl mx-auto px-4 py-6 lg:px-10 lg:py-10 pb-safe">
           {children}
         </div>
       </main>

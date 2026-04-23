@@ -273,7 +273,7 @@ function FriendCard({
               onCurrencyChange(friend.userId, e.target.value || null)
             }
             className={cn(
-              "h-8 w-full rounded-md border border-input bg-background px-2.5 text-[13px] font-medium",
+              "h-11 md:h-8 w-full rounded-md border border-input bg-background px-2.5 text-[16px] md:text-[13px] font-medium",
               "shadow-xs transition-colors cursor-pointer",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40 focus-visible:ring-offset-1"
             )}
@@ -314,7 +314,7 @@ function FriendCard({
                   key={s.id}
                   href={`/subscriptions/${s.id}`}
                   className={cn(
-                    "group flex items-center gap-2.5 px-3 py-2.5",
+                    "group flex items-center gap-2.5 px-3 py-2.5 min-h-11",
                     "hover:bg-foreground/[0.02] dark:hover:bg-white/[0.02]",
                     "transition-colors cursor-pointer"
                   )}

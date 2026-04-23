@@ -174,7 +174,7 @@ export default function DashboardPage() {
             />
             <Link
               href="/subscriptions"
-              className="text-[13px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer"
+              className="text-[13px] font-medium text-muted-foreground hover:text-foreground flex items-center gap-1 transition-colors cursor-pointer min-h-11 md:min-h-0 -mr-2 px-2"
             >
               All <ArrowRight className="size-3" />
             </Link>

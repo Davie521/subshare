@@ -400,7 +400,7 @@ export default function SubscriptionDetailPage() {
       <div className="flex items-center justify-between">
         <Link
           href="/subscriptions"
-          className="inline-flex items-center gap-1 text-[13px] font-medium text-muted-foreground hover:text-foreground cursor-pointer"
+          className="inline-flex items-center gap-1 text-[13px] font-medium text-muted-foreground hover:text-foreground cursor-pointer min-h-11 md:min-h-0 -ml-2 px-2"
         >
           <ArrowLeft className="size-3.5" />
           Subscriptions
@@ -409,7 +409,7 @@ export default function SubscriptionDetailPage() {
           <button
             type="button"
             onClick={startEdit}
-            className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground cursor-pointer"
+            className="inline-flex items-center gap-1.5 text-[13px] font-medium text-muted-foreground hover:text-foreground cursor-pointer min-h-11 md:min-h-0 -mr-2 px-2"
           >
             <Pencil className="size-3.5" />
             Edit details
@@ -439,7 +439,7 @@ export default function SubscriptionDetailPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="space-y-1.5">
                   <Label htmlFor="sub-price" className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
                     Price ({sub.currency}) / month
@@ -960,7 +960,7 @@ export default function SubscriptionDetailPage() {
                         }
                         onClick={() => handleRemove(m.userId, !!canLeave)}
                         className={
-                          "shrink-0 size-8 rounded-md flex items-center justify-center cursor-pointer disabled:opacity-50 " +
+                          "shrink-0 size-11 md:size-8 rounded-md flex items-center justify-center cursor-pointer disabled:opacity-50 " +
                           (confirmKickId === m.userId
                             ? "text-white bg-destructive hover:bg-destructive/90"
                             : "text-muted-foreground hover:text-destructive hover:bg-destructive/[0.08]")

@@ -277,7 +277,7 @@ function CurrencySelect({
       value={value}
       onChange={(e) => onChange(e.target.value)}
       className={cn(
-        "h-9 w-full rounded-md border border-input bg-background px-3 text-[14px] font-medium",
+        "h-11 md:h-9 w-full rounded-md border border-input bg-background px-3 text-[16px] md:text-[14px] font-medium",
         "shadow-xs transition-colors cursor-pointer",
         "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40 focus-visible:ring-offset-1"
       )}
@@ -321,16 +321,23 @@ function Toggle({
         aria-checked={checked}
         onClick={() => onChange(!checked)}
         className={cn(
-          "relative shrink-0 w-9 h-5 rounded-full transition-colors cursor-pointer",
-          checked ? "bg-[var(--brand)]" : "bg-muted"
+          "relative shrink-0 inline-flex items-center justify-start cursor-pointer min-h-11 md:min-h-0 -my-2 md:-my-0"
         )}
       >
         <span
+          aria-hidden
           className={cn(
-            "absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform",
-            checked ? "translate-x-4" : "translate-x-0"
+            "relative block w-9 h-5 rounded-full transition-colors",
+            checked ? "bg-[var(--brand)]" : "bg-muted"
           )}
-        />
+        >
+          <span
+            className={cn(
+              "absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform",
+              checked ? "translate-x-4" : "translate-x-0"
+            )}
+          />
+        </span>
       </button>
     </div>
   );

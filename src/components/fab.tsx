@@ -12,6 +12,8 @@ import { Plus } from "lucide-react";
 export function Fab() {
   const pathname = usePathname();
   if (pathname.startsWith("/subscriptions/new")) return null;
+  if (pathname.startsWith("/settlement")) return null;
+  if (pathname.startsWith("/settings")) return null;
 
   return (
     <Link

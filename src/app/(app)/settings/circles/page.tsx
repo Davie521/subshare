@@ -320,7 +320,7 @@ function CircleEditor({
             </p>
             <select
               id="payer"
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm"
+              className="w-full h-11 md:h-9 rounded-md border bg-background px-3 py-2 text-base md:text-sm"
               value={defaultPayerId ?? ""}
               onChange={(e) =>
                 setDefaultPayerId(

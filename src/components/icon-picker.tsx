@@ -148,7 +148,7 @@ export function IconPicker({
             <button
               type="button"
               onClick={() => setActiveCategory(null)}
-              className="cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+              className="cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] inline-flex items-center min-h-11 md:min-h-0 py-2 md:py-0"
             >
               <Badge
                 variant={activeCategory === null ? "default" : "secondary"}
@@ -164,7 +164,7 @@ export function IconPicker({
                 onClick={() =>
                   setActiveCategory(activeCategory === cat ? null : cat)
                 }
-                className="cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]"
+                className="cursor-pointer rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] inline-flex items-center min-h-11 md:min-h-0 py-2 md:py-0"
               >
                 <Badge
                   variant={activeCategory === cat ? "default" : "secondary"}
