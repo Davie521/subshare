@@ -279,23 +279,6 @@ export async function leaveSubscription(
     )
   }
 
-  const [row] = await db
-    .select({
-      leftAt: schema.subscriptionMembers.leftAt,
-      addedAt: schema.subscriptionMembers.addedAt,
-    })
-    .from(schema.subscriptionMembers)
-    .where(
-      and(
-        eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
-        eq(schema.subscriptionMembers.userId, input.userId)
-      )
-    )
-
-  if (!row) throw new Error('User is not a member of this subscription')
-
-  if (row.leftAt !== null) return // idempotent
-
   // No minimum-cycle commitment — members can leave at any time and only
   // pay for the days they actually used (calculateLeaveProRata below).
   const leftAt = input.leftAt
@@ -303,8 +286,29 @@ export async function leaveSubscription(
   // Atomic: leftAt + bill prorate + redistribute + notification must all
   // succeed or all roll back, otherwise a mid-flight crash can leave the
   // leaver off the sub but their unpaid bill not prorated.
+  //
+  // The membership row lookup + idempotence check live INSIDE the tx,
+  // AFTER lockSubscription, so two concurrent leave/kick calls can't both
+  // observe leftAt=NULL and race to overwrite each other's leftAt /
+  // re-run proration. Losers see the updated row and early-return.
   await db.transaction(async (tx) => {
     await lockSubscription(tx, input.subscriptionId)
+
+    const [row] = await tx
+      .select({
+        leftAt: schema.subscriptionMembers.leftAt,
+        addedAt: schema.subscriptionMembers.addedAt,
+      })
+      .from(schema.subscriptionMembers)
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, input.subscriptionId),
+          eq(schema.subscriptionMembers.userId, input.userId)
+        )
+      )
+
+    if (!row) throw new Error('User is not a member of this subscription')
+    if (row.leftAt !== null) return // idempotent — first leftAt wins
 
     await tx
       .update(schema.subscriptionMembers)

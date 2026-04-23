@@ -10,6 +10,7 @@ import {
   getMembersOfSubscription,
 } from '@/lib/db-operations'
 import { listNotifications } from '@/lib/notifications'
+import { todayInAppTz } from '@/lib/date-utils'
 import * as schema from '@/db/schema'
 
 /**
@@ -112,7 +113,9 @@ describe('A2 handleAddMembers', () => {
     expect(res.data!.reactivated).toBe(1)
 
     // Expect: a NEW R2 pro-rata bill for C landed on today (the rejoin date).
-    const today = new Date().toISOString().slice(0, 10)
+    // Use todayInAppTz() to match production billing-date semantics — deriving
+    // `today` via UTC toISOString() disagrees across the UTC-midnight boundary.
+    const today = todayInAppTz()
     const bills = await db
       .select()
       .from(schema.billingRecords)
@@ -165,7 +168,7 @@ describe('A2 handleAddMembers', () => {
 
     await handleAddMembers(db, a, subId, [albert, magic])
 
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayInAppTz()
     const bills = await db
       .select()
       .from(schema.billingRecords)
@@ -199,7 +202,7 @@ describe('A2 handleAddMembers', () => {
     if (!created.success) throw new Error(created.error)
     const subId = created.data!.id
 
-    const today = new Date().toISOString().slice(0, 10)
+    const today = todayInAppTz()
     const bills = await db
       .select()
       .from(schema.billingRecords)
