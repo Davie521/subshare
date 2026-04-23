@@ -246,4 +246,11 @@
   }
 
   .font-ui { font-weight: 510; }
+
+  /* Home-indicator safe area — applied to fixed bottom chrome (BottomNav, content pb) */
+  .safe-area-bottom { padding-bottom: env(safe-area-inset-bottom, 0px); }
+  .pb-safe { padding-bottom: calc(env(safe-area-inset-bottom, 0px) + 6rem); }
+  @media (min-width: 1024px) {
+    .pb-safe { padding-bottom: 4rem; }
+  }
 }
