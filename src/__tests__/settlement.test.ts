@@ -308,6 +308,102 @@ describe('T16 markPairSettled', () => {
       .get(c) as { n: number }
     expect(cUnpaid.n).toBe(1)
   })
+
+  it('Phase 3: billIds filter scopes the settle to a subset of unpaid bills', async () => {
+    // Phase 3 of the settlement UI: when the "Show upcoming" toggle is OFF,
+    // the page passes only the visible (active) bill IDs so that future
+    // (pending) bills don't get silently swept up by a Mark-settled press.
+    const { a, b } = await pair()
+
+    const billsBefore = (await sqlite
+      .prepare(
+        `SELECT id, billing_date FROM billing_records
+         WHERE is_paid = false AND (user_id = ? OR user_id = ?)
+         ORDER BY id`
+      )
+      .all(a, b)) as Array<{ id: number; billing_date: string }>
+    expect(billsBefore.length).toBeGreaterThanOrEqual(2)
+
+    const targetIds = [billsBefore[0].id]
+    const untouchedId = billsBefore[1].id
+
+    const n = await markPairSettled(db, {
+      userA: a,
+      userB: b,
+      currency: 'CNY',
+      billIds: targetIds,
+    })
+    expect(n).toBe(1)
+
+    const stillUnpaid = (await sqlite
+      .prepare(`SELECT id FROM billing_records WHERE is_paid = false`)
+      .all()) as Array<{ id: number }>
+    expect(stillUnpaid.map((r) => r.id)).toContain(untouchedId)
+    expect(stillUnpaid.map((r) => r.id)).not.toContain(targetIds[0])
+  })
+
+  it('Phase 3: empty billIds settles nothing (no-op, not "all")', async () => {
+    // Defensive: an empty list MUST mean "settle nothing", never fall back
+    // to the legacy "settle every bill in the bucket" behavior.
+    const { a, b } = await pair()
+    const before = (await sqlite
+      .prepare(`SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false`)
+      .get()) as { n: number }
+
+    const n = await markPairSettled(db, {
+      userA: a,
+      userB: b,
+      currency: 'CNY',
+      billIds: [],
+    })
+    expect(n).toBe(0)
+
+    const after = (await sqlite
+      .prepare(`SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false`)
+      .get()) as { n: number }
+    expect(after.n).toBe(before.n)
+  })
+
+  it('Phase 3: billIds outside the (A,B,currency) bucket are ignored', async () => {
+    // Caller can't escape the pair scope by passing some other user's
+    // bill ID — the pair / currency predicate still gates the update.
+    const { a, b } = await pair()
+    const c = await createUser(db, { email: 'c@t.com', currency: 'CNY' })
+    const sub3 = await createSubscription(db, {
+      name: 'YT',
+      price: 6000,
+      currency: 'CNY',
+      nextPayment: '2026-06-01',
+      startDate: '2026-03-01',
+      ownerId: a,
+    })
+    await addMemberToSubscription(db, {
+      subscriptionId: sub3.id,
+      userId: c,
+      addedBy: a,
+      addedAt: '2026-05-01',
+    })
+    const cBill = (await sqlite
+      .prepare(
+        `SELECT id FROM billing_records WHERE user_id = ? AND is_paid = false`
+      )
+      .get(c)) as { id: number }
+
+    const n = await markPairSettled(db, {
+      userA: a,
+      userB: b,
+      currency: 'CNY',
+      billIds: [cBill.id],
+    })
+    expect(n).toBe(0)
+
+    const cStill = (await sqlite
+      .prepare(
+        `SELECT is_paid FROM billing_records WHERE id = ?`
+      )
+      .get(cBill.id)) as { is_paid: number }
+    expect(Boolean(cStill.is_paid)).toBe(false)
+  })
 })
 
 async function pairSetup() {
