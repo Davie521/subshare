@@ -162,10 +162,21 @@ export const api = {
         }>;
       }>
     >("/api/settlement"),
-  markPairSettled: (counterpartyUserId: number) =>
+  markPairSettled: (
+    counterpartyUserId: number,
+    /**
+     * Optional bill-ID scope. Pass when the page is hiding upcoming
+     * bills (toggle OFF) so settle only flips visible ones. Pass `[]`
+     * for an explicit no-op; omit to settle the whole bucket.
+     */
+    billIds?: number[]
+  ) =>
     request<{ marked: number }>("/api/settlement", {
       method: "POST",
-      body: JSON.stringify({ counterpartyUserId }),
+      body: JSON.stringify({
+        counterpartyUserId,
+        ...(billIds !== undefined ? { billIds } : {}),
+      }),
     }),
 
   // Circles (UI label "Group") — member preset templates

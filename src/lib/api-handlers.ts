@@ -355,7 +355,14 @@ export async function handleMarkPairSettled(
   db: DB,
   userId: number,
   counterpartyUserId: number,
-  currency?: string
+  currency?: string,
+  /**
+   * Optional bill-ID scope. Forwarded to `markPairSettled` so the
+   * Settlement page's "Show upcoming" toggle (Phase 3) can settle only
+   * the bills currently visible to the user. `[]` is an explicit no-op,
+   * never a fall-back to "settle all".
+   */
+  billIds?: number[]
 ): Promise<Result<{ marked: number }>> {
   if (userId === counterpartyUserId) {
     return { success: false, error: 'Cannot settle with yourself', code: 'VALIDATION_ERROR' }
@@ -367,6 +374,7 @@ export async function handleMarkPairSettled(
     userA: userId,
     userB: counterpartyUserId,
     currency,
+    billIds,
   })
   await Promise.all([
     syncSettlementDueNotifications(db, userId),

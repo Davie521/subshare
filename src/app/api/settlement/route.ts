@@ -28,6 +28,13 @@ const settleSchema = z.object({
   counterpartyUserId: z.number().int().positive(),
   /** Omit to settle every unpaid bill with this counterparty regardless of currency. */
   currency: z.enum(CURRENCIES).optional(),
+  /**
+   * Optional scope for the settle: only flip these bill IDs. Used by
+   * the Settlement page's "Show upcoming" toggle (Phase 3) so a press
+   * doesn't sweep bills the user can't see. Empty array means no-op.
+   * Capped at 200 to keep the SQL `IN` list bounded.
+   */
+  billIds: z.array(z.number().int().positive()).max(200).optional(),
 })
 
 export async function POST(req: NextRequest) {
@@ -54,7 +61,8 @@ export async function POST(req: NextRequest) {
       db,
       userId,
       parsed.data.counterpartyUserId,
-      parsed.data.currency
+      parsed.data.currency,
+      parsed.data.billIds
     )
     return resultResponse(result)
   })
