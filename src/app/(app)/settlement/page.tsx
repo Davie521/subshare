@@ -9,7 +9,12 @@ import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { todayInAppTz } from "@/lib/date-utils";
-import { daysBetweenISO } from "@/lib/settlement-display";
+import {
+  daysBetweenISO,
+  formatBillingRange,
+  groupBillsBySubscription,
+  type SubGroup,
+} from "@/lib/settlement-display";
 import { UserAvatar } from "@/components/user-avatar";
 import { BrandIcon } from "@/components/brand-icon";
 
@@ -46,14 +51,6 @@ type Direction = "owe" | "owed";
 
 function daysSince(billingDate: string, today: string): number {
   return daysBetweenISO(billingDate, today);
-}
-
-function formatBillingDate(iso: string): string {
-  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
 }
 
 /* ======================== PAGE ======================== */
@@ -300,7 +297,11 @@ function PersonCard({
   today: string;
 }) {
   const total = Math.abs(row.netAmount);
-  const hasOverdue = row.bills.some((b) => daysSince(b.billingDate, today) >= 0);
+  const groups = useMemo(
+    () => groupBillsBySubscription(row.bills),
+    [row.bills]
+  );
+  const hasOverdue = groups.some((g) => daysSince(g.rangeStart, today) >= 0);
 
   return (
     <Card
@@ -371,12 +372,13 @@ function PersonCard({
           </div>
         </div>
 
-        {/* Per-bill breakdown */}
+        {/* Per-subscription breakdown — bills of the same sub merged into
+            one row whose range spans `rangeStart → rangeEnd`. */}
         <ul className="divide-y divide-border/60">
-          {row.bills.map((b) => (
-            <BillRow
-              key={b.id}
-              bill={b}
+          {groups.map((g) => (
+            <SubGroupRow
+              key={g.subscriptionId}
+              group={g}
               displayCurrency={row.displayCurrency}
               today={today}
             />
@@ -387,22 +389,32 @@ function PersonCard({
   );
 }
 
-/* ======================== Bill row ======================== */
+/* ======================== Sub-group row ======================== */
 
-function BillRow({
-  bill,
+/**
+ * One row per (counterparty × subscription) bucket. Merges every unpaid
+ * bill of that sub into a single line: range `Apr 25 – May 31`, summed
+ * amount, group-level fxIncomplete and overdue indicators.
+ *
+ * Overdue here means at least one bill in the group has billing_date
+ * <= today. We pin it to `rangeStart` (the earliest), so the badge label
+ * counts days from the oldest unpaid bill — that's the one driving any
+ * overdue feeling.
+ */
+function SubGroupRow({
+  group,
   displayCurrency,
   today,
 }: {
-  bill: SettlementBill;
+  group: SubGroup;
   displayCurrency: string;
   today: string;
 }) {
-  const d = daysSince(bill.billingDate, today);
+  const d = daysSince(group.rangeStart, today);
   const overdue = d >= 0;
   const label =
     d <= 0 ? "Due today" : d === 1 ? "Overdue 1 day" : `Overdue ${d} days`;
-  const isOutgoing = bill.direction === "outgoing";
+  const isOutgoing = group.direction === "outgoing";
 
   return (
     <li
@@ -413,15 +425,26 @@ function BillRow({
           : "hover:bg-foreground/[0.02] dark:hover:bg-white/[0.02]"
       )}
     >
-      <BrandIcon name={bill.subscriptionLogo || bill.subscriptionName} size={20} />
+      <BrandIcon
+        name={group.subscriptionLogo || group.subscriptionName}
+        size={20}
+      />
       <div className="flex-1 min-w-0 flex items-baseline gap-2">
         <p className="text-[13px] font-medium truncate">
-          {bill.subscriptionName}
+          {group.subscriptionName}
         </p>
         <p className="text-[11px] text-muted-foreground whitespace-nowrap">
-          {formatBillingDate(bill.billingDate)}
+          {formatBillingRange(group.rangeStart, group.rangeEnd)}
         </p>
       </div>
+      {group.fxIncomplete && (
+        <span
+          className="text-[10px] font-medium text-[var(--brand)]"
+          title="Some bills couldn't be converted to your display currency — total may be incomplete"
+        >
+          FX incomplete
+        </span>
+      )}
       {overdue && (
         <span
           className={cn(
@@ -433,14 +456,9 @@ function BillRow({
           {label}
         </span>
       )}
-      <p
-        className={cn(
-          "text-[13px] font-semibold tabular-nums whitespace-nowrap",
-          isOutgoing ? "text-foreground" : "text-foreground"
-        )}
-      >
+      <p className="text-[13px] font-semibold tabular-nums whitespace-nowrap text-foreground">
         {isOutgoing ? "−" : "+"}
-        {formatMoney(bill.convertedAmount, displayCurrency)}
+        {formatMoney(group.totalAmount, displayCurrency)}
       </p>
     </li>
   );
