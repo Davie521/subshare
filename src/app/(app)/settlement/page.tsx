@@ -8,6 +8,8 @@ import { Check, Sparkles, Clock } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { formatMoney } from "@/lib/format";
 import { cn } from "@/lib/utils";
+import { todayInAppTz } from "@/lib/date-utils";
+import { daysBetweenISO } from "@/lib/settlement-display";
 import { UserAvatar } from "@/components/user-avatar";
 import { BrandIcon } from "@/components/brand-icon";
 
@@ -34,28 +36,24 @@ type SettlementRow = {
 
 type Direction = "owe" | "owed";
 
-/* ---------- date helpers ---------- */
+/* ---------- date helpers ----------
+ *
+ * `today` is resolved via `todayInAppTz()` so it agrees with the server's
+ * billing_date, which is always written in APP_TIMEZONE. Previously the
+ * page used `new Date()` in browser-local TZ and drifted by a day for
+ * users west of UTC.
+ */
 
-function todayLocal(): Date {
-  const t = new Date();
-  return new Date(t.getFullYear(), t.getMonth(), t.getDate());
-}
-
-function parseISODate(s: string): Date {
-  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
-  return new Date(y, m - 1, d);
-}
-
-function daysSince(billingDate: string): number {
-  return Math.floor(
-    (todayLocal().getTime() - parseISODate(billingDate).getTime()) /
-      86_400_000
-  );
+function daysSince(billingDate: string, today: string): number {
+  return daysBetweenISO(billingDate, today);
 }
 
 function formatBillingDate(iso: string): string {
-  const d = parseISODate(iso);
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  const [y, m, d] = iso.slice(0, 10).split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 /* ======================== PAGE ======================== */
@@ -100,6 +98,11 @@ export default function SettlementPage() {
   );
 
   const activeRows = direction === "owe" ? oweRows : owedRows;
+
+  // Resolved once per render — today in the app's reference timezone, so
+  // overdue math agrees with the server-written billing_date values.
+  // useMemo so children receive a stable reference while the page lives.
+  const today = useMemo(() => todayInAppTz(), []);
 
   async function onSettlePerson(row: SettlementRow) {
     setSettlingId(row.counterpartyUserId);
@@ -168,6 +171,7 @@ export default function SettlementPage() {
                 direction={direction}
                 settling={settlingId === row.counterpartyUserId}
                 onSettle={onSettlePerson}
+                today={today}
               />
             </li>
           ))}
@@ -287,14 +291,16 @@ function PersonCard({
   direction,
   settling,
   onSettle,
+  today,
 }: {
   row: SettlementRow;
   direction: Direction;
   settling: boolean;
   onSettle: (row: SettlementRow) => Promise<void>;
+  today: string;
 }) {
   const total = Math.abs(row.netAmount);
-  const hasOverdue = row.bills.some((b) => daysSince(b.billingDate) >= 0);
+  const hasOverdue = row.bills.some((b) => daysSince(b.billingDate, today) >= 0);
 
   return (
     <Card
@@ -372,6 +378,7 @@ function PersonCard({
               key={b.id}
               bill={b}
               displayCurrency={row.displayCurrency}
+              today={today}
             />
           ))}
         </ul>
@@ -385,11 +392,13 @@ function PersonCard({
 function BillRow({
   bill,
   displayCurrency,
+  today,
 }: {
   bill: SettlementBill;
   displayCurrency: string;
+  today: string;
 }) {
-  const d = daysSince(bill.billingDate);
+  const d = daysSince(bill.billingDate, today);
   const overdue = d >= 0;
   const label =
     d <= 0 ? "Due today" : d === 1 ? "Overdue 1 day" : `Overdue ${d} days`;
