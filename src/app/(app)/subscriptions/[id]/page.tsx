@@ -77,12 +77,10 @@ export default function SubscriptionDetailPage() {
   const [editForm, setEditForm] = useState<{
     name: string;
     price: string;
-    nextPayment: string;
     refundPolicy: "payer_absorbs" | "redistribute";
   }>({
     name: "",
     price: "",
-    nextPayment: "",
     refundPolicy: "payer_absorbs",
   });
   const [editError, setEditError] = useState<string | null>(null);
@@ -271,7 +269,6 @@ export default function SubscriptionDetailPage() {
     setEditForm({
       name: sub.name,
       price: (sub.price / 100).toFixed(2),
-      nextPayment: sub.nextPayment,
       refundPolicy: sub.refundPolicy ?? "payer_absorbs",
     });
     setEditError(null);
@@ -290,7 +287,6 @@ export default function SubscriptionDetailPage() {
     const res = await api.updateSubscription(sub.id, {
       name: editForm.name.trim(),
       price,
-      nextPayment: editForm.nextPayment,
       refundPolicy: editForm.refundPolicy,
     });
     setBusy(false);
@@ -449,19 +445,6 @@ export default function SubscriptionDetailPage() {
                     value={editForm.price}
                     onChange={(e) =>
                       setEditForm({ ...editForm, price: e.target.value })
-                    }
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="sub-next" className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                    Next payment
-                  </Label>
-                  <Input
-                    id="sub-next"
-                    type="date"
-                    value={editForm.nextPayment}
-                    onChange={(e) =>
-                      setEditForm({ ...editForm, nextPayment: e.target.value })
                     }
                   />
                 </div>

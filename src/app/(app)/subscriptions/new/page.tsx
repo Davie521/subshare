@@ -373,13 +373,17 @@ function SubscriptionForm({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="nextPayment">Next payment date</Label>
+              <Label htmlFor="nextPayment">Billing day</Label>
               <Input
                 id="nextPayment"
                 type="date"
                 value={form.nextPayment}
                 onChange={(e) => setForm({ ...form, nextPayment: e.target.value })}
               />
+              <p className="text-[12px] text-muted-foreground">
+                The day this subscription bills each month. Pick a past date to backfill
+                bills since then.
+              </p>
             </div>
 
             <TagEditor
