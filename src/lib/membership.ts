@@ -180,9 +180,14 @@ export async function addMembersToSubscription(
       // canonicalAddedAt is the same value for every freshly-inserted
       // invitee in this batch (they share `input.addedAt`), so any non-
       // noop pending entry works for the member-count snapshot date.
-      const snapshotDate =
+      // Clamp to startDate: owner's addedAt = startDate, so a snapshot
+      // taken before startDate would otherwise miss the owner and the
+      // bill would be skipped (memberCount < 2).
+      const rawSnapshot =
         pending.find((p) => p.status !== 'noop')?.canonicalAddedAt ??
         input.addedAt
+      const snapshotDate =
+        rawSnapshot >= sub.startDate ? rawSnapshot : sub.startDate
       const activeMembers = await getActiveMembersAt(
         tx,
         input.subscriptionId,

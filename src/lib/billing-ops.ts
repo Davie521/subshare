@@ -24,6 +24,12 @@ type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
  * final memberCount. Pure of DB I/O — just math + FX lookup against the
  * pre-fetched rate map. Returns `null` when no bill should be emitted
  * (share would be 0, joiner is the payer, etc).
+ *
+ * The bill is anchored to `effectiveBillingDate = max(addedAt, startDate)`
+ * — when a member is added before the sub's startDate (sub hasn't begun
+ * billing yet), their bill must wait until startDate. The returned
+ * `effectiveBillingDate` is what the caller uses for `billing_date` and
+ * the idempotency key.
  */
 function computeR2JoinBillAmounts(input: {
   sub: typeof schema.subscriptions.$inferSelect
@@ -32,14 +38,24 @@ function computeR2JoinBillAmounts(input: {
   memberCount: number
   joinerPreferredCurrency: string
   rates: Record<string, number>
-}): { share: number; amount: number; localAmount: number; rate: number } | null {
+}): {
+  share: number
+  amount: number
+  localAmount: number
+  rate: number
+  effectiveBillingDate: string
+} | null {
   const { sub, userId, canonicalAddedAt, memberCount, joinerPreferredCurrency, rates } = input
 
   if (sub.payerId === userId) return null
   if (memberCount < 2) return null
 
+  // String compare works for ISO YYYY-MM-DD.
+  const effectiveBillingDate =
+    canonicalAddedAt >= sub.startDate ? canonicalAddedAt : sub.startDate
+
   const share = calculateShares(sub.price, memberCount)
-  const [year, month, day] = canonicalAddedAt.split('-').map(Number)
+  const [year, month, day] = effectiveBillingDate.split('-').map(Number)
   const daysInMonth = new Date(year, month, 0).getDate()
   const amount = calculateJoinProRata(share, day, daysInMonth)
   if (amount <= 0) return null
@@ -55,7 +71,7 @@ function computeR2JoinBillAmounts(input: {
   }
   const localAmount = Math.floor(amount * rate)
 
-  return { share, amount, localAmount, rate }
+  return { share, amount, localAmount, rate, effectiveBillingDate }
 }
 
 /**
@@ -155,7 +171,9 @@ export async function createR2JoinBill(
   })
   if (!amounts) return
 
-  // Idempotent: same (sub, user, date) → skip.
+  // Idempotent: same (sub, user, effective date) → skip. Idempotency keys
+  // off the effective billing date so two adds in the same pre-startDate
+  // window can't both insert (they'd both clamp to startDate and collide).
   const [existing] = await tx
     .select({ id: schema.billingRecords.id })
     .from(schema.billingRecords)
@@ -163,7 +181,7 @@ export async function createR2JoinBill(
       and(
         eq(schema.billingRecords.subscriptionId, sub.id),
         eq(schema.billingRecords.userId, userId),
-        eq(schema.billingRecords.billingDate, canonicalAddedAt)
+        eq(schema.billingRecords.billingDate, amounts.effectiveBillingDate)
       )
     )
   if (existing) return
@@ -176,14 +194,14 @@ export async function createR2JoinBill(
     localAmount: amounts.localAmount,
     localCurrency: user.preferredCurrency,
     exchangeRate: Math.round(amounts.rate * 1_000_000),
-    billingDate: canonicalAddedAt,
+    billingDate: amounts.effectiveBillingDate,
   })
 
   await notifyJoiner(tx, {
     sub,
     userId,
     addedBy,
-    canonicalAddedAt,
+    canonicalAddedAt: amounts.effectiveBillingDate,
     share: amounts.share,
     amount: amounts.amount,
   })
