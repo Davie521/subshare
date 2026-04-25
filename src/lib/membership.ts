@@ -4,7 +4,7 @@ import * as schema from '@/db/schema'
 import { calculateLeaveProRata, recomputeLocalAmount, distributeDiff } from './billing'
 import { insertNotification } from './notifications'
 import { getActiveMembersAt, lockSubscription } from './db-operations'
-import { createR2JoinBill } from './billing-ops'
+import { createBackfillJoinBills, createR2JoinBill } from './billing-ops'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
@@ -136,6 +136,15 @@ export async function addMembersToSubscription(
     invitees: number[]
     addedBy: number
     addedAt: string // ISO YYYY-MM-DD
+    /**
+     * When true AND sub.startDate < addedAt, generate one bill per
+     * calendar month from startDate to today (creation-time backfill).
+     * When false (or startDate >= addedAt), generate the normal single
+     * R2 prorate. Defaults to false — handleAddMembers must NOT
+     * backfill since post-creation joiners only owe from the day they
+     * joined forward.
+     */
+    backfillFromStartDate?: boolean
   },
   rates: Record<string, number> = {}
 ): Promise<AddMembersResult> {
@@ -198,15 +207,32 @@ export async function addMembersToSubscription(
       for (const p of pending) {
         if (p.status === 'noop') continue
         if (!p.canonicalAddedAt) continue
-        await createR2JoinBill(tx, {
-          sub,
-          userId: p.userId,
-          addedBy: input.addedBy,
-          canonicalAddedAt: p.canonicalAddedAt,
-          memberCount,
-          rates,
-          status: p.status,
-        })
+
+        const useBackfill =
+          input.backfillFromStartDate === true &&
+          sub.startDate < input.addedAt
+
+        if (useBackfill) {
+          await createBackfillJoinBills(tx, {
+            sub,
+            userId: p.userId,
+            addedBy: input.addedBy,
+            today: input.addedAt,
+            memberCount,
+            rates,
+            status: p.status,
+          })
+        } else {
+          await createR2JoinBill(tx, {
+            sub,
+            userId: p.userId,
+            addedBy: input.addedBy,
+            canonicalAddedAt: p.canonicalAddedAt,
+            memberCount,
+            rates,
+            status: p.status,
+          })
+        }
       }
     }
 

@@ -104,6 +104,10 @@ describe('R1 cron advances nextPayment', () => {
     // Cron runs in January (yearMonth = 2026-01). nextPayment = 1/31 is
     // in this month, so it advances exactly once → 2/28 (Feb has 28 days
     // in 2026). Then 2/28 > end-of-2026-01 = 1/31, loop exits.
+    //
+    // today: '2026-01-01' on creation pins the clock so handleCreateSubscription's
+    // own nextPayment-past-today advance is a no-op (1/31 > 1/1) — we
+    // want only the cron to do the advancing here.
     const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
     const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
     const created = await handleCreateSubscription(db, a, {
@@ -111,7 +115,9 @@ describe('R1 cron advances nextPayment', () => {
       price: 10000,
       currency: 'CNY',
       nextPayment: '2026-01-31',
+      startDate: '2026-01-31',
       members: [b],
+      today: '2026-01-01',
     })
     if (!created.success) throw new Error(created.error)
     const subId = created.data!.id

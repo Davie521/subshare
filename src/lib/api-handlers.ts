@@ -13,7 +13,7 @@ import { changeSubscriptionPrice } from './billing-ops'
 import { generateMonthlyBills } from './cron-billing'
 import { normalizeTags, filterTagsForViewer } from './tags'
 import { calculateMonthlySpending } from './billing'
-import { todayInAppTz } from './date-utils'
+import { advanceMonth, todayInAppTz } from './date-utils'
 import { getRate } from './fx-cache'
 import {
   getNormalizedSettlement,
@@ -78,6 +78,12 @@ export async function handleCreateSubscription(
     price: number
     currency: string
     nextPayment: string
+    /**
+     * Immutable cycle anchor. Defaults to nextPayment when omitted —
+     * the user only enters one date in the form, and it serves as both
+     * "next charge" and "first charge" at creation time.
+     */
+    startDate?: string
     members?: number[]
     payerId?: number
     refundPolicy?: 'payer_absorbs' | 'redistribute'
@@ -86,10 +92,21 @@ export async function handleCreateSubscription(
     notes?: string
     categoryId?: number
     tags?: SubscriptionTag[]
+    /** Test-only override for "today". Defaults to todayInAppTz(). */
+    today?: string
   }
 ): Promise<Result<{ id: number; name: string }>> {
   const invitees = (input.members ?? []).filter((id) => id !== userId)
   const payerId = input.payerId ?? userId
+  const today = input.today ?? todayInAppTz()
+  // startDate default heuristic: when the user inputs a nextPayment in
+  // the past, treat it as "this sub has been running since then" and
+  // backfill from there. When nextPayment is today/future, the user is
+  // creating a brand-new sub — startDate is today and bills follow the
+  // normal R2/R1 pattern. Callers can always pass startDate explicitly
+  // to override.
+  const startDate =
+    input.startDate ?? (input.nextPayment < today ? input.nextPayment : today)
 
   // payer must be the owner or one of the invitees.
   if (payerId !== userId && !invitees.includes(payerId)) {
@@ -102,6 +119,7 @@ export async function handleCreateSubscription(
 
   const sub = await createSubscription(db, {
     ...input,
+    startDate,
     ownerId: userId,
     payerId,
   })
@@ -109,6 +127,9 @@ export async function handleCreateSubscription(
   // Seed invitees as a SINGLE batch so every invitee's R2 bill is
   // computed against the same final member count — otherwise the first
   // invitee sees n=2, the second sees n=3, etc., and amounts diverge.
+  // backfillFromStartDate=true: when startDate is in a past month, every
+  // invitee gets one bill per missed month rather than just today's
+  // prorate. No-op when startDate >= today.
   if (invitees.length > 0) {
     const rates = await fetchRatesForUsers(db, invitees, input.currency)
     await addMembersToSubscription(
@@ -117,13 +138,40 @@ export async function handleCreateSubscription(
         subscriptionId: sub.id,
         invitees,
         addedBy: userId,
-        addedAt: todayInAppTz(),
+        addedAt: today,
+        backfillFromStartDate: true,
       },
       rates
     )
   }
 
+  // Advance nextPayment past today so the detail-page "next" label is
+  // correct immediately after creation, not on the next cron pass.
+  // Loops if startDate is months behind.
+  await advanceNextPaymentPastToday(db, sub.id, today)
+
   return { success: true, data: sub }
+}
+
+async function advanceNextPaymentPastToday(
+  db: DB,
+  subId: number,
+  today: string
+): Promise<void> {
+  const [row] = await db
+    .select({ nextPayment: schema.subscriptions.nextPayment })
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subId))
+  if (!row) return
+
+  let np = row.nextPayment
+  while (np <= today) np = advanceMonth(np)
+  if (np !== row.nextPayment) {
+    await db
+      .update(schema.subscriptions)
+      .set({ nextPayment: np })
+      .where(eq(schema.subscriptions.id, subId))
+  }
 }
 
 export async function fetchRatesForUsers(
@@ -154,7 +202,8 @@ export async function handleAddMembers(
   db: DB,
   actorId: number,
   subId: number,
-  memberIds: number[]
+  memberIds: number[],
+  opts: { today?: string } = {}
 ): Promise<Result<{ added: number; reactivated: number; errors: Array<{ userId: number; error: string }> }>> {
   const [sub] = await db
     .select()
@@ -179,7 +228,7 @@ export async function handleAddMembers(
   }
 
   const rates = await fetchRatesForUsers(db, invitees, sub.currency)
-  const today = todayInAppTz()
+  const today = opts.today ?? todayInAppTz()
   const errors: Array<{ userId: number; error: string }> = []
 
   // Batch path: addMembersToSubscription handles the whole group in one
