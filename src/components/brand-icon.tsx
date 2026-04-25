@@ -19,13 +19,18 @@ export function BrandIcon({ name, size = 20, className }: BrandIconProps) {
   //      data-URL SVG can't be themed across modes, so we draw the chip
   //      directly with Tailwind classes that adapt to dark mode.
   // Branded chips (a real `icon.hex` from the manifest) use that hex
-  // inline; the generic letter source picks a theme-aware zinc tone.
+  // inline; the generic letter source picks a theme-aware zinc tone
+  // with a flipped text colour so the glyph stays readable on both
+  // a mid-gray (light) and a near-white (dark) chip background.
   const isLetterSource = icon.source === "letter";
   if (imgFailed || isLetterSource) {
     const useThemedChip = isLetterSource;
+    const textCls = useThemedChip ? "text-white dark:text-zinc-900" : "text-white";
     return (
       <div
-        className={`flex items-center justify-center rounded font-semibold text-white ${useThemedChip ? "bg-zinc-500 dark:bg-zinc-400" : ""} ${className ?? ""}`}
+        role="img"
+        aria-label={name}
+        className={`flex items-center justify-center rounded font-semibold ${textCls} ${useThemedChip ? "bg-zinc-500 dark:bg-zinc-400" : ""} ${className ?? ""}`}
         style={{
           width: size,
           height: size,
