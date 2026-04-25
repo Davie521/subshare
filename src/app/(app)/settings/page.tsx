@@ -11,6 +11,7 @@ import { Separator } from "@/components/ui/separator";
 import { LogOut, Check, ArrowRight } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
+import { ThemeModeControl } from "@/components/theme-mode-control";
 
 type User = {
   name: string;
@@ -170,6 +171,24 @@ export default function SettingsPage() {
                   Saved
                 </p>
               )}
+            </div>
+          </CardContent>
+        </Card>
+      </section>
+
+      {/* Appearance */}
+      <section className="space-y-4">
+        <SectionHeader title="Appearance" />
+        <Card>
+          <CardContent className="space-y-3">
+            <div className="space-y-2">
+              <Label>Theme</Label>
+              <div>
+                <ThemeModeControl />
+              </div>
+              <p className="text-[12px] text-muted-foreground">
+                Auto follows your system color scheme.
+              </p>
             </div>
           </CardContent>
         </Card>
