@@ -168,16 +168,19 @@ export default function SettlementPage() {
 
   const activeRows = direction === "owe" ? oweRows : owedRows;
 
-  // Total pending bills hidden across the OPPOSITE-of-current-direction
-  // tab too — drives the "+N upcoming" hint, so the user knows there's
-  // something to flip the toggle for.
-  const totalPendingHidden = useMemo(
-    () =>
-      showUpcoming
-        ? 0
-        : decoratedRows.reduce((sum, d) => sum + d.pendingHidden, 0),
-    [decoratedRows, showUpcoming]
-  );
+  // Total pending bills the toggle is currently hiding — drives the
+  // "N hidden" hint and the empty-state "show them" link.
+  // Computed from RAW rows, not `decoratedRows`, because the latter
+  // skips counterparties whose displayed slice is empty / nets to 0.
+  // Those rows can still be 100%-pending and we want their bills to
+  // contribute to the hint so the user knows something is hidden.
+  const totalPendingHidden = useMemo(() => {
+    if (showUpcoming || !rows) return 0;
+    return rows.reduce((sum, row) => {
+      const { pending } = splitBillsByPending(row.bills, today);
+      return sum + pending.length;
+    }, 0);
+  }, [rows, today, showUpcoming]);
 
   async function onSettlePerson(d: DecoratedRow) {
     setSettlingId(d.row.counterpartyUserId);
