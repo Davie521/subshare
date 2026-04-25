@@ -32,6 +32,12 @@ interface IconEntry {
   color: string // hex without #
   isSvg: boolean // true if svg (can be tinted)
   letter: string // for hypothetical letter fallback on client
+  /**
+   * Origin of the asset, used by the renderer to decide theming. Simple
+   * Icons SVGs ship as monochrome black paths and need `dark:invert`;
+   * favicon PNGs and letter chips already carry their own colour.
+   */
+  source: 'simple-icons' | 'favicon' | 'letter'
 }
 
 type Manifest = Record<string, IconEntry>
@@ -121,7 +127,7 @@ async function resolveIcon(
   const si = findSimpleIcon(name, slug)
   if (si) {
     return {
-      entry: { file: `${fileSlug}.svg`, color: si.hex, isSvg: true, letter },
+      entry: { file: `${fileSlug}.svg`, color: si.hex, isSvg: true, letter, source: 'simple-icons' },
       bytes: Buffer.from(si.svg, 'utf-8'),
       ext: 'svg',
     }
@@ -131,7 +137,7 @@ async function resolveIcon(
   if (FORCE_LETTER[normalized]) {
     const hex = FORCE_LETTER[normalized]
     return {
-      entry: { file: `${fileSlug}.svg`, color: hex, isSvg: true, letter },
+      entry: { file: `${fileSlug}.svg`, color: hex, isSvg: true, letter, source: 'letter' },
       bytes: Buffer.from(letterSvg(letter, hex), 'utf-8'),
       ext: 'svg',
     }
@@ -143,7 +149,7 @@ async function resolveIcon(
     const best = await fetchBestFavicon(domain)
     if (best) {
       return {
-        entry: { file: `${fileSlug}.png`, color: '6B7280', isSvg: false, letter },
+        entry: { file: `${fileSlug}.png`, color: '6B7280', isSvg: false, letter, source: 'favicon' },
         bytes: best,
         ext: 'png',
       }
@@ -152,7 +158,7 @@ async function resolveIcon(
 
   // 4. Letter SVG fallback (generic gray)
   return {
-    entry: { file: `${fileSlug}.svg`, color: '6B7280', isSvg: true, letter },
+    entry: { file: `${fileSlug}.svg`, color: '6B7280', isSvg: true, letter, source: 'letter' },
     bytes: Buffer.from(letterSvg(letter, '6B7280'), 'utf-8'),
     ext: 'svg',
   }

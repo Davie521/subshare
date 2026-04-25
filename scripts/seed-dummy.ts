@@ -196,7 +196,7 @@ async function main() {
     const chatgpt = await createSubscription(db, {
       name: 'ChatGPT', price: 14500, currency: 'CNY',
       nextPayment: '2026-05-01', startDate: '2026-02-01',
-      ownerId: alice, logo: 'openai',
+      ownerId: alice, logo: 'ChatGPT Plus',
     })
     await addMemberToSubscription(db,
       { subscriptionId: chatgpt.id, userId: dave, addedBy: alice, addedAt: '2026-02-01' }, RATES)
@@ -225,7 +225,7 @@ async function main() {
     await createSubscription(db, {
       name: 'Disney+', price: 3500, currency: 'CNY',
       nextPayment: '2026-05-01', startDate: '2026-02-01',
-      ownerId: alice, logo: 'disneyplus',
+      ownerId: alice, logo: 'Disney+',
     })
 
     // 6) Spotify Duo — partner pays, just the couple.
@@ -256,7 +256,7 @@ async function main() {
     const youtube = await createSubscription(db, {
       name: 'YouTube', price: 8900, currency: 'HKD',
       nextPayment: '2026-05-01', startDate: '2026-02-01',
-      ownerId: grace, logo: 'youtube',
+      ownerId: grace, logo: 'YouTube Premium',
     })
     await addMemberToSubscription(db,
       { subscriptionId: youtube.id, userId: alice, addedBy: grace, addedAt: '2026-02-01' }, RATES)
@@ -269,7 +269,7 @@ async function main() {
     const nytimes = await createSubscription(db, {
       name: 'NYTimes', price: 1700, currency: 'USD',
       nextPayment: '2026-05-01', startDate: '2026-02-01',
-      ownerId: dave, logo: 'nytimes',
+      ownerId: dave, logo: 'The New York Times',
     })
     await addMemberToSubscription(db,
       { subscriptionId: nytimes.id, userId: alice, addedBy: dave, addedAt: '2026-02-01' }, RATES)
@@ -291,7 +291,7 @@ async function main() {
     const coursera = await createSubscription(db, {
       name: 'Coursera', price: 7900, currency: 'CAD',
       nextPayment: '2026-05-01', startDate: '2026-01-01',
-      ownerId: jack, logo: 'coursera',
+      ownerId: jack, logo: 'Coursera Plus',
     })
     await addMemberToSubscription(db,
       { subscriptionId: coursera.id, userId: alice, addedBy: jack, addedAt: '2026-01-01' }, RATES)
@@ -302,7 +302,7 @@ async function main() {
     const psplus = await createSubscription(db, {
       name: 'PlayStation Plus', price: 1800, currency: 'CNY',
       nextPayment: '2026-05-01', startDate: '2026-01-01',
-      ownerId: frank, logo: 'playstation',
+      ownerId: frank, logo: 'PlayStation Plus Essential',
     })
     await addMemberToSubscription(db,
       { subscriptionId: psplus.id, userId: alice, addedBy: frank, addedAt: '2026-01-01' }, RATES)
@@ -315,7 +315,7 @@ async function main() {
     const adobe = await createSubscription(db, {
       name: 'Adobe', price: 22800, currency: 'CNY',
       nextPayment: '2026-04-01', startDate: '2026-01-01',
-      ownerId: alice, logo: 'adobe',
+      ownerId: alice, logo: 'Adobe Creative Cloud',
     })
     await addMemberToSubscription(db,
       { subscriptionId: adobe.id, userId: bob, addedBy: alice, addedAt: '2026-01-01' }, RATES)
