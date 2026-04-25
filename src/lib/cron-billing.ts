@@ -2,6 +2,7 @@ import { eq, and } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import { calculateShares } from './billing'
+import { advanceMonth } from './date-utils'
 import { getActiveMembersAt, lockSubscription } from './db-operations'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -46,6 +47,22 @@ export async function generateMonthlyBills(
         // Lock + re-read members inside the tx so concurrent add/leave
         // calls can't race with this sub's R1 pass.
         await lockSubscription(tx, sub.id)
+
+        // Advance nextPayment past this billing month, idempotently. Done
+        // before bill generation and unconditionally — the payer's card is
+        // charged whether or not co-members exist, so even solo subs need
+        // their nextPayment to move. If nextPayment is multiple months
+        // behind (cron skipped runs), loop until it's past yearMonth so a
+        // single pass keeps it monotonic; later cron passes will catch up
+        // the rest.
+        let np = sub.nextPayment
+        while (np.slice(0, 7) <= yearMonth) np = advanceMonth(np)
+        if (np !== sub.nextPayment) {
+          await tx
+            .update(schema.subscriptions)
+            .set({ nextPayment: np })
+            .where(eq(schema.subscriptions.id, sub.id))
+        }
 
         const members = await getActiveMembersAt(tx, sub.id, billingDate)
         if (members.length < 2) return 0 // personal or empty

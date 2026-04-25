@@ -62,3 +62,29 @@ export function todayInAppTz(date: Date = new Date(), tz?: string): string {
   const day = parts.find((p) => p.type === 'day')!.value
   return `${year}-${month}-${day}`
 }
+
+/**
+ * Bump an ISO YYYY-MM-DD date by exactly one calendar month, clamping
+ * the day to the target month's length. Used by R1 cron to advance
+ * `nextPayment` each cycle.
+ *
+ * Drift is tolerated: 1/31 → 2/28 → 3/28 → 4/28… The immutable
+ * `startDate` column is the source of truth for "original day-of-month";
+ * advanceMonth's job is just "+1 month with month-end survival."
+ */
+export function advanceMonth(iso: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso)
+  if (!m) throw new Error(`advanceMonth: not ISO YYYY-MM-DD: "${iso}"`)
+  const y = Number(m[1])
+  const mo = Number(m[2])
+  const d = Number(m[3])
+
+  const nextMo = mo === 12 ? 1 : mo + 1
+  const nextY = mo === 12 ? y + 1 : y
+  // new Date(year, monthIndex+1, 0) gives last day of month at monthIndex.
+  // Here `nextMo` is 1-based, so passing it directly yields the day count
+  // of the target month (0-based monthIndex+1).
+  const daysInNext = new Date(nextY, nextMo, 0).getDate()
+  const clampedD = Math.min(d, daysInNext)
+  return `${nextY}-${String(nextMo).padStart(2, '0')}-${String(clampedD).padStart(2, '0')}`
+}

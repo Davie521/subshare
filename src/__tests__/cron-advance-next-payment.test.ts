@@ -51,7 +51,7 @@ describe('R1 cron advances nextPayment', () => {
       members: [b],
     })
     if (!created.success) throw new Error(created.error)
-    const subId = created.data.id
+    const subId = created.data!.id
 
     await runBillingCron(db, { today: '2026-05-01' })
 
@@ -73,7 +73,7 @@ describe('R1 cron advances nextPayment', () => {
       members: [b],
     })
     if (!created.success) throw new Error(created.error)
-    const subId = created.data.id
+    const subId = created.data!.id
 
     await runBillingCron(db, { today: '2026-05-01' })
 
@@ -93,14 +93,17 @@ describe('R1 cron advances nextPayment', () => {
       members: [b],
     })
     if (!created.success) throw new Error(created.error)
-    const subId = created.data.id
+    const subId = created.data!.id
 
     await runBillingCron(db, { today: '2026-05-01' })
 
     expect(await getNextPayment(subId)).toBe('2026-08-15')
   })
 
-  it('end-of-month clamp: 2026-01-31 → 2026-02-28', async () => {
+  it('end-of-month clamp: 2026-01-31 → 2026-02-28 in a single advance', async () => {
+    // Cron runs in January (yearMonth = 2026-01). nextPayment = 1/31 is
+    // in this month, so it advances exactly once → 2/28 (Feb has 28 days
+    // in 2026). Then 2/28 > end-of-2026-01 = 1/31, loop exits.
     const a = await createUser(db, { email: 'a@t.com', currency: 'CNY' })
     const b = await createUser(db, { email: 'b@t.com', currency: 'CNY' })
     const created = await handleCreateSubscription(db, a, {
@@ -111,9 +114,9 @@ describe('R1 cron advances nextPayment', () => {
       members: [b],
     })
     if (!created.success) throw new Error(created.error)
-    const subId = created.data.id
+    const subId = created.data!.id
 
-    await runBillingCron(db, { today: '2026-02-01' })
+    await runBillingCron(db, { today: '2026-01-15' })
 
     expect(await getNextPayment(subId)).toBe('2026-02-28')
   })
@@ -128,7 +131,7 @@ describe('R1 cron advances nextPayment', () => {
       members: [], // no co-members
     })
     if (!created.success) throw new Error(created.error)
-    const subId = created.data.id
+    const subId = created.data!.id
 
     await runBillingCron(db, { today: '2026-05-01' })
 
@@ -146,7 +149,7 @@ describe('R1 cron advances nextPayment', () => {
       members: [b],
     })
     if (!created.success) throw new Error(created.error)
-    const subId = created.data.id
+    const subId = created.data!.id
 
     await runBillingCron(db, { today: '2026-05-01' })
     await runBillingCron(db, { today: '2026-05-15' })
