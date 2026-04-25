@@ -7,11 +7,13 @@ import { THEME_STORAGE_KEY } from '@/lib/theme'
 
 type Captured = ReturnType<typeof useTheme>
 
-const handle: { current: Captured | null } = { current: null }
+const handleRef: { current: Captured | null } = { current: null }
 
 function Probe() {
   const ctx = useTheme()
-  handle.current = ctx
+  // Capture the live context value for the surrounding test to assert on.
+  // eslint-disable-next-line react-hooks/immutability
+  handleRef.current = ctx
   return null
 }
 
@@ -30,7 +32,7 @@ function render() {
 }
 
 beforeEach(() => {
-  handle.current = null
+  handleRef.current = null
   document.documentElement.className = ''
   delete document.documentElement.dataset.theme
   localStorage.clear()
@@ -54,30 +56,30 @@ beforeEach(() => {
 describe('ThemeProvider', () => {
   it('hydrates with auto + system-light by default', () => {
     render()
-    expect(handle.current?.mode).toBe('auto')
-    expect(handle.current?.resolved).toBe('light')
+    expect(handleRef.current?.mode).toBe('auto')
+    expect(handleRef.current?.resolved).toBe('light')
     expect(document.documentElement.classList.contains('dark')).toBe(false)
   })
 
   it('hydrates from localStorage when present', () => {
     localStorage.setItem(THEME_STORAGE_KEY, 'dark')
     render()
-    expect(handle.current?.mode).toBe('dark')
-    expect(handle.current?.resolved).toBe('dark')
+    expect(handleRef.current?.mode).toBe('dark')
+    expect(handleRef.current?.resolved).toBe('dark')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
   it('setMode updates DOM, localStorage, and cookie', () => {
     render()
     act(() => {
-      handle.current?.setMode('dark')
+      handleRef.current?.setMode('dark')
     })
     expect(document.documentElement.classList.contains('dark')).toBe(true)
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
     expect(document.cookie).toContain('subshare_theme=dark')
 
     act(() => {
-      handle.current?.setMode('light')
+      handleRef.current?.setMode('light')
     })
     expect(document.documentElement.classList.contains('dark')).toBe(false)
     expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('light')
@@ -98,8 +100,8 @@ describe('ThemeProvider', () => {
       }),
     })
     render()
-    expect(handle.current?.mode).toBe('auto')
-    expect(handle.current?.resolved).toBe('dark')
+    expect(handleRef.current?.mode).toBe('auto')
+    expect(handleRef.current?.resolved).toBe('dark')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 
@@ -113,7 +115,7 @@ describe('ThemeProvider', () => {
         }),
       )
     })
-    expect(handle.current?.mode).toBe('dark')
+    expect(handleRef.current?.mode).toBe('dark')
     expect(document.documentElement.classList.contains('dark')).toBe(true)
   })
 })

@@ -28,10 +28,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${inter.variable} h-full`} suppressHydrationWarning>
-      <head>
-        <ThemeScript />
-      </head>
       <body className="min-h-full bg-background text-foreground font-sans antialiased">
+        <ThemeScript />
         <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
