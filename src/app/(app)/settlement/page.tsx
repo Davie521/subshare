@@ -148,7 +148,10 @@ export default function SettlementPage() {
         displayedBillCount: displayed.length,
         groups,
         activeBillIds: active.map((b) => b.id),
-        pendingHidden: pending.length,
+        // Only "hidden" when the toggle is actually hiding them. With
+        // the toggle ON they're rendered into the merged group, so the
+        // count of "hidden" is zero by construction.
+        pendingHidden: showUpcoming ? 0 : pending.length,
       });
     }
     return out;
