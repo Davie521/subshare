@@ -5,6 +5,7 @@ import {
   isPending,
   daysBetweenISO,
   groupBillsBySubscription,
+  splitBillsByPending,
   type SettlementBillInput,
 } from '@/lib/settlement-display'
 
@@ -250,5 +251,45 @@ describe('groupBillsBySubscription', () => {
       '2026-04-25',
       '2026-05-01',
     ])
+  })
+})
+
+describe('splitBillsByPending', () => {
+  const today = '2026-04-25'
+
+  it('returns both arrays empty for empty input', () => {
+    const out = splitBillsByPending([], today)
+    expect(out.active).toEqual([])
+    expect(out.pending).toEqual([])
+  })
+
+  it('classifies past + today as active and strictly-future as pending', () => {
+    const bills = [
+      { id: 1, billingDate: '2026-04-20' }, // past
+      { id: 2, billingDate: '2026-04-25' }, // today — active
+      { id: 3, billingDate: '2026-04-26' }, // pending
+      { id: 4, billingDate: '2026-05-01' }, // pending
+    ]
+    const out = splitBillsByPending(bills, today)
+    expect(out.active.map((b) => b.id)).toEqual([1, 2])
+    expect(out.pending.map((b) => b.id)).toEqual([3, 4])
+  })
+
+  it('preserves the original objects (no copy of fields)', () => {
+    const bill = { id: 1, billingDate: '2026-04-20', extra: 'kept' }
+    const out = splitBillsByPending([bill], today)
+    expect(out.active[0]).toBe(bill)
+  })
+
+  it('preserves input order within each bucket', () => {
+    const bills = [
+      { id: 9, billingDate: '2026-05-01' },
+      { id: 7, billingDate: '2026-04-20' },
+      { id: 8, billingDate: '2026-04-26' },
+      { id: 6, billingDate: '2026-04-15' },
+    ]
+    const out = splitBillsByPending(bills, today)
+    expect(out.active.map((b) => b.id)).toEqual([7, 6])
+    expect(out.pending.map((b) => b.id)).toEqual([9, 8])
   })
 })

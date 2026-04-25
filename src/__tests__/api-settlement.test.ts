@@ -101,4 +101,53 @@ describe('A9 handleMarkPairSettled', () => {
     const res = await handleMarkPairSettled(db, b, a, 'XYZ')
     expect(res.success).toBe(false)
   })
+
+  it('Phase 3: forwards billIds so settle is scoped to visible bills only', async () => {
+    // The "Show upcoming" toggle in the page passes only currently-active
+    // bill IDs. The handler must forward billIds to markPairSettled so a
+    // press doesn't silently sweep the upcoming bills the user can't see.
+    const { a, b } = await reciprocalScenario()
+
+    // Pick one of B's unpaid bills to A; leave the rest alone.
+    const bills = (await sqlite
+      .prepare(
+        `SELECT br.id FROM billing_records br
+         JOIN subscriptions s ON s.id = br.subscription_id
+         WHERE br.is_paid = false AND br.user_id = ? AND s.payer_id = ?
+         ORDER BY br.id`
+      )
+      .all(b, a)) as Array<{ id: number }>
+    expect(bills.length).toBeGreaterThanOrEqual(1)
+    const targetId = bills[0].id
+
+    const res = await handleMarkPairSettled(db, b, a, 'CNY', [targetId])
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data!.marked).toBe(1)
+
+    const stillUnpaid = (await sqlite
+      .prepare(
+        `SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false`
+      )
+      .get()) as { n: number }
+    // At least one bill remains unpaid (the rest of B↔A bucket + A↔B bucket).
+    expect(stillUnpaid.n).toBeGreaterThanOrEqual(1)
+  })
+
+  it('Phase 3: empty billIds settles nothing (no-op, never falls back to all)', async () => {
+    const { a, b } = await reciprocalScenario()
+    const before = (await sqlite
+      .prepare(`SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false`)
+      .get()) as { n: number }
+
+    const res = await handleMarkPairSettled(db, b, a, 'CNY', [])
+    expect(res.success).toBe(true)
+    if (!res.success) return
+    expect(res.data!.marked).toBe(0)
+
+    const after = (await sqlite
+      .prepare(`SELECT COUNT(*) AS n FROM billing_records WHERE is_paid = false`)
+      .get()) as { n: number }
+    expect(after.n).toBe(before.n)
+  })
 })

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
+import { ThemeProvider } from "@/components/theme-provider";
+import { ThemeScript } from "@/components/theme-script";
 
 const inter = Inter({
   variable: "--font-sans",
@@ -27,7 +29,8 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} h-full`} suppressHydrationWarning>
       <body className="min-h-full bg-background text-foreground font-sans antialiased">
-        {children}
+        <ThemeScript />
+        <ThemeProvider>{children}</ThemeProvider>
       </body>
     </html>
   );

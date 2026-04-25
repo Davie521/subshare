@@ -1,4 +1,4 @@
-import { and, eq, or } from 'drizzle-orm'
+import { and, eq, or, inArray } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import { getRate } from './fx-cache'
@@ -162,17 +162,40 @@ export async function getSettlementSummary(
 
 
 /**
- * T16 — mark all unpaid bills between userA and userB in `currency` paid.
- * If `currency` is omitted, settles **every** unpaid bill between the pair
- * regardless of currency (used by the netted single-currency settlement
- * flow). Direction-agnostic, idempotent. Other parties are untouched.
+ * T16 — mark unpaid bills between userA and userB in `currency` paid.
+ *
+ * Default behavior (no `billIds`): settles **every** unpaid bill in the
+ * (A, B, currency) bucket. With `currency` omitted, settles every unpaid
+ * bill between the pair regardless of currency.
+ *
+ * With `billIds` present: scopes the update to that exact set of bill
+ * IDs. The (A, B, currency) predicate still gates the update — IDs from
+ * other pairs / currencies are silently filtered out, so a caller can't
+ * escape pair scope by crafting IDs. An empty array is a true no-op
+ * (returns 0 without any UPDATE), never a fall-back to "settle all".
+ *
+ * Direction-agnostic, idempotent. Other parties are untouched.
  */
 export async function markPairSettled(
   db: DB,
-  input: { userA: number; userB: number; currency?: string }
+  input: {
+    userA: number
+    userB: number
+    currency?: string
+    /**
+     * Optional bill-ID scope. When set, only these bills are considered
+     * for the update (still subject to the pair / currency predicates).
+     * `[]` means "settle nothing" — explicit no-op.
+     */
+    billIds?: number[]
+  }
 ): Promise<number> {
-  const { userA, userB, currency } = input
+  const { userA, userB, currency, billIds } = input
   if (userA === userB) return 0
+  // Empty scope = explicit no-op. Skipping this check would let the
+  // inArray() condition below evaluate against an empty list — Drizzle's
+  // behavior on empty IN is dialect-dependent, so just short-circuit.
+  if (billIds && billIds.length === 0) return 0
 
   const paidAt = new Date().toISOString()
   const conditions = [
@@ -191,6 +214,9 @@ export async function markPairSettled(
   ]
   if (currency) {
     conditions.push(eq(schema.billingRecords.currency, currency))
+  }
+  if (billIds && billIds.length > 0) {
+    conditions.push(inArray(schema.billingRecords.id, billIds))
   }
 
   const updated = await db

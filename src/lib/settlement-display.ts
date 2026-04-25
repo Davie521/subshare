@@ -71,6 +71,28 @@ function formatSingleDate(iso: string, locale?: string | string[]): string {
 }
 
 /**
+ * Split a flat bill list into `active` (billing_date <= today) and
+ * `pending` (billing_date strictly after today). Generic on the bill
+ * shape so callers can pass enriched DTOs without losing fields.
+ *
+ * Today counts as active — a member owes today's bill, so we use the
+ * same `>` semantics as `isPending`. Stable: input order within each
+ * output bucket is preserved.
+ */
+export function splitBillsByPending<T extends { billingDate: string }>(
+  bills: T[],
+  today: string
+): { active: T[]; pending: T[] } {
+  const active: T[] = []
+  const pending: T[] = []
+  for (const b of bills) {
+    if (isPending(b.billingDate, today)) pending.push(b)
+    else active.push(b)
+  }
+  return { active, pending }
+}
+
+/**
  * A bill is "pending" when its billing_date is strictly in the future.
  * Today counts as active (the member owes it today), so we use `>`, not
  * `>=`. Both arguments must be ISO YYYY-MM-DD in the same calendar tz

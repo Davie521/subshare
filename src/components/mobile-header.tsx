@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Logo } from "@/components/logo";
+import { ThemeQuickToggle } from "@/components/theme-quick-toggle";
 
 const TITLES: Record<string, string> = {
   "/dashboard": "Dashboard",
@@ -43,6 +44,7 @@ export function MobileHeader() {
           {title}
         </h1>
       )}
+      <ThemeQuickToggle />
     </header>
   );
 }
