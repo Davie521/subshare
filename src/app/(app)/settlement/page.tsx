@@ -13,6 +13,8 @@ import {
   daysBetweenISO,
   formatBillingRange,
   groupBillsBySubscription,
+  isPending,
+  splitBillsByPending,
   type SubGroup,
 } from "@/lib/settlement-display";
 import { UserAvatar } from "@/components/user-avatar";
@@ -41,6 +43,23 @@ type SettlementRow = {
 
 type Direction = "owe" | "owed";
 
+/**
+ * Per-counterparty derived view for rendering. Wraps the raw row with
+ * the toggle-aware net + bill count + grouped sub rows + ID scope used
+ * by the Settle button.
+ */
+type DecoratedRow = {
+  row: SettlementRow;
+  /** Signed net across `displayed` bills only. Negative = you owe. */
+  displayedNet: number;
+  displayedBillCount: number;
+  groups: Array<SubGroup & { isAllPending: boolean }>;
+  /** IDs of currently-active bills — passed to settle when toggle OFF. */
+  activeBillIds: number[];
+  /** How many pending bills the toggle is hiding for this counterparty. */
+  pendingHidden: number;
+};
+
 /* ---------- date helpers ----------
  *
  * `today` is resolved via `todayInAppTz()` so it agrees with the server's
@@ -62,6 +81,10 @@ export default function SettlementPage() {
   const [settlingId, setSettlingId] = useState<number | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [settleError, setSettleError] = useState<string | null>(null);
+  // Phase 3 — when OFF (default), bills with billing_date strictly in the
+  // future are hidden from settle / counts / cards. Toggle ON merges them
+  // back in with a muted visual treatment + Upcoming pill.
+  const [showUpcoming, setShowUpcoming] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -85,26 +108,82 @@ export default function SettlementPage() {
     void load();
   }, [load]);
 
-  const oweRows = useMemo(
-    () => (rows ? rows.filter((r) => r.netAmount < 0) : []),
-    [rows]
-  );
-  const owedRows = useMemo(
-    () => (rows ? rows.filter((r) => r.netAmount > 0) : []),
-    [rows]
-  );
-
-  const activeRows = direction === "owe" ? oweRows : owedRows;
-
   // Resolved once per render — today in the app's reference timezone, so
   // overdue math agrees with the server-written billing_date values.
   // useMemo so children receive a stable reference while the page lives.
   const today = useMemo(() => todayInAppTz(), []);
 
-  async function onSettlePerson(row: SettlementRow) {
-    setSettlingId(row.counterpartyUserId);
+  // Per-counterparty filtered + decorated view. Recomputed when the
+  // toggle flips. Net / billCount / groups all reflect ONLY the bills
+  // we're about to render; the original row is kept for downstream
+  // identity (counterparty IDs, names, displayCurrency).
+  const decoratedRows = useMemo<DecoratedRow[]>(() => {
+    if (!rows) return [];
+    const out: DecoratedRow[] = [];
+    for (const row of rows) {
+      const { active, pending } = splitBillsByPending(row.bills, today);
+      const displayed = showUpcoming ? row.bills : active;
+      if (displayed.length === 0) continue;
+
+      const displayedNet = displayed.reduce(
+        (sum, b) =>
+          sum + (b.direction === "outgoing" ? -b.convertedAmount : b.convertedAmount),
+        0
+      );
+      // Hide rows that net to zero on the displayed slice unless something
+      // hints there's still something to track (FX missing on at least one
+      // bill, so the netAmount isn't trustworthy).
+      const anyFxIncomplete =
+        row.fxIncomplete || displayed.some((b) => b.fxIncomplete);
+      if (displayedNet === 0 && !anyFxIncomplete) continue;
+
+      const groups = groupBillsBySubscription(displayed).map((g) => ({
+        ...g,
+        isAllPending: g.bills.every((b) => isPending(b.billingDate, today)),
+      }));
+
+      out.push({
+        row,
+        displayedNet,
+        displayedBillCount: displayed.length,
+        groups,
+        activeBillIds: active.map((b) => b.id),
+        pendingHidden: pending.length,
+      });
+    }
+    return out;
+  }, [rows, today, showUpcoming]);
+
+  const oweRows = useMemo(
+    () => decoratedRows.filter((d) => d.displayedNet < 0),
+    [decoratedRows]
+  );
+  const owedRows = useMemo(
+    () => decoratedRows.filter((d) => d.displayedNet > 0),
+    [decoratedRows]
+  );
+
+  const activeRows = direction === "owe" ? oweRows : owedRows;
+
+  // Total pending bills hidden across the OPPOSITE-of-current-direction
+  // tab too — drives the "+N upcoming" hint, so the user knows there's
+  // something to flip the toggle for.
+  const totalPendingHidden = useMemo(
+    () =>
+      showUpcoming
+        ? 0
+        : decoratedRows.reduce((sum, d) => sum + d.pendingHidden, 0),
+    [decoratedRows, showUpcoming]
+  );
+
+  async function onSettlePerson(d: DecoratedRow) {
+    setSettlingId(d.row.counterpartyUserId);
     setSettleError(null);
-    const res = await api.markPairSettled(row.counterpartyUserId);
+    // Toggle OFF → scope settle to currently-visible (active) bill IDs so
+    // future bills the user can't see don't get silently swept up.
+    // Toggle ON → omit the scope, settle the whole bucket as before.
+    const billIds = showUpcoming ? undefined : d.activeBillIds;
+    const res = await api.markPairSettled(d.row.counterpartyUserId, billIds);
     setSettlingId(null);
     if (res.error) {
       setSettleError(res.error);
@@ -127,14 +206,21 @@ export default function SettlementPage() {
 
   return (
     <div className="space-y-8">
-      <header className="space-y-1.5">
-        <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
-          Settlement
-        </h1>
-        <p className="text-[14px] text-muted-foreground max-w-xl">
-          Who needs to transfer what. One number per person — netted across
-          subscriptions and currencies.
-        </p>
+      <header className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-1.5">
+          <h1 className="text-[32px] font-bold leading-tight tracking-[-0.022em]">
+            Settlement
+          </h1>
+          <p className="text-[14px] text-muted-foreground max-w-xl">
+            Who needs to transfer what. One number per person — netted across
+            subscriptions and currencies.
+          </p>
+        </div>
+        <UpcomingToggle
+          checked={showUpcoming}
+          onChange={setShowUpcoming}
+          hiddenCount={totalPendingHidden}
+        />
       </header>
 
       <Tabs
@@ -158,15 +244,19 @@ export default function SettlementPage() {
           ))}
         </div>
       ) : activeRows.length === 0 ? (
-        <EmptyState direction={direction} />
+        <EmptyState
+          direction={direction}
+          hiddenCount={totalPendingHidden}
+          onShowUpcoming={() => setShowUpcoming(true)}
+        />
       ) : (
         <ul className="space-y-4">
-          {activeRows.map((row) => (
-            <li key={row.counterpartyUserId}>
+          {activeRows.map((d) => (
+            <li key={d.row.counterpartyUserId}>
               <PersonCard
-                row={row}
+                decorated={d}
                 direction={direction}
-                settling={settlingId === row.counterpartyUserId}
+                settling={settlingId === d.row.counterpartyUserId}
                 onSettle={onSettlePerson}
                 today={today}
               />
@@ -182,6 +272,58 @@ export default function SettlementPage() {
           to clear the balance.
         </p>
       )}
+    </div>
+  );
+}
+
+/* ======================== Upcoming toggle ======================== */
+
+/**
+ * Tiny inline switch for the "Show upcoming" control. Custom-built to
+ * avoid pulling in a Radix dep just for this one toggle. Keyboard-
+ * accessible (role=switch, Space/Enter), with `aria-checked` mirroring
+ * state.
+ */
+function UpcomingToggle({
+  checked,
+  onChange,
+  hiddenCount,
+}: {
+  checked: boolean;
+  onChange: (next: boolean) => void;
+  hiddenCount: number;
+}) {
+  return (
+    <div className="flex items-center gap-2.5 sm:shrink-0">
+      <div className="flex flex-col items-end leading-tight">
+        <span className="text-[13px] font-medium">Show upcoming</span>
+        {!checked && hiddenCount > 0 && (
+          <span className="text-[11px] text-muted-foreground tabular-nums">
+            {hiddenCount} hidden
+          </span>
+        )}
+      </div>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        aria-label="Show upcoming bills"
+        onClick={() => onChange(!checked)}
+        className={cn(
+          "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full transition-colors cursor-pointer",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)]/40",
+          checked
+            ? "bg-[var(--brand)] dark:bg-[var(--brand-accent)]"
+            : "bg-foreground/15 dark:bg-white/15"
+        )}
+      >
+        <span
+          className={cn(
+            "inline-block size-[18px] rounded-full bg-background shadow transition-transform",
+            checked ? "translate-x-[18px]" : "translate-x-0.5"
+          )}
+        />
+      </button>
     </div>
   );
 }
@@ -263,7 +405,15 @@ function TabButton({
 
 /* ======================== Empty state ======================== */
 
-function EmptyState({ direction }: { direction: Direction }) {
+function EmptyState({
+  direction,
+  hiddenCount,
+  onShowUpcoming,
+}: {
+  direction: Direction;
+  hiddenCount: number;
+  onShowUpcoming: () => void;
+}) {
   return (
     <Card className="border-dashed bg-muted/30 shadow-none">
       <CardContent className="py-16 flex flex-col items-center gap-2.5 text-center">
@@ -276,6 +426,17 @@ function EmptyState({ direction }: { direction: Direction }) {
             ? "You don't owe anyone right now. New bills will show up here."
             : "No one owes you right now. New bills will show up here."}
         </p>
+        {hiddenCount > 0 && (
+          <button
+            type="button"
+            onClick={onShowUpcoming}
+            className="mt-2 text-[12px] font-medium text-[var(--brand)] hover:underline cursor-pointer"
+          >
+            {hiddenCount === 1
+              ? "1 upcoming bill hidden — show it"
+              : `${hiddenCount} upcoming bills hidden — show them`}
+          </button>
+        )}
       </CardContent>
     </Card>
   );
@@ -284,24 +445,26 @@ function EmptyState({ direction }: { direction: Direction }) {
 /* ======================== Person card ======================== */
 
 function PersonCard({
-  row,
+  decorated,
   direction,
   settling,
   onSettle,
   today,
 }: {
-  row: SettlementRow;
+  decorated: DecoratedRow;
   direction: Direction;
   settling: boolean;
-  onSettle: (row: SettlementRow) => Promise<void>;
+  onSettle: (d: DecoratedRow) => Promise<void>;
   today: string;
 }) {
-  const total = Math.abs(row.netAmount);
-  const groups = useMemo(
-    () => groupBillsBySubscription(row.bills),
-    [row.bills]
+  const { row, displayedNet, displayedBillCount, groups, pendingHidden } =
+    decorated;
+  const total = Math.abs(displayedNet);
+  // Overdue ring fires only on groups with at least one past-or-today
+  // bill — pending-only groups (toggle ON) shouldn't light the card.
+  const hasOverdue = groups.some(
+    (g) => !g.isAllPending && daysSince(g.rangeStart, today) >= 0
   );
-  const hasOverdue = groups.some((g) => daysSince(g.rangeStart, today) >= 0);
 
   return (
     <Card
@@ -321,8 +484,15 @@ function PersonCard({
                 {row.counterpartyName}
               </p>
               <p className="text-[12px] text-muted-foreground">
-                {direction === "owe" ? "You owe" : "Owes you"} · {row.billCount}{" "}
-                {row.billCount === 1 ? "bill" : "bills"}
+                {direction === "owe" ? "You owe" : "Owes you"} ·{" "}
+                {displayedBillCount}{" "}
+                {displayedBillCount === 1 ? "bill" : "bills"}
+                {pendingHidden > 0 && (
+                  <span className="text-muted-foreground/70">
+                    {" "}
+                    · {pendingHidden} upcoming hidden
+                  </span>
+                )}
               </p>
             </div>
             <div className="shrink-0 sm:hidden flex flex-col items-end">
@@ -357,7 +527,7 @@ function PersonCard({
               size="sm"
               variant={direction === "owe" ? "default" : "outline"}
               disabled={settling}
-              onClick={() => onSettle(row)}
+              onClick={() => onSettle(decorated)}
               className="cursor-pointer gap-1.5 w-full sm:w-auto"
             >
               {settling ? (
@@ -396,23 +566,23 @@ function PersonCard({
  * bill of that sub into a single line: range `Apr 25 – May 31`, summed
  * amount, group-level fxIncomplete and overdue indicators.
  *
- * Overdue here means at least one bill in the group has billing_date
- * <= today. We pin it to `rangeStart` (the earliest), so the badge label
- * counts days from the oldest unpaid bill — that's the one driving any
- * overdue feeling.
+ * Phase 3: when `isAllPending` is true (every bill in the group is
+ * strictly future and the user has the toggle ON), the row renders in a
+ * muted style with an `Upcoming` pill instead of an `Overdue` one —
+ * signaling "this isn't due yet" without hiding the row entirely.
  */
 function SubGroupRow({
   group,
   displayCurrency,
   today,
 }: {
-  group: SubGroup;
+  group: SubGroup & { isAllPending: boolean };
   displayCurrency: string;
   today: string;
 }) {
   const d = daysSince(group.rangeStart, today);
-  const overdue = d >= 0;
-  const label =
+  const overdue = !group.isAllPending && d >= 0;
+  const overdueLabel =
     d <= 0 ? "Due today" : d === 1 ? "Overdue 1 day" : `Overdue ${d} days`;
   const isOutgoing = group.direction === "outgoing";
 
@@ -422,7 +592,8 @@ function SubGroupRow({
         "flex items-center gap-3 py-2.5 px-5 transition-colors",
         overdue
           ? "bg-[var(--brand)]/[0.04] dark:bg-[var(--brand)]/[0.08]"
-          : "hover:bg-foreground/[0.02] dark:hover:bg-white/[0.02]"
+          : "hover:bg-foreground/[0.02] dark:hover:bg-white/[0.02]",
+        group.isAllPending && "opacity-70"
       )}
     >
       <BrandIcon
@@ -430,7 +601,12 @@ function SubGroupRow({
         size={20}
       />
       <div className="flex-1 min-w-0 flex items-baseline gap-2">
-        <p className="text-[13px] font-medium truncate">
+        <p
+          className={cn(
+            "text-[13px] font-medium truncate",
+            group.isAllPending && "text-muted-foreground"
+          )}
+        >
           {group.subscriptionName}
         </p>
         <p className="text-[11px] text-muted-foreground whitespace-nowrap">
@@ -445,18 +621,35 @@ function SubGroupRow({
           FX incomplete
         </span>
       )}
-      {overdue && (
+      {group.isAllPending ? (
         <span
           className={cn(
             "inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.04em] px-1.5 h-[18px] rounded-full",
-            "bg-[var(--brand)]/12 text-[var(--brand)] dark:bg-[var(--brand)]/18 dark:text-[var(--brand-accent)]"
+            "bg-foreground/[0.06] text-muted-foreground"
           )}
         >
           <Clock className="size-2.5" />
-          {label}
+          Upcoming
         </span>
+      ) : (
+        overdue && (
+          <span
+            className={cn(
+              "inline-flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.04em] px-1.5 h-[18px] rounded-full",
+              "bg-[var(--brand)]/12 text-[var(--brand)] dark:bg-[var(--brand)]/18 dark:text-[var(--brand-accent)]"
+            )}
+          >
+            <Clock className="size-2.5" />
+            {overdueLabel}
+          </span>
+        )
       )}
-      <p className="text-[13px] font-semibold tabular-nums whitespace-nowrap text-foreground">
+      <p
+        className={cn(
+          "text-[13px] font-semibold tabular-nums whitespace-nowrap",
+          group.isAllPending ? "text-muted-foreground" : "text-foreground"
+        )}
+      >
         {isOutgoing ? "−" : "+"}
         {formatMoney(group.totalAmount, displayCurrency)}
       </p>
