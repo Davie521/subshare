@@ -24,6 +24,12 @@ type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
  * final memberCount. Pure of DB I/O — just math + FX lookup against the
  * pre-fetched rate map. Returns `null` when no bill should be emitted
  * (share would be 0, joiner is the payer, etc).
+ *
+ * The bill is anchored to `effectiveBillingDate = max(addedAt, startDate)`
+ * — when a member is added before the sub's startDate (sub hasn't begun
+ * billing yet), their bill must wait until startDate. The returned
+ * `effectiveBillingDate` is what the caller uses for `billing_date` and
+ * the idempotency key.
  */
 function computeR2JoinBillAmounts(input: {
   sub: typeof schema.subscriptions.$inferSelect
@@ -32,14 +38,24 @@ function computeR2JoinBillAmounts(input: {
   memberCount: number
   joinerPreferredCurrency: string
   rates: Record<string, number>
-}): { share: number; amount: number; localAmount: number; rate: number } | null {
+}): {
+  share: number
+  amount: number
+  localAmount: number
+  rate: number
+  effectiveBillingDate: string
+} | null {
   const { sub, userId, canonicalAddedAt, memberCount, joinerPreferredCurrency, rates } = input
 
   if (sub.payerId === userId) return null
   if (memberCount < 2) return null
 
+  // String compare works for ISO YYYY-MM-DD.
+  const effectiveBillingDate =
+    canonicalAddedAt >= sub.startDate ? canonicalAddedAt : sub.startDate
+
   const share = calculateShares(sub.price, memberCount)
-  const [year, month, day] = canonicalAddedAt.split('-').map(Number)
+  const [year, month, day] = effectiveBillingDate.split('-').map(Number)
   const daysInMonth = new Date(year, month, 0).getDate()
   const amount = calculateJoinProRata(share, day, daysInMonth)
   if (amount <= 0) return null
@@ -55,7 +71,7 @@ function computeR2JoinBillAmounts(input: {
   }
   const localAmount = Math.floor(amount * rate)
 
-  return { share, amount, localAmount, rate }
+  return { share, amount, localAmount, rate, effectiveBillingDate }
 }
 
 /**
@@ -155,7 +171,9 @@ export async function createR2JoinBill(
   })
   if (!amounts) return
 
-  // Idempotent: same (sub, user, date) → skip.
+  // Idempotent: same (sub, user, effective date) → skip. Idempotency keys
+  // off the effective billing date so two adds in the same pre-startDate
+  // window can't both insert (they'd both clamp to startDate and collide).
   const [existing] = await tx
     .select({ id: schema.billingRecords.id })
     .from(schema.billingRecords)
@@ -163,7 +181,7 @@ export async function createR2JoinBill(
       and(
         eq(schema.billingRecords.subscriptionId, sub.id),
         eq(schema.billingRecords.userId, userId),
-        eq(schema.billingRecords.billingDate, canonicalAddedAt)
+        eq(schema.billingRecords.billingDate, amounts.effectiveBillingDate)
       )
     )
   if (existing) return
@@ -176,16 +194,120 @@ export async function createR2JoinBill(
     localAmount: amounts.localAmount,
     localCurrency: user.preferredCurrency,
     exchangeRate: Math.round(amounts.rate * 1_000_000),
-    billingDate: canonicalAddedAt,
+    billingDate: amounts.effectiveBillingDate,
   })
 
   await notifyJoiner(tx, {
     sub,
     userId,
     addedBy,
-    canonicalAddedAt,
+    canonicalAddedAt: amounts.effectiveBillingDate,
     share: amounts.share,
     amount: amounts.amount,
+  })
+}
+
+/**
+ * Creation-time backfill: generate one bill per calendar month from
+ * `sub.startDate`'s month through `today`'s month for a single member.
+ *
+ *   - First month (the one containing startDate): prorate from
+ *     startDate's day to end-of-month. billing_date = sub.startDate.
+ *   - Subsequent months (including current): full share.
+ *     billing_date = first-of-month.
+ *
+ * Caller is responsible for only invoking this on creation (initial
+ * member set), and only when sub.startDate is strictly earlier than
+ * `today`. For startDate >= today, the regular R2 single-bill path
+ * handles it correctly. Idempotent on (sub, user, billing_date) for
+ * each emitted bill — safe to retry the whole flow.
+ */
+export async function createBackfillJoinBills(
+  tx: DB,
+  input: {
+    sub: typeof schema.subscriptions.$inferSelect
+    userId: number
+    addedBy: number
+    today: string
+    memberCount: number
+    rates: Record<string, number>
+    status: 'added' | 'rejoin'
+  }
+): Promise<void> {
+  const { sub, userId, addedBy, today, memberCount, rates } = input
+
+  if (sub.payerId === userId) return
+  if (memberCount < 2) return
+  if (sub.startDate >= today) return // caller should have used createR2JoinBill
+
+  const [user] = await tx
+    .select({ preferredCurrency: schema.users.preferredCurrency })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId))
+  if (!user) return
+
+  const share = calculateShares(sub.price, memberCount)
+  const rate =
+    sub.currency === user.preferredCurrency
+      ? 1
+      : rates[`${sub.currency}_${user.preferredCurrency}`]
+  if (rate === undefined || !Number.isFinite(rate) || rate <= 0) {
+    throw new Error(
+      `Missing exchange rate for ${sub.currency}_${user.preferredCurrency}`
+    )
+  }
+
+  const todayMonth = today.slice(0, 7)
+  let cursor = sub.startDate
+  let lastInsertedAmount = 0
+
+  while (cursor.slice(0, 7) <= todayMonth) {
+    const [yy, mm, dd] = cursor.split('-').map(Number)
+    const daysInMonth = new Date(yy, mm, 0).getDate()
+    const amount =
+      dd === 1 ? share : calculateJoinProRata(share, dd, daysInMonth)
+
+    if (amount > 0) {
+      const [existing] = await tx
+        .select({ id: schema.billingRecords.id })
+        .from(schema.billingRecords)
+        .where(
+          and(
+            eq(schema.billingRecords.subscriptionId, sub.id),
+            eq(schema.billingRecords.userId, userId),
+            eq(schema.billingRecords.billingDate, cursor)
+          )
+        )
+
+      if (!existing) {
+        const localAmount = Math.floor(amount * rate)
+        await tx.insert(schema.billingRecords).values({
+          subscriptionId: sub.id,
+          userId,
+          amount,
+          currency: sub.currency,
+          localAmount,
+          localCurrency: user.preferredCurrency,
+          exchangeRate: Math.round(rate * 1_000_000),
+          billingDate: cursor,
+        })
+      }
+      lastInsertedAmount = amount
+    }
+
+    if (mm === 12) cursor = `${yy + 1}-01-01`
+    else cursor = `${yy}-${String(mm + 1).padStart(2, '0')}-01`
+  }
+
+  // One summary notification per joiner; reference today for the
+  // next-billing-date hint (= first of next month after today).
+  await notifyJoiner(tx, {
+    sub,
+    userId,
+    addedBy,
+    canonicalAddedAt: today,
+    share,
+    amount: lastInsertedAmount,
   })
 }
 

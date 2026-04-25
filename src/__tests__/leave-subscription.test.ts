@@ -24,6 +24,7 @@ describe('T5 leaveSubscription', () => {
       price: 15000,
       currency: 'CNY',
       nextPayment: '2026-06-01',
+      startDate: '2026-04-01',
       ownerId: a,
     })
     await addMemberToSubscription(db, {
