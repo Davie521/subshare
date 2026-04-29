@@ -1008,6 +1008,7 @@ export async function handleGetDashboard(
   userId: number
 ): Promise<{
   monthlyTotal: number
+  monthlyTotalCurrency: string
   pendingBills: Array<{
     id: number
     subscriptionName: string
@@ -1063,6 +1064,7 @@ export async function handleGetDashboard(
 
   return {
     monthlyTotal,
+    monthlyTotalCurrency: preferredCurrency,
     pendingBills,
     subscriptions: spendingData,
   }

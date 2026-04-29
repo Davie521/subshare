@@ -43,6 +43,7 @@ export const api = {
   dashboard: () =>
     request<{
       monthlyTotal: number;
+      monthlyTotalCurrency: string;
       pendingBills: Array<{ id: number; subscriptionName: string; amount: number; currency: string }>;
       subscriptions: Array<{ id: number; name: string; price: number; currency: string; memberCount: number; logo: string | null }>;
     }>("/api/dashboard"),

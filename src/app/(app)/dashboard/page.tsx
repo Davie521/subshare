@@ -13,6 +13,7 @@ import { formatMoney } from "@/lib/format";
 
 type Dashboard = {
   monthlyTotal: number;
+  monthlyTotalCurrency: string;
   pendingBills: Array<{
     id: number;
     subscriptionName: string;
@@ -127,6 +128,7 @@ export default function DashboardPage() {
       <div className="grid gap-3 md:grid-cols-3">
         <SpendingCard
           total={data.monthlyTotal}
+          currency={data.monthlyTotalCurrency}
           subscriptionCount={data.subscriptions.length}
         />
         <StatCard
@@ -219,9 +221,11 @@ export default function DashboardPage() {
 
 function SpendingCard({
   total,
+  currency,
   subscriptionCount,
 }: {
   total: number;
+  currency: string;
   subscriptionCount: number;
 }) {
   return (
@@ -239,7 +243,7 @@ function SpendingCard({
           <TrendingUp className="size-[14px] text-[var(--brand)]" />
         </div>
         <p className="text-[28px] font-bold tracking-[-0.022em] tabular-nums leading-none">
-          {formatMoney(total)}
+          {formatMoney(total, currency)}
         </p>
         <div className="flex items-center gap-1.5 text-[12px] text-muted-foreground">
           <span>across {subscriptionCount} subscriptions</span>
