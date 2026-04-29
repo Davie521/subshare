@@ -311,7 +311,22 @@ describe('handleGetDashboard', () => {
 
     const result = await handleGetDashboard(db, userB)
     expect(result.monthlyTotal).toBe(10500) // 1500 + 18000/2
+    expect(result.monthlyTotalCurrency).toBe('CNY')
     expect(result.pendingBills).toHaveLength(1)
     expect(result.subscriptions).toHaveLength(2)
+  })
+
+  it('returns monthlyTotalCurrency matching the user preferredCurrency', async () => {
+    const userId = await createUser(db, { email: 'usd@test.com', currency: 'USD' })
+    await createSubscription(db, {
+      name: 'Spotify',
+      price: 999,
+      currency: 'USD',
+      nextPayment: '2026-06-01',
+      ownerId: userId,
+    })
+
+    const result = await handleGetDashboard(db, userId)
+    expect(result.monthlyTotalCurrency).toBe('USD')
   })
 })
