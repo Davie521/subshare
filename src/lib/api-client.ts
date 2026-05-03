@@ -226,6 +226,14 @@ export const api = {
     request(`/api/subscriptions/${subId}/members/${userId}`, {
       method: "DELETE",
     }),
+  editMemberAddedAt: (subId: number, userId: number, newAddedAt: string) =>
+    request<{ affectedMonths: string[]; eventIdPrefix: string }>(
+      `/api/subscriptions/${subId}/members/${userId}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({ newAddedAt }),
+      }
+    ),
 
   // Invites
   createInvite: (subId: number) =>

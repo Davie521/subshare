@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
+  CalendarDays,
   Check,
   Copy,
   Link2,
@@ -70,6 +71,9 @@ export default function SubscriptionDetailPage() {
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmKickId, setConfirmKickId] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editAddedAtId, setEditAddedAtId] = useState<number | null>(null);
+  const [editAddedAtValue, setEditAddedAtValue] = useState<string>("");
+  const [editAddedAtError, setEditAddedAtError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -186,6 +190,7 @@ export default function SubscriptionDetailPage() {
   const selfIsOwnerOrPayer = sub.members.find(
     (m) => m.isSelf && (m.isOwner || m.isPayer)
   );
+  const selfIsOwner = sub.members.some((m) => m.isSelf && m.isOwner);
   const selfMember = sub.members.find((m) => m.isSelf);
   const perPersonShare = Math.floor(sub.price / Math.max(sub.members.length, 1));
   const payer = sub.members.find((m) => m.isPayer);
@@ -214,6 +219,36 @@ export default function SubscriptionDetailPage() {
     } else {
       setConfirmKickId(userId);
     }
+  }
+
+  function openEditAddedAt(m: Member) {
+    setEditAddedAtId(m.userId);
+    setEditAddedAtValue(m.addedAt);
+    setEditAddedAtError(null);
+  }
+
+  function cancelEditAddedAt() {
+    setEditAddedAtId(null);
+    setEditAddedAtValue("");
+    setEditAddedAtError(null);
+  }
+
+  async function saveEditAddedAt(userId: number) {
+    if (!sub) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(editAddedAtValue)) {
+      setEditAddedAtError("Pick a valid date");
+      return;
+    }
+    setBusy(true);
+    setEditAddedAtError(null);
+    const res = await api.editMemberAddedAt(sub.id, userId, editAddedAtValue);
+    setBusy(false);
+    if (res.error) {
+      setEditAddedAtError(res.error);
+      return;
+    }
+    cancelEditAddedAt();
+    await load();
   }
 
 
@@ -889,6 +924,7 @@ export default function SubscriptionDetailPage() {
             const canKick =
               selfIsOwnerOrPayer && !m.isPayer && !m.isSelf;
             const canLeave = m.isSelf && !m.isPayer;
+            const canEditAddedAt = selfIsOwner;
 
             return (
               <li key={m.userId}>
@@ -915,12 +951,28 @@ export default function SubscriptionDetailPage() {
                           </Badge>
                         )}
                       </div>
-                      {m.email && (
+                      {m.email ? (
                         <p className="text-[12px] text-muted-foreground truncate">
                           {m.email}
                         </p>
+                      ) : (
+                        <p className="text-[12px] text-muted-foreground">
+                          Joined {m.addedAt}
+                        </p>
                       )}
                     </div>
+                    {canEditAddedAt && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        title="Edit join date"
+                        aria-label="Edit join date"
+                        onClick={() => openEditAddedAt(m)}
+                        className="shrink-0 size-11 md:size-8 rounded-md flex items-center justify-center cursor-pointer disabled:opacity-50 text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06]"
+                      >
+                        <CalendarDays className="size-3.5" />
+                      </button>
+                    )}
                     {(canKick || canLeave) && (
                       <button
                         type="button"
@@ -951,6 +1003,42 @@ export default function SubscriptionDetailPage() {
                       </button>
                     )}
                   </CardContent>
+                  {editAddedAtId === m.userId && (
+                    <CardContent className="border-t pt-3 flex flex-col gap-2">
+                      <Label htmlFor={`addedAt-${m.userId}`} className="text-[12px] text-muted-foreground">
+                        Joined on (any change retro-recomputes bills)
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id={`addedAt-${m.userId}`}
+                          type="date"
+                          value={editAddedAtValue}
+                          onChange={(e) => setEditAddedAtValue(e.target.value)}
+                          className="flex-1"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => saveEditAddedAt(m.userId)}
+                          disabled={busy}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={cancelEditAddedAt}
+                          disabled={busy}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                      {editAddedAtError && (
+                        <p className="text-[12px] text-destructive">
+                          {editAddedAtError}
+                        </p>
+                      )}
+                    </CardContent>
+                  )}
                 </Card>
               </li>
             );
