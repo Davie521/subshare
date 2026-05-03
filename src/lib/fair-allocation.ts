@@ -134,7 +134,7 @@ export function fairAllocation(input: FairAllocationInput): Map<number, number> 
   const lcm = lcmRange(maxN)
 
   const scaledFair = new Map<number, bigint>()
-  for (const u of allUsers) scaledFair.set(u, 0n)
+  for (const u of allUsers) scaledFair.set(u, BigInt(0))
 
   const priceBI = BigInt(price)
   for (let d = 0; d < daysInMonth; d++) {
@@ -215,9 +215,9 @@ function compareYearMonth(iso: string, year: number, month: number): -1 | 0 | 1 
 }
 
 function gcdBI(a: bigint, b: bigint): bigint {
-  if (a < 0n) a = -a
-  if (b < 0n) b = -b
-  while (b !== 0n) {
+  if (a < BigInt(0)) a = -a
+  if (b < BigInt(0)) b = -b
+  while (b !== BigInt(0)) {
     const t = b
     b = a % b
     a = t
@@ -226,8 +226,8 @@ function gcdBI(a: bigint, b: bigint): bigint {
 }
 
 function lcmRange(n: number): bigint {
-  if (n <= 1) return 1n
-  let result = 1n
+  if (n <= 1) return BigInt(1)
+  let result = BigInt(1)
   for (let i = 2; i <= n; i++) {
     const bi = BigInt(i)
     result = (result * bi) / gcdBI(result, bi)
