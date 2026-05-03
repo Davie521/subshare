@@ -13,10 +13,9 @@
  *   - The payer is always shown regardless of state.
  *
  * Friendship rows are NOT affected by leave — they persist independently.
- *
- * NOT YET IMPLEMENTED — tests are RED.
  */
 
+import { and, eq } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 
@@ -37,8 +36,70 @@ export type DisplayMember = {
 }
 
 export async function getMembersForDisplay(
-  _db: DB,
-  _input: { subscriptionId: number; today: string }
+  db: DB,
+  input: { subscriptionId: number; today: string }
 ): Promise<DisplayMember[]> {
-  throw new Error('getMembersForDisplay: not implemented')
+  const { subscriptionId, today } = input
+
+  const subRows = await db
+    .select()
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subscriptionId))
+  const sub = subRows[0]
+  if (!sub) return []
+
+  const members = await db
+    .select()
+    .from(schema.subscriptionMembers)
+    .where(eq(schema.subscriptionMembers.subscriptionId, subscriptionId))
+
+  // Sum unpaid bills + adjustments per user (signed cents).
+  const unpaidBills = await db
+    .select()
+    .from(schema.billingRecords)
+    .where(
+      and(
+        eq(schema.billingRecords.subscriptionId, subscriptionId),
+        eq(schema.billingRecords.isPaid, false)
+      )
+    )
+  const unpaidByUser = new Map<number, number>()
+  for (const b of unpaidBills) {
+    unpaidByUser.set(b.userId, (unpaidByUser.get(b.userId) ?? 0) + b.amount)
+  }
+
+  const result: DisplayMember[] = []
+  for (const m of members) {
+    const isPayer = m.userId === sub.payerId
+    const isPastLeaver = m.leftAt !== null && m.leftAt <= today
+
+    if (!isPastLeaver) {
+      result.push({
+        userId: m.userId,
+        addedAt: m.addedAt,
+        leftAt: m.leftAt,
+        status: 'active',
+      })
+      continue
+    }
+
+    const owed = unpaidByUser.get(m.userId) ?? 0
+    if (owed === 0 && !isPayer) continue // filter out: cleared
+
+    result.push({
+      userId: m.userId,
+      addedAt: m.addedAt,
+      leftAt: m.leftAt,
+      status: 'left_unsettled',
+      outstandingAmount: owed,
+    })
+  }
+
+  // Stable sort: addedAt ASC, userId ASC.
+  result.sort((a, b) => {
+    if (a.addedAt !== b.addedAt) return a.addedAt.localeCompare(b.addedAt)
+    return a.userId - b.userId
+  })
+
+  return result
 }
