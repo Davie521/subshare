@@ -808,22 +808,14 @@ describe('fairAllocation — Sub 24 production canary', () => {
     expect(sumMap(r)).toBe(20000)
   })
 
-  it('Claude Max $200, April 2026 partial month from 4/27 — only payer active', () => {
-    // April backfill: at sub creation only Magic-Alpha (10) was member.
-    // After Daviefan (5) is backdated to 4/27, both active days 27..30 (4 days).
-    // Albert (9) joined 5/3, not active in April.
+  it('Claude Max $200, April 2026 partial month — both members joined 4/27 (4 active days)', () => {
+    // Real Sub 24: sub.start_date = 2026-04-27, both Magic-Alpha (10) and
+    // Daviefan (5) addedAt = 2026-04-27. Albert (9) joined 5/3 (not in April).
     //
-    // April has 30 days. dailyCost = 20000/30 ≈ 666.67
-    // days 1..26 (26 days): N=1 (only 10). per-person = 666.67/day = 17333.33
-    // days 27..30 (4 days): N=2 (10, 5). per-person = 333.33/day. Each gets 1333.33
-    //
-    // user 10 fair = 26×666.67 + 4×333.33 = 17333.33 + 1333.33 = 18666.67
-    // user 5 fair = 4×333.33 = 1333.33
-    // Sum = 20000 ✓
-    //
-    // Floors: 5→1333, 10→18666. Sum = 19999. Residue = 1.
-    // Sorted [5, 10], seed=0 → position 0 = user 5 gets +1.
-    // Final: {5: 1334, 10: 18666}
+    // April: days 1-26 the sub didn't exist (N=0). Days 27-30 both active (N=2).
+    // activeDays = 4. dailyCost = 20000/4 = 5000.
+    // Days 27-30: per-person = 5000/2 = 2500/day. Each member = 4 × 2500 = 10000.
+    // Sum = 20000 ✓ (no forfeit; engine uses activeDays as denominator).
     const r = fairAllocation({
       price: 20000,
       year: 2026,
@@ -835,8 +827,8 @@ describe('fairAllocation — Sub 24 production canary', () => {
       ],
       roundingSeed: 0,
     })
-    expect(r.get(5)).toBe(1334)
-    expect(r.get(10)).toBe(18666)
+    expect(r.get(10)).toBe(10000)
+    expect(r.get(5)).toBe(10000)
     expect(r.get(9) ?? 0).toBe(0)
     expect(sumMap(r)).toBe(20000)
   })
