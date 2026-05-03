@@ -748,15 +748,15 @@ describe('recomputeMonth — payer behavior', () => {
   it('payer fair changing also adjusts payer bill', async () => {
     const payer = await createUser(db, { email: 'p@test.com', currency: 'USD' })
     const m2 = await createUser(db, { email: 'm2@test.com', currency: 'USD' })
+    // Use price = 6200 so dailyCost = 200/day for clean per-day arithmetic.
     const subId = await makeSub({
       payerId: payer,
-      price: 20000,
+      price: 6200,
       startDate: '2026-05-01',
     })
     await addSubMember(sqlite, subId, payer, { addedAt: '2026-05-01' })
     await addSubMember(sqlite, subId, m2, { addedAt: '2026-05-15' })
 
-    // First recompute when only payer was active for first half month.
     await recomputeMonth(db, {
       subscriptionId: subId,
       year: 2026,
@@ -767,9 +767,10 @@ describe('recomputeMonth — payer behavior', () => {
 
     const bills = await getRegularBills(subId, '2026-05')
     const payerBill = bills.find((b) => b.userId === payer)!
-    // Days 1-14 N=1: payer alone → 14 × 200 = 2800
-    // Days 15-31 N=2 (15-31 inclusive = 17 days): payer 17 × 100 = 1700
-    // payer fair = 4500
+    // activeDays = 31 (every day has ≥1 member). dailyCost = 6200/31 = 200.
+    // Days 1-14 N=1 (payer alone): 14 × 200 = 2800.
+    // Days 15-31 N=2 (closed [5/15, 5/31] = 17 days): payer 17 × 100 = 1700.
+    // payer fair = 4500.
     expect(payerBill.amount).toBe(4500)
   })
 })
