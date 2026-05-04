@@ -62,103 +62,112 @@ export async function editMemberAddedAt(
     throw new Error(`today must be ISO YYYY-MM-DD: ${today}`)
   }
 
-  const subRows = await db
-    .select()
-    .from(schema.subscriptions)
-    .where(eq(schema.subscriptions.id, subscriptionId))
-  const sub = subRows[0]
-  if (!sub) {
-    throw new Error(`subscription ${subscriptionId} not found`)
-  }
+  // Wrap the whole flow in one outer transaction so a partial crash
+  // (e.g. crash mid-loop after some months wrote) rolls back cleanly.
+  // recomputeMonth opens its own `tx.transaction(...)` which becomes
+  // a savepoint under postgres-js — safe to nest.
+  return await db.transaction(async (tx) => {
+    const subRows = await tx
+      .select()
+      .from(schema.subscriptions)
+      .where(eq(schema.subscriptions.id, subscriptionId))
+    const sub = subRows[0]
+    if (!sub) {
+      throw new Error(`subscription ${subscriptionId} not found`)
+    }
 
-  // Permission: owner-only.
-  if (sub.ownerId !== actorUserId) {
-    throw new Error(
-      `permission denied: only the sub owner can edit member dates`
-    )
-  }
-
-  // Target must already be a member.
-  const memberRows = await db
-    .select()
-    .from(schema.subscriptionMembers)
-    .where(
-      and(
-        eq(schema.subscriptionMembers.subscriptionId, subscriptionId),
-        eq(schema.subscriptionMembers.userId, targetUserId)
+    if (sub.ownerId !== actorUserId) {
+      throw new Error(
+        `permission denied: only the sub owner can edit member dates`
       )
-    )
-  const member = memberRows[0]
-  if (!member) {
-    throw new Error(
-      `user ${targetUserId} is not a member of subscription ${subscriptionId}`
-    )
-  }
+    }
 
-  // Range validation.
-  if (newAddedAt < sub.startDate) {
-    throw new Error(
-      `newAddedAt ${newAddedAt} earlier than sub.startDate ${sub.startDate}`
-    )
-  }
-  if (newAddedAt > today) {
-    throw new Error(
-      `newAddedAt ${newAddedAt} cannot be in the future (today=${today})`
-    )
-  }
-
-  // 6-month horizon — earliest editable = first day of month 6 calendar
-  // months prior to today.
-  const horizonStart = monthsBackToFirstDay(today, 6)
-  if (newAddedAt < horizonStart) {
-    throw new Error(
-      `newAddedAt ${newAddedAt} is outside the 6-month edit window (earliest=${horizonStart})`
-    )
-  }
-
-  // No-op if unchanged.
-  const oldAddedAt = member.addedAt
-  if (oldAddedAt === newAddedAt) {
-    return { affectedMonths: [], eventIdPrefix: '' }
-  }
-
-  // Update the member row.
-  await db
-    .update(schema.subscriptionMembers)
-    .set({ addedAt: newAddedAt })
-    .where(
-      and(
-        eq(schema.subscriptionMembers.subscriptionId, subscriptionId),
-        eq(schema.subscriptionMembers.userId, targetUserId)
+    const memberRows = await tx
+      .select()
+      .from(schema.subscriptionMembers)
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, subscriptionId),
+          eq(schema.subscriptionMembers.userId, targetUserId)
+        )
       )
-    )
+    const member = memberRows[0]
+    if (!member) {
+      throw new Error(
+        `user ${targetUserId} is not a member of subscription ${subscriptionId}`
+      )
+    }
 
-  // Affected months: from min(old, new) month through today's month.
-  const minDate = oldAddedAt < newAddedAt ? oldAddedAt : newAddedAt
-  const minMonth = minDate.slice(0, 7)
-  const todayMonth = today.slice(0, 7)
-  const affectedMonths: string[] = []
-  let cursor = minMonth
-  while (cursor <= todayMonth) {
-    affectedMonths.push(cursor)
-    cursor = nextMonth(cursor)
-  }
+    if (newAddedAt < sub.startDate) {
+      throw new Error(
+        `newAddedAt ${newAddedAt} earlier than sub.startDate ${sub.startDate}`
+      )
+    }
+    if (newAddedAt > today) {
+      throw new Error(
+        `newAddedAt ${newAddedAt} cannot be in the future (today=${today})`
+      )
+    }
 
-  // Trigger recompute for each affected month.
-  const eventIdPrefix = `editAddedAt:sub${subscriptionId}:user${targetUserId}:${Date.now()}`
-  for (const ym of affectedMonths) {
-    const [yy, mm] = ym.split('-').map(Number)
-    await recomputeMonth(db, {
-      subscriptionId,
-      year: yy,
-      month: mm,
-      eventId: `${eventIdPrefix}:${ym}`,
-      today,
-      rates,
-    })
-  }
+    const horizonStart = monthsBackToFirstDay(today, 6)
+    if (newAddedAt < horizonStart) {
+      throw new Error(
+        `newAddedAt ${newAddedAt} is outside the 6-month edit window (earliest=${horizonStart})`
+      )
+    }
 
-  return { affectedMonths, eventIdPrefix }
+    const oldAddedAt = member.addedAt
+    if (oldAddedAt === newAddedAt) {
+      return { affectedMonths: [], eventIdPrefix: '' }
+    }
+
+    await tx
+      .update(schema.subscriptionMembers)
+      .set({ addedAt: newAddedAt })
+      .where(
+        and(
+          eq(schema.subscriptionMembers.subscriptionId, subscriptionId),
+          eq(schema.subscriptionMembers.userId, targetUserId)
+        )
+      )
+
+    // Clamp affected month range to the 6-month horizon: an old
+    // misrecorded `oldAddedAt` (e.g. years back) must not extend the
+    // recompute past the window validated for `newAddedAt`.
+    const minDate = oldAddedAt < newAddedAt ? oldAddedAt : newAddedAt
+    const horizonMonth = horizonStart.slice(0, 7)
+    const candidateMonth = minDate.slice(0, 7)
+    const minMonth =
+      candidateMonth < horizonMonth ? horizonMonth : candidateMonth
+    const todayMonth = today.slice(0, 7)
+    const affectedMonths: string[] = []
+    let cursor = minMonth
+    while (cursor <= todayMonth) {
+      affectedMonths.push(cursor)
+      cursor = nextMonth(cursor)
+    }
+
+    // Deterministic eventId encodes the (sub, user, oldAddedAt → newAddedAt)
+    // transition + a timestamp. The outer transaction handles partial-
+    // failure retries (rollback wipes everything; client retry sees
+    // unchanged state and computes a fresh transition). The timestamp
+    // disambiguates round-trip edits (1→3, 3→1, 1→3 each get distinct
+    // eventIds despite same target value).
+    const eventIdPrefix = `editAddedAt:sub${subscriptionId}:user${targetUserId}:${oldAddedAt}-to-${newAddedAt}:${Date.now()}`
+    for (const ym of affectedMonths) {
+      const [yy, mm] = ym.split('-').map(Number)
+      await recomputeMonth(tx, {
+        subscriptionId,
+        year: yy,
+        month: mm,
+        eventId: `${eventIdPrefix}:${ym}`,
+        today,
+        rates,
+      })
+    }
+
+    return { affectedMonths, eventIdPrefix }
+  })
 }
 
 function monthsBackToFirstDay(today: string, monthsBack: number): string {

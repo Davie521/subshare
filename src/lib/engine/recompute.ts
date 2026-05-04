@@ -189,16 +189,27 @@ export async function recomputeMonth(
 
       let didChange = false
 
-      if (unpaidRegular) {
-        const newAmount = unpaidRegular.amount + delta
+      // Apply delta to the unpaid regular bill ONLY if the result stays
+      // non-negative. Regular bill rows represent "what the user is
+      // billed for the month"; negative would be semantically nonsense
+      // and confuses settlement display. If the delta would push it
+      // below zero, we fall through and write the delta as a separate
+      // adjustment row (which is signed-aware by design).
+      const proposedRegular =
+        unpaidRegular !== undefined ? unpaidRegular.amount + delta : null
+      const canUpdateRegular =
+        unpaidRegular !== undefined && proposedRegular! >= 0
+
+      if (canUpdateRegular) {
+        const newAmount = proposedRegular!
         const newLocalAmount = Math.floor(
-          (newAmount * unpaidRegular.exchangeRate) / 1_000_000
+          (newAmount * unpaidRegular!.exchangeRate) / 1_000_000
         )
         await tx
           .update(schema.billingRecords)
           .set({ amount: newAmount, localAmount: newLocalAmount })
-          .where(eq(schema.billingRecords.id, unpaidRegular.id))
-        result.updatedBillIds.push(unpaidRegular.id)
+          .where(eq(schema.billingRecords.id, unpaidRegular!.id))
+        result.updatedBillIds.push(unpaidRegular!.id)
         didChange = true
       } else if (unpaidAdj) {
         const newAmount = unpaidAdj.amount + delta
@@ -233,8 +244,15 @@ export async function recomputeMonth(
           .returning({ id: schema.billingRecords.id })
         result.insertedBillIds.push(inserted[0].id)
         didChange = true
-      } else if (paidParent) {
-        // Has paid bill(s), no open unpaid → insert adjustment row.
+      } else if (paidParent || unpaidRegular) {
+        // Insert an adjustment row. Two scenarios:
+        //   (a) `paidParent`: classic case — user has only paid bills,
+        //       delta needs to live in a new signed adjustment row.
+        //   (b) `unpaidRegular` and the regular branch above bailed
+        //       because the proposed amount would have gone negative.
+        //       Fall through here and write the delta as an adjustment
+        //       parented on the unpaid regular bill.
+        const parent = (paidParent ?? unpaidRegular)!
         // billing_date must be IN the source month so that subsequent
         // recomputes for OTHER months don't see this adj in their range
         // and accidentally fold it into their actual sum. Use today when
@@ -242,7 +260,7 @@ export async function recomputeMonth(
         const adjBillingDate =
           today >= monthStart && today <= monthEnd ? today : monthEnd
         const newLocalAmount = Math.floor(
-          (delta * paidParent.exchangeRate) / 1_000_000
+          (delta * parent.exchangeRate) / 1_000_000
         )
         const inserted = await tx
           .insert(schema.billingRecords)
@@ -252,11 +270,11 @@ export async function recomputeMonth(
             amount: delta,
             currency: sub.currency,
             localAmount: newLocalAmount,
-            localCurrency: paidParent.localCurrency,
-            exchangeRate: paidParent.exchangeRate,
+            localCurrency: parent.localCurrency,
+            exchangeRate: parent.exchangeRate,
             billingDate: adjBillingDate,
             isPaid: false,
-            adjustmentForBillId: paidParent.id,
+            adjustmentForBillId: parent.id,
             eventId,
           })
           .returning({ id: schema.billingRecords.id })

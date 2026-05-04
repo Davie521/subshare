@@ -10,7 +10,8 @@ import {
 } from './db-operations'
 import { addMembersToSubscription, leaveSubscription } from './membership'
 import { changeSubscriptionPrice } from './billing-ops'
-import { generateMonthlyBills } from './cron-billing'
+import { runR1Cron } from './engine/cron'
+import { recomputeMonth } from './engine/recompute'
 import { normalizeTags, filterTagsForViewer } from './tags'
 import { calculateMonthlySpending } from './billing'
 import { advanceMonth, todayInAppTz } from './date-utils'
@@ -257,7 +258,39 @@ export async function handleAddMembers(
     else if (r.status === 'rejoin') reactivated++
   }
 
+  // Reconcile current month under the fair engine. Legacy R2 logic
+  // already wrote per-member bills; this writes any signed adjustments
+  // needed to align actual amounts with per-day fair allocation. No-op
+  // when legacy already produced fair-matching values.
+  if (added > 0 || reactivated > 0) {
+    await reconcileCurrentMonth(db, subId, today, rates, `addMember:${today}`)
+  }
+
   return { success: true, data: { added, reactivated, errors } }
+}
+
+/**
+ * After a user-facing action (add/remove member, price change), call the
+ * fair engine to reconcile the current month's bills. Idempotent on
+ * `eventTag` — repeated calls in the same calendar second produce one
+ * eventId and short-circuit on retry.
+ */
+async function reconcileCurrentMonth(
+  db: DB,
+  subscriptionId: number,
+  today: string,
+  rates: Record<string, number> | undefined,
+  eventTag: string
+): Promise<void> {
+  const [year, month] = today.split('-').map(Number)
+  await recomputeMonth(db, {
+    subscriptionId,
+    year,
+    month,
+    eventId: `${eventTag}:sub${subscriptionId}:${today}`,
+    today,
+    rates,
+  })
 }
 
 export async function handleRemoveMember(
@@ -282,13 +315,15 @@ export async function handleRemoveMember(
     }
   }
 
+  const today = todayInAppTz()
   try {
     await leaveSubscription(db, {
       subscriptionId: subId,
       userId: targetUserId,
-      leftAt: todayInAppTz(),
+      leftAt: today,
       actorId,
     })
+    await reconcileCurrentMonth(db, subId, today, undefined, `leave:user${targetUserId}`)
   } catch (err) {
     return {
       success: false,
@@ -300,24 +335,20 @@ export async function handleRemoveMember(
 }
 
 /**
- * A10 — billing cron dispatcher. Runs on every invocation; only kicks
- * off the R1 monthly pass when today is the 1st of the month. Rates are
- * fetched once per (from, to) pair touched by any shared subscription.
+ * Billing cron dispatcher (fair-engine). Runs every day; idempotent on
+ * (sub, year, month) via `recomputeMonth`'s eventId guard. Folds prior-
+ * month unpaid adjustments into the current month's R1 bill so members
+ * see at most one payable line per cycle.
  */
 export async function runBillingCron(
   db: DB,
   opts: { today?: string } = {}
 ): Promise<Result<{ monthlyBillsGenerated: number }>> {
   const today = opts.today ?? todayInAppTz()
-  const [year, month] = today.split('-').map(Number)
 
-  // No day-1 gate: runs every day and relies on the UNIQUE
-  // (sub, user, billing_date) index in generateMonthlyBills for
-  // idempotency. This keeps the month's R1 bills reachable even if the
-  // day-1 cron itself failed (server outage, CI delay, etc.).
-  const yearMonth = `${year}-${String(month).padStart(2, '0')}`
-
-  // Pre-load rates for every (sub.currency, member.preferredCurrency) pair.
+  // Pre-load FX rates for every (sub.currency, member.preferredCurrency)
+  // pair — the engine needs them when it inserts a fresh R1 bill in a
+  // member's preferred currency.
   const pairs = await db
     .select({
       subCurrency: schema.subscriptions.currency,
@@ -332,14 +363,12 @@ export async function runBillingCron(
       schema.users,
       eq(schema.subscriptionMembers.userId, schema.users.id)
     )
-
   const need = new Set<string>()
   for (const p of pairs) {
     if (p.subCurrency !== p.memberCurrency) {
       need.add(`${p.subCurrency}_${p.memberCurrency}`)
     }
   }
-
   const rates: Record<string, number> = {}
   await Promise.all(
     Array.from(need).map(async (key) => {
@@ -349,8 +378,11 @@ export async function runBillingCron(
     })
   )
 
-  const generated = await generateMonthlyBills(db, yearMonth, rates)
-  return { success: true, data: { monthlyBillsGenerated: generated } }
+  const out = await runR1Cron(db, { today, rates })
+  return {
+    success: true,
+    data: { monthlyBillsGenerated: out.billsInserted },
+  }
 }
 
 export type EnrichedNormalizedSettlementRow = NormalizedSettlementRow & {
@@ -1016,9 +1048,11 @@ export async function handleUpdateSubscription(
   // Price changes and metadata writes share a single transaction so a
   // crash between them can't leave the sub with the new price but the
   // old name (or vice versa).
+  let priceChanged = false
   await db.transaction(async (tx) => {
     if (input.price !== undefined && input.price !== sub.price) {
       await changeSubscriptionPrice(tx, { subscriptionId: subId, newPrice: input.price })
+      priceChanged = true
     }
 
     const updates: Record<string, unknown> = {}
@@ -1048,6 +1082,16 @@ export async function handleUpdateSubscription(
         )
     }
   })
+
+  if (priceChanged) {
+    await reconcileCurrentMonth(
+      db,
+      subId,
+      todayInAppTz(),
+      undefined,
+      'priceChange'
+    )
+  }
 
   return { success: true }
 }

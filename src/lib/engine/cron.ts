@@ -23,6 +23,7 @@
 import { and, eq, gte, lt, lte, isNotNull, inArray } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
+import { advanceMonth } from '@/lib/date-utils'
 import { recomputeMonth } from './recompute'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,8 +82,22 @@ export async function runR1Cron(
       : eq(schema.subscriptions.inactive, false)
   const subs = await db.select().from(schema.subscriptions).where(subFilter)
 
+  const yearMonth = `${year}-${pad2(month)}`
   for (const sub of subs) {
     const eventId = `cron:${year}-${pad2(month)}:sub${sub.id}`
+
+    // Advance nextPayment past this billing month, idempotently. Even
+    // solo subs need this — the payer's card is charged whether or not
+    // co-members exist. If nextPayment lags multiple months (cron
+    // skipped runs), loop until it's past yearMonth.
+    let np = sub.nextPayment
+    while (np.slice(0, 7) <= yearMonth) np = advanceMonth(np)
+    if (np !== sub.nextPayment) {
+      await db
+        .update(schema.subscriptions)
+        .set({ nextPayment: np })
+        .where(eq(schema.subscriptions.id, sub.id))
+    }
 
     // Step 1 — recomputeMonth (own transaction).
     const recResult = await recomputeMonth(db, {
