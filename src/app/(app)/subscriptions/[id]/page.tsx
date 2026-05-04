@@ -602,8 +602,8 @@ export default function SubscriptionDetailPage() {
                   {sub.name}
                 </h1>
                 <p className="text-[13px] text-muted-foreground tabular-nums">
-                  {formatMoney(sub.price, sub.currency)} / month · first{" "}
-                  {sub.startDate} · next {sub.nextPayment}
+                  {formatMoney(sub.price, sub.currency)} / month · next{" "}
+                  {sub.nextPayment}
                 </p>
                 {sub.tags.length > 0 && (
                   <div className="mt-2">
