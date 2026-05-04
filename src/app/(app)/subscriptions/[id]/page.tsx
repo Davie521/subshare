@@ -48,6 +48,7 @@ type Sub = {
   price: number;
   currency: string;
   nextPayment: string;
+  startDate: string;
   ownerId: number;
   payerId: number;
   logo: string | null;
@@ -118,6 +119,7 @@ export default function SubscriptionDetailPage() {
           price: d.price,
           currency: d.currency,
           nextPayment: d.nextPayment,
+          startDate: d.startDate,
           ownerId: d.ownerId,
           payerId: d.payerId,
           logo: d.logo,
@@ -600,8 +602,8 @@ export default function SubscriptionDetailPage() {
                   {sub.name}
                 </h1>
                 <p className="text-[13px] text-muted-foreground tabular-nums">
-                  {formatMoney(sub.price, sub.currency)} / month · next{" "}
-                  {sub.nextPayment}
+                  {formatMoney(sub.price, sub.currency)} / month · first{" "}
+                  {sub.startDate} · next {sub.nextPayment}
                 </p>
                 {sub.tags.length > 0 && (
                   <div className="mt-2">
@@ -1033,6 +1035,8 @@ export default function SubscriptionDetailPage() {
                           type="date"
                           value={editAddedAtValue}
                           onChange={(e) => setEditAddedAtValue(e.target.value)}
+                          min={sub.startDate}
+                          max={new Date().toISOString().slice(0, 10)}
                           className="flex-1"
                         />
                         <Button
