@@ -294,12 +294,17 @@ describe('getPendingBills', () => {
     await generateMonthlyBills(db, '2026-06')
 
     const bills = await getPendingBills(db, userB)
-    // userB gets: R2 join bill (2026-05-01, full month) + R1 next-payment bill (2026-06-01).
-    // Both are 9000 (18000/2).
+    // userB gets:
+    //   - R2 join bill (billing_date = today, since today >= addedAt). Amount
+    //     is prorated by remaining days in today's month, so it's
+    //     time-dependent — assert only that it's positive and ≤ full share.
+    //   - R1 next-payment bill (2026-06-01) at the full share 9000 (18000/2).
     expect(bills.length).toBeGreaterThanOrEqual(1)
     expect(bills.every((b) => b.subscriptionName === 'Netflix')).toBe(true)
-    expect(bills.every((b) => b.amount === 9000)).toBe(true)
     expect(bills.every((b) => b.isPaid === false)).toBe(true)
+    expect(bills.every((b) => b.amount > 0 && b.amount <= 9000)).toBe(true)
+    const juneBill = bills.find((b) => b.billingDate === '2026-06-01')
+    if (juneBill) expect(juneBill.amount).toBe(9000)
   })
 
   it('does not return paid bills', async () => {

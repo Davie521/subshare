@@ -191,22 +191,52 @@ export const billingRecords = pgTable(
     userId: integer('user_id')
       .notNull()
       .references(() => users.id),
-    amount: integer('amount').notNull(), // BigInt cents, original currency
+    /**
+     * Cents in `currency`. Signed: negative for refund adjustments,
+     * positive for top-up adjustments and regular bills.
+     */
+    amount: integer('amount').notNull(),
     currency: text('currency').notNull(),
-    localAmount: integer('local_amount').notNull(), // BigInt cents, user's currency
+    /**
+     * Cents in `localCurrency`. Same sign as `amount`.
+     */
+    localAmount: integer('local_amount').notNull(),
     localCurrency: text('local_currency').notNull(),
     exchangeRate: integer('exchange_rate').notNull(), // stored as rate × 1000000 for precision
     billingDate: text('billing_date').notNull(), // ISO date
     isPaid: boolean('is_paid').notNull().default(false),
     paidAt: text('paid_at'),
+    /**
+     * NULL for regular bills (R1 + R2). Set when this row is a retroactive
+     * adjustment created against a previously-billed row (the `id` of the
+     * parent bill being adjusted). Adjustment rows may share `billing_date`
+     * with their parent — partial unique index excludes them so the
+     * "one bill per (sub, user, billing_date)" invariant only applies to
+     * non-adjustment rows.
+     */
+    adjustmentForBillId: integer('adjustment_for_bill_id'),
+    /**
+     * Idempotency key for the event that produced this row (e.g.,
+     * `editAddedAt:sub24:userId5:2026-05-03T08:59`). Lets retried
+     * recompute calls upsert by event rather than insert duplicates.
+     * NULL for legacy rows pre-dating the new engine.
+     */
+    eventId: text('event_id'),
     createdAt: text('created_at').notNull().$defaultFn(isoNow),
   },
   (table) => [
-    uniqueIndex('billing_unique').on(
-      table.subscriptionId,
-      table.userId,
-      table.billingDate
-    ),
+    // Partial unique: only enforced on regular bills (adjustments may
+    // share billing_date with the parent bill they offset).
+    uniqueIndex('billing_unique')
+      .on(table.subscriptionId, table.userId, table.billingDate)
+      .where(sql`adjustment_for_bill_id IS NULL`),
+    // Idempotency: at most one row per (sub, user, eventId) — retries of
+    // the same recompute event upsert rather than duplicate.
+    uniqueIndex('billing_event_unique')
+      .on(table.subscriptionId, table.userId, table.eventId)
+      .where(sql`event_id IS NOT NULL`),
+    // Look-up index for "all adjustments against bill X".
+    index('billing_by_parent').on(table.adjustmentForBillId),
   ]
 )
 

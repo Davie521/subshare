@@ -116,9 +116,23 @@ export async function migrate(db: Db): Promise<void> {
       billing_date TEXT NOT NULL,
       is_paid BOOLEAN NOT NULL DEFAULT FALSE,
       paid_at TEXT,
-      created_at TEXT NOT NULL DEFAULT (now()::text),
-      UNIQUE(subscription_id, user_id, billing_date)
+      created_at TEXT NOT NULL DEFAULT (now()::text)
     )`,
+    // Fair-engine columns (idempotent for existing DBs).
+    `ALTER TABLE billing_records ADD COLUMN IF NOT EXISTS adjustment_for_bill_id INTEGER REFERENCES billing_records(id)`,
+    `ALTER TABLE billing_records ADD COLUMN IF NOT EXISTS event_id TEXT`,
+    // Replace the legacy table-level unique constraint (if it exists) with
+    // a partial unique that excludes adjustment rows.
+    `ALTER TABLE billing_records DROP CONSTRAINT IF EXISTS billing_records_subscription_id_user_id_billing_date_key`,
+    `DROP INDEX IF EXISTS billing_unique`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS billing_unique
+       ON billing_records(subscription_id, user_id, billing_date)
+       WHERE adjustment_for_bill_id IS NULL`,
+    `CREATE UNIQUE INDEX IF NOT EXISTS billing_event_unique
+       ON billing_records(subscription_id, user_id, event_id)
+       WHERE event_id IS NOT NULL`,
+    `CREATE INDEX IF NOT EXISTS billing_by_parent
+       ON billing_records(adjustment_for_bill_id)`,
     `CREATE TABLE IF NOT EXISTS subscription_members (
       subscription_id INTEGER NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
       user_id INTEGER NOT NULL REFERENCES users(id),

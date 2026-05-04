@@ -183,7 +183,10 @@ describe('A2 handleAddMembers', () => {
 
     expect(albertBill).toBeDefined()
     expect(magicBill).toBeDefined()
-    expect(albertBill!.amount).toBe(magicBill!.amount)
+    // Fair-engine residue rotation may give one of the two an extra
+    // cent (deterministic but rotates over months). The invariant is
+    // |a - b| ≤ 1, not strict equality.
+    expect(Math.abs(albertBill!.amount - magicBill!.amount)).toBeLessThanOrEqual(1)
   })
 
   it('P0-7 RED: handleCreateSubscription with multiple invitees gives all the same R2', async () => {

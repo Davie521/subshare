@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
   ArrowLeft,
+  CalendarDays,
   Check,
   Copy,
   Link2,
@@ -33,9 +34,12 @@ type Member = {
   displayName: string;
   email?: string;
   addedAt: string;
+  leftAt?: string | null;
   isPayer: boolean;
   isOwner: boolean;
   isSelf: boolean;
+  status: "active" | "left_unsettled";
+  outstandingAmount?: number;
 };
 
 type Sub = {
@@ -44,6 +48,7 @@ type Sub = {
   price: number;
   currency: string;
   nextPayment: string;
+  startDate: string;
   ownerId: number;
   payerId: number;
   logo: string | null;
@@ -70,6 +75,9 @@ export default function SubscriptionDetailPage() {
   const [confirmLeave, setConfirmLeave] = useState(false);
   const [confirmKickId, setConfirmKickId] = useState<number | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [editAddedAtId, setEditAddedAtId] = useState<number | null>(null);
+  const [editAddedAtValue, setEditAddedAtValue] = useState<string>("");
+  const [editAddedAtError, setEditAddedAtError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -111,6 +119,7 @@ export default function SubscriptionDetailPage() {
           price: d.price,
           currency: d.currency,
           nextPayment: d.nextPayment,
+          startDate: d.startDate,
           ownerId: d.ownerId,
           payerId: d.payerId,
           logo: d.logo,
@@ -186,6 +195,7 @@ export default function SubscriptionDetailPage() {
   const selfIsOwnerOrPayer = sub.members.find(
     (m) => m.isSelf && (m.isOwner || m.isPayer)
   );
+  const selfIsOwner = sub.members.some((m) => m.isSelf && m.isOwner);
   const selfMember = sub.members.find((m) => m.isSelf);
   const perPersonShare = Math.floor(sub.price / Math.max(sub.members.length, 1));
   const payer = sub.members.find((m) => m.isPayer);
@@ -214,6 +224,36 @@ export default function SubscriptionDetailPage() {
     } else {
       setConfirmKickId(userId);
     }
+  }
+
+  function openEditAddedAt(m: Member) {
+    setEditAddedAtId(m.userId);
+    setEditAddedAtValue(m.addedAt);
+    setEditAddedAtError(null);
+  }
+
+  function cancelEditAddedAt() {
+    setEditAddedAtId(null);
+    setEditAddedAtValue("");
+    setEditAddedAtError(null);
+  }
+
+  async function saveEditAddedAt(userId: number) {
+    if (!sub) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(editAddedAtValue)) {
+      setEditAddedAtError("Pick a valid date");
+      return;
+    }
+    setBusy(true);
+    setEditAddedAtError(null);
+    const res = await api.editMemberAddedAt(sub.id, userId, editAddedAtValue);
+    setBusy(false);
+    if (res.error) {
+      setEditAddedAtError(res.error);
+      return;
+    }
+    cancelEditAddedAt();
+    await load();
   }
 
 
@@ -449,62 +489,6 @@ export default function SubscriptionDetailPage() {
                   />
                 </div>
               </div>
-
-              {sub.members.length > 1 && (
-                <div className="space-y-2">
-                  <Label className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground">
-                    If someone leaves mid-month
-                  </Label>
-                  <div className="grid gap-2">
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditForm({
-                          ...editForm,
-                          refundPolicy: "payer_absorbs",
-                        })
-                      }
-                      className={cn(
-                        "cursor-pointer text-left rounded-md border p-3 transition-colors",
-                        editForm.refundPolicy === "payer_absorbs"
-                          ? "border-foreground bg-foreground/5"
-                          : "border-input hover:bg-foreground/[0.03]"
-                      )}
-                    >
-                      <p className="text-[13px] font-semibold">
-                        Payer absorbs the difference
-                      </p>
-                      <p className="text-[12px] text-muted-foreground">
-                        The leaver pays only for the days they used; the payer
-                        collects less. Other members unchanged.
-                      </p>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setEditForm({
-                          ...editForm,
-                          refundPolicy: "redistribute",
-                        })
-                      }
-                      className={cn(
-                        "cursor-pointer text-left rounded-md border p-3 transition-colors",
-                        editForm.refundPolicy === "redistribute"
-                          ? "border-foreground bg-foreground/5"
-                          : "border-input hover:bg-foreground/[0.03]"
-                      )}
-                    >
-                      <p className="text-[13px] font-semibold">
-                        Split the difference among remaining members
-                      </p>
-                      <p className="text-[12px] text-muted-foreground">
-                        Other unpaid members&apos; bills go up so the payer
-                        doesn&apos;t lose any money.
-                      </p>
-                    </button>
-                  </div>
-                </div>
-              )}
 
               {editError && (
                 <p className="text-[13px] font-medium text-destructive">
@@ -886,13 +870,25 @@ export default function SubscriptionDetailPage() {
 
         <ul className="space-y-2">
           {sub.members.map((m) => {
+            const isLeftUnsettled = m.status === "left_unsettled";
             const canKick =
-              selfIsOwnerOrPayer && !m.isPayer && !m.isSelf;
-            const canLeave = m.isSelf && !m.isPayer;
+              selfIsOwnerOrPayer && !m.isPayer && !m.isSelf && !isLeftUnsettled;
+            const canLeave = m.isSelf && !m.isPayer && !isLeftUnsettled;
+            const canEditAddedAt = selfIsOwner && !isLeftUnsettled;
+            const owed = m.outstandingAmount ?? 0;
+            const owedLabel =
+              owed > 0
+                ? `Owes ${formatMoney(owed, sub.currency)}`
+                : owed < 0
+                ? `Owed ${formatMoney(Math.abs(owed), sub.currency)}`
+                : null;
 
             return (
               <li key={m.userId}>
-                <Card size="sm">
+                <Card
+                  size="sm"
+                  className={cn(isLeftUnsettled && "opacity-60 bg-muted/30")}
+                >
                   <CardContent className="flex items-center gap-3">
                     <UserAvatar
                       name={m.displayName}
@@ -914,13 +910,34 @@ export default function SubscriptionDetailPage() {
                             Owner
                           </Badge>
                         )}
+                        {isLeftUnsettled && (
+                          <Badge variant="outline" className="text-[10px]">
+                            Left {m.leftAt} · {owedLabel}
+                          </Badge>
+                        )}
                       </div>
-                      {m.email && (
+                      {m.email ? (
                         <p className="text-[12px] text-muted-foreground truncate">
                           {m.email}
                         </p>
+                      ) : (
+                        <p className="text-[12px] text-muted-foreground">
+                          Joined {m.addedAt}
+                        </p>
                       )}
                     </div>
+                    {canEditAddedAt && (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        title="Edit join date"
+                        aria-label="Edit join date"
+                        onClick={() => openEditAddedAt(m)}
+                        className="shrink-0 size-11 md:size-8 rounded-md flex items-center justify-center cursor-pointer disabled:opacity-50 text-muted-foreground hover:text-foreground hover:bg-foreground/[0.06]"
+                      >
+                        <CalendarDays className="size-3.5" />
+                      </button>
+                    )}
                     {(canKick || canLeave) && (
                       <button
                         type="button"
@@ -951,6 +968,44 @@ export default function SubscriptionDetailPage() {
                       </button>
                     )}
                   </CardContent>
+                  {editAddedAtId === m.userId && (
+                    <CardContent className="border-t pt-3 flex flex-col gap-2">
+                      <Label htmlFor={`addedAt-${m.userId}`} className="text-[12px] text-muted-foreground">
+                        Joined on (any change retro-recomputes bills)
+                      </Label>
+                      <div className="flex items-center gap-2">
+                        <Input
+                          id={`addedAt-${m.userId}`}
+                          type="date"
+                          value={editAddedAtValue}
+                          onChange={(e) => setEditAddedAtValue(e.target.value)}
+                          min={sub.startDate}
+                          max={new Date().toISOString().slice(0, 10)}
+                          className="flex-1"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => saveEditAddedAt(m.userId)}
+                          disabled={busy}
+                        >
+                          Save
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={cancelEditAddedAt}
+                          disabled={busy}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                      {editAddedAtError && (
+                        <p className="text-[12px] text-destructive">
+                          {editAddedAtError}
+                        </p>
+                      )}
+                    </CardContent>
+                  )}
                 </Card>
               </li>
             );

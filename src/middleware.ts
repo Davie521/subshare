@@ -22,6 +22,10 @@ const PUBLIC_API_PREFIXES = [
   '/api/cron',
   '/api/health',
   '/api/icons',
+  // Dev-only OAuth bypass at /api/dev/login. The route itself returns
+  // 404 in production so this entry is safe; in dev it lets us mint a
+  // session cookie without the Google OAuth round-trip.
+  '/api/dev',
 ]
 
 function isProtectedPage(pathname: string): boolean {
