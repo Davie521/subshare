@@ -86,9 +86,12 @@ export const api = {
         displayName: string;
         email?: string;
         addedAt: string;
+        leftAt?: string | null;
         isPayer: boolean;
         isOwner: boolean;
         isSelf: boolean;
+        status: "active" | "left_unsettled";
+        outstandingAmount?: number;
       }>;
     }>(`/api/subscriptions/${id}`),
   updateSubscription: (id: number, body: Record<string, unknown>) =>

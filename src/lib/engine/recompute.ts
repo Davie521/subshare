@@ -235,6 +235,12 @@ export async function recomputeMonth(
         didChange = true
       } else if (paidParent) {
         // Has paid bill(s), no open unpaid → insert adjustment row.
+        // billing_date must be IN the source month so that subsequent
+        // recomputes for OTHER months don't see this adj in their range
+        // and accidentally fold it into their actual sum. Use today when
+        // it falls in this month, else clamp to monthEnd of the source.
+        const adjBillingDate =
+          today >= monthStart && today <= monthEnd ? today : monthEnd
         const newLocalAmount = Math.floor(
           (delta * paidParent.exchangeRate) / 1_000_000
         )
@@ -248,7 +254,7 @@ export async function recomputeMonth(
             localAmount: newLocalAmount,
             localCurrency: paidParent.localCurrency,
             exchangeRate: paidParent.exchangeRate,
-            billingDate: today,
+            billingDate: adjBillingDate,
             isPaid: false,
             adjustmentForBillId: paidParent.id,
             eventId,

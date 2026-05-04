@@ -34,9 +34,12 @@ type Member = {
   displayName: string;
   email?: string;
   addedAt: string;
+  leftAt?: string | null;
   isPayer: boolean;
   isOwner: boolean;
   isSelf: boolean;
+  status: "active" | "left_unsettled";
+  outstandingAmount?: number;
 };
 
 type Sub = {
@@ -921,14 +924,25 @@ export default function SubscriptionDetailPage() {
 
         <ul className="space-y-2">
           {sub.members.map((m) => {
+            const isLeftUnsettled = m.status === "left_unsettled";
             const canKick =
-              selfIsOwnerOrPayer && !m.isPayer && !m.isSelf;
-            const canLeave = m.isSelf && !m.isPayer;
-            const canEditAddedAt = selfIsOwner;
+              selfIsOwnerOrPayer && !m.isPayer && !m.isSelf && !isLeftUnsettled;
+            const canLeave = m.isSelf && !m.isPayer && !isLeftUnsettled;
+            const canEditAddedAt = selfIsOwner && !isLeftUnsettled;
+            const owed = m.outstandingAmount ?? 0;
+            const owedLabel =
+              owed > 0
+                ? `Owes ${formatMoney(owed, sub.currency)}`
+                : owed < 0
+                ? `Owed ${formatMoney(Math.abs(owed), sub.currency)}`
+                : null;
 
             return (
               <li key={m.userId}>
-                <Card size="sm">
+                <Card
+                  size="sm"
+                  className={cn(isLeftUnsettled && "opacity-60 bg-muted/30")}
+                >
                   <CardContent className="flex items-center gap-3">
                     <UserAvatar
                       name={m.displayName}
@@ -948,6 +962,11 @@ export default function SubscriptionDetailPage() {
                         {m.isOwner && !m.isPayer && (
                           <Badge variant="secondary" className="text-[10px]">
                             Owner
+                          </Badge>
+                        )}
+                        {isLeftUnsettled && (
+                          <Badge variant="outline" className="text-[10px]">
+                            Left {m.leftAt} · {owedLabel}
                           </Badge>
                         )}
                       </div>

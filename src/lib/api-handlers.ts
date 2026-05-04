@@ -741,9 +741,23 @@ export type SubscriptionDetailMember = {
   displayName: string
   email?: string
   addedAt: string
+  /** ISO date if the member has left, otherwise null. */
+  leftAt?: string | null
   isPayer: boolean
   isOwner: boolean
   isSelf: boolean
+  /**
+   * 'active' = currently in the sub.
+   * 'left_unsettled' = leftAt set, but they still have unpaid bills/adjustments.
+   *   The UI should render these grayed with `outstandingAmount`.
+   * Members who have fully cleared their account are filtered out entirely.
+   */
+  status: 'active' | 'left_unsettled'
+  /**
+   * Sum of unpaid `billing_records.amount` (signed, sub.currency cents).
+   * Set only when status is 'left_unsettled'.
+   */
+  outstandingAmount?: number
 }
 
 export type SubscriptionDetail = {
@@ -826,6 +840,8 @@ export async function handleGetSubscription(
     return { success: false, error: 'Not found', code: 'NOT_FOUND' }
   }
 
+  // Read ALL members (active + left). The lifecycle rule (left + cleared
+  // account → hidden) is applied below after summing outstanding bills.
   const memberRows = await db
     .select({
       userId: schema.subscriptionMembers.userId,
@@ -834,12 +850,7 @@ export async function handleGetSubscription(
       leftAt: schema.subscriptionMembers.leftAt,
     })
     .from(schema.subscriptionMembers)
-    .where(
-      and(
-        eq(schema.subscriptionMembers.subscriptionId, subId),
-        isNull(schema.subscriptionMembers.leftAt)
-      )
-    )
+    .where(eq(schema.subscriptionMembers.subscriptionId, subId))
 
   const memberIds = memberRows.map((m) => m.userId)
   const users =
@@ -857,17 +868,57 @@ export async function handleGetSubscription(
       : []
   const byId = new Map(users.map((u) => [u.id, u]))
 
-  const members: SubscriptionDetailMember[] = memberRows.map((m) => {
+  // Sum unpaid bills + adjustments per user for the "left_unsettled"
+  // outstanding amount and the lifecycle filter.
+  const unpaidBills = await db
+    .select({
+      userId: schema.billingRecords.userId,
+      amount: schema.billingRecords.amount,
+    })
+    .from(schema.billingRecords)
+    .where(
+      and(
+        eq(schema.billingRecords.subscriptionId, subId),
+        eq(schema.billingRecords.isPaid, false)
+      )
+    )
+  const unpaidByUser = new Map<number, number>()
+  for (const b of unpaidBills) {
+    unpaidByUser.set(b.userId, (unpaidByUser.get(b.userId) ?? 0) + b.amount)
+  }
+
+  const today = (await import('@/lib/date-utils')).todayInAppTz()
+
+  const members: SubscriptionDetailMember[] = []
+  for (const m of memberRows) {
     const u = byId.get(m.userId)
-    return {
+    const isPayer = m.userId === sub.payerId
+    const isPastLeaver = m.leftAt !== null && m.leftAt <= today
+    let status: 'active' | 'left_unsettled' = 'active'
+    let outstandingAmount: number | undefined
+    if (isPastLeaver) {
+      const owed = unpaidByUser.get(m.userId) ?? 0
+      if (owed === 0 && !isPayer) continue // filter out: cleared
+      status = 'left_unsettled'
+      outstandingAmount = owed
+    }
+    const row: SubscriptionDetailMember = {
       userId: m.userId,
       displayName: (u?.displayName?.trim() || u?.name) ?? `User #${m.userId}`,
       email: u?.showEmail ? u?.email : undefined,
       addedAt: m.addedAt,
-      isPayer: m.userId === sub.payerId,
+      leftAt: m.leftAt,
+      isPayer,
       isOwner: m.userId === sub.ownerId,
       isSelf: m.userId === userId,
+      status,
     }
+    if (outstandingAmount !== undefined) row.outstandingAmount = outstandingAmount
+    members.push(row)
+  }
+  members.sort((a, b) => {
+    if (a.addedAt !== b.addedAt) return a.addedAt.localeCompare(b.addedAt)
+    return a.userId - b.userId
   })
 
   const viewerIsPrivileged = userId === sub.ownerId || userId === sub.payerId
