@@ -130,6 +130,18 @@ export const subscriptionMembers = pgTable(
       .$type<SubscriptionTag[]>()
       .notNull()
       .default(sql`'[]'::jsonb`),
+    /**
+     * Closed [addedAt, leftAt] intervals from earlier stints when a
+     * member leaves and is later re-added. The current row's
+     * (addedAt, leftAt) is the active stint; everything in
+     * `previousIntervals` is settled history. The fair-engine expands
+     * this array + the current interval when computing per-day fair
+     * shares so a rejoiner is correctly billed for every day they used.
+     */
+    previousIntervals: jsonb('previous_intervals')
+      .$type<Array<{ addedAt: string; leftAt: string }>>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
   },
   (t) => [
     primaryKey({ columns: [t.subscriptionId, t.userId] }),

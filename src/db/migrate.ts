@@ -140,11 +140,13 @@ export async function migrate(db: Db): Promise<void> {
       added_by INTEGER NOT NULL REFERENCES users(id),
       left_at TEXT,
       personal_tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+      previous_intervals JSONB NOT NULL DEFAULT '[]'::jsonb,
       PRIMARY KEY (subscription_id, user_id)
     )`,
     `CREATE INDEX IF NOT EXISTS sub_members_by_sub
       ON subscription_members(subscription_id)`,
     `ALTER TABLE subscription_members ADD COLUMN IF NOT EXISTS personal_tags JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `ALTER TABLE subscription_members ADD COLUMN IF NOT EXISTS previous_intervals JSONB NOT NULL DEFAULT '[]'::jsonb`,
     `CREATE TABLE IF NOT EXISTS friendships (
       user_a_id INTEGER NOT NULL REFERENCES users(id),
       user_b_id INTEGER NOT NULL REFERENCES users(id),

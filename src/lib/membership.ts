@@ -39,6 +39,8 @@ async function insertSubscriptionMember(
     .select({
       userId: schema.subscriptionMembers.userId,
       leftAt: schema.subscriptionMembers.leftAt,
+      addedAt: schema.subscriptionMembers.addedAt,
+      previousIntervals: schema.subscriptionMembers.previousIntervals,
     })
     .from(schema.subscriptionMembers)
     .where(
@@ -59,12 +61,29 @@ async function insertSubscriptionMember(
     })
   } else if (existingMember.leftAt !== null) {
     status = 'rejoin'
+    // Closed-interval check: rejoin addedAt must be strictly after the
+    // prior leftAt to avoid same-day overlap (engine throws on overlap).
+    if (input.addedAt <= existingMember.leftAt) {
+      throw new Error(
+        `rejoin addedAt (${input.addedAt}) must be after prior leftAt ` +
+          `(${existingMember.leftAt}) — closed-interval semantics require a ` +
+          `gap of at least one day`
+      )
+    }
+    // Archive the closing stint into previousIntervals before
+    // overwriting addedAt + clearing leftAt. The fair-engine reads this
+    // array + the active row to reconstruct the full lifetime.
+    const archived = [
+      ...(existingMember.previousIntervals ?? []),
+      { addedAt: existingMember.addedAt, leftAt: existingMember.leftAt },
+    ]
     await tx
       .update(schema.subscriptionMembers)
       .set({
         addedAt: input.addedAt,
         addedBy: input.addedBy,
         leftAt: null,
+        previousIntervals: archived,
         // Fresh stint — clear the previous stint's personal tags.
         personalTags: [],
       })

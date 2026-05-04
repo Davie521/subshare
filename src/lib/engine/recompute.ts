@@ -112,11 +112,26 @@ export async function recomputeMonth(
       .from(schema.subscriptionMembers)
       .where(eq(schema.subscriptionMembers.subscriptionId, subscriptionId))
 
-    const intervals: MemberInterval[] = members.map((m) => ({
-      userId: m.userId,
-      addedAt: m.addedAt,
-      leftAt: m.leftAt,
-    }))
+    // Expand each member into ALL their stints — the active row's
+    // (addedAt, leftAt) plus any archived rejoin history. Without this
+    // step a rejoiner's earlier stint is invisible to the engine and
+    // the days they used during it get silently re-distributed onto
+    // other members.
+    const intervals: MemberInterval[] = []
+    for (const m of members) {
+      for (const prior of m.previousIntervals ?? []) {
+        intervals.push({
+          userId: m.userId,
+          addedAt: prior.addedAt,
+          leftAt: prior.leftAt,
+        })
+      }
+      intervals.push({
+        userId: m.userId,
+        addedAt: m.addedAt,
+        leftAt: m.leftAt,
+      })
+    }
 
     const fair = fairAllocation({
       price: sub.price,
