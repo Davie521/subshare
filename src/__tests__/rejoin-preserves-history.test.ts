@@ -4,6 +4,7 @@ import { createSubscription } from '@/lib/db-operations'
 import { addMemberToSubscription, leaveSubscription } from '@/lib/membership'
 import { runR1Cron } from '@/lib/engine/cron'
 import { recomputeMonth } from '@/lib/engine/recompute'
+import { editMemberAddedAt } from '@/lib/engine/edit-added-at'
 
 /**
  * RED: rejoin must preserve the prior interval so the fair-engine sees
@@ -116,6 +117,338 @@ describe('rejoin preserves history (RED)', () => {
     // Sum of all bills (all users) must equal price
     const sum = totalForA + totalForB + totalForC
     expect(sum).toBe(4500)
+  })
+
+  it('three stints: previous_intervals accumulates two archived stints', async () => {
+    // C joins 4/1, leaves 4/8, rejoins 4/12, leaves 4/18, rejoins 4/24.
+    // Active days for C: 1-8 (8) + 12-18 (7) + 24-30 (7) = 22 days
+    const A = await createUser(db, { email: 'a@multi.test', currency: 'USD' })
+    const B = await createUser(db, { email: 'b@multi.test', currency: 'USD' })
+    const C = await createUser(db, { email: 'c@multi.test', currency: 'USD' })
+
+    const sub = await createSubscription(db, {
+      name: 'Multi-rejoin', price: 4500, currency: 'USD',
+      nextPayment: '2026-04-01', startDate: '2026-04-01', ownerId: A,
+    })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: B, addedBy: A, addedAt: '2026-04-01' })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-01' })
+    await sqlite.prepare('DELETE FROM billing_records WHERE subscription_id = ?').run(sub.id)
+    await runR1Cron(db, { today: '2026-04-01', rates: { USD_USD: 1 }, subscriptionId: sub.id })
+
+    // First leave + rejoin
+    await leaveSubscription(db,
+      { subscriptionId: sub.id, userId: C, leftAt: '2026-04-08', actorId: A })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-12' })
+
+    // Second leave + rejoin
+    await leaveSubscription(db,
+      { subscriptionId: sub.id, userId: C, leftAt: '2026-04-18', actorId: A })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-24' })
+
+    // Engine reconciliation
+    await recomputeMonth(db, {
+      subscriptionId: sub.id, year: 2026, month: 4,
+      eventId: `multi-rejoin:sub${sub.id}`, today: '2026-04-24', rates: { USD_USD: 1 },
+    })
+
+    const memberRow = (await sqlite
+      .prepare(
+        `SELECT added_at as "addedAt", left_at as "leftAt",
+                previous_intervals as "previousIntervals"
+         FROM subscription_members WHERE subscription_id = ? AND user_id = ?`
+      )
+      .all(sub.id, C)) as Array<{
+      addedAt: string
+      leftAt: string | null
+      previousIntervals: Array<{ addedAt: string; leftAt: string }>
+    }>
+
+    expect(memberRow).toHaveLength(1)
+    expect(memberRow[0].addedAt).toBe('2026-04-24')
+    expect(memberRow[0].leftAt).toBeNull()
+    // Two archived stints, in insertion order
+    expect(memberRow[0].previousIntervals).toEqual([
+      { addedAt: '2026-04-01', leftAt: '2026-04-08' },
+      { addedAt: '2026-04-12', leftAt: '2026-04-18' },
+    ])
+
+    // Bill totals reflect 22 active days for C
+    // dailyCost = 4500/30 = 150¢
+    // C: 8×(150/3) + 7×(150/3) + 7×(150/3) = 22×50 = 1100¢
+    // Days when C absent (9-11=3 days, 19-23=5 days): A,B only N=2
+    //   A,B contribution = 8×(150/2) = 600¢ extra each
+    // A,B: 22×(150/3) + 8×(150/2) = 1100 + 600 = 1700¢ each
+    // sum = 1700 + 1700 + 1100 = 4500 ✓
+    const billRows = (await sqlite
+      .prepare(`SELECT user_id as "userId", amount FROM billing_records WHERE subscription_id = ?`)
+      .all(sub.id)) as Array<{ userId: number; amount: number }>
+    const sumFor = (uid: number) =>
+      billRows.filter((r) => r.userId === uid).reduce((s, r) => s + r.amount, 0)
+
+    expect(sumFor(C)).toBeGreaterThanOrEqual(1098)
+    expect(sumFor(C)).toBeLessThanOrEqual(1102)
+    expect(sumFor(A)).toBeGreaterThanOrEqual(1698)
+    expect(sumFor(A)).toBeLessThanOrEqual(1702)
+    expect(sumFor(B)).toBeGreaterThanOrEqual(1698)
+    expect(sumFor(B)).toBeLessThanOrEqual(1702)
+    expect(sumFor(A) + sumFor(B) + sumFor(C)).toBe(4500)
+  })
+
+  it('cross-month rejoin: prior April stint does not affect May fair', async () => {
+    // C joins 4/1, leaves 4/15, rejoins 5/10. April and May recompute
+    // independently — each month sees only the intervals overlapping it.
+    const A = await createUser(db, { email: 'a@cross.test', currency: 'USD' })
+    const C = await createUser(db, { email: 'c@cross.test', currency: 'USD' })
+
+    const sub = await createSubscription(db, {
+      name: 'CrossMonth', price: 3000, currency: 'USD',
+      nextPayment: '2026-04-01', startDate: '2026-04-01', ownerId: A,
+    })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-01' })
+    await sqlite.prepare('DELETE FROM billing_records WHERE subscription_id = ?').run(sub.id)
+    await runR1Cron(db, { today: '2026-04-01', rates: { USD_USD: 1 }, subscriptionId: sub.id })
+    await runR1Cron(db, { today: '2026-05-01', rates: { USD_USD: 1 }, subscriptionId: sub.id })
+
+    await leaveSubscription(db,
+      { subscriptionId: sub.id, userId: C, leftAt: '2026-04-15', actorId: A })
+    await recomputeMonth(db, {
+      subscriptionId: sub.id, year: 2026, month: 4,
+      eventId: `cross-leave-apr:sub${sub.id}`, today: '2026-04-15', rates: { USD_USD: 1 },
+    })
+    await recomputeMonth(db, {
+      subscriptionId: sub.id, year: 2026, month: 5,
+      eventId: `cross-leave-may:sub${sub.id}`, today: '2026-04-15', rates: { USD_USD: 1 },
+    })
+
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-05-10' })
+    await recomputeMonth(db, {
+      subscriptionId: sub.id, year: 2026, month: 5,
+      eventId: `cross-rejoin-may:sub${sub.id}`, today: '2026-05-10', rates: { USD_USD: 1 },
+    })
+
+    const billRows = (await sqlite
+      .prepare(`SELECT user_id as "userId", amount, billing_date as "billingDate"
+                FROM billing_records WHERE subscription_id = ?`)
+      .all(sub.id)) as Array<{ userId: number; amount: number; billingDate: string }>
+
+    // April: C active 1-15 (15 days), N=2 throughout when both present;
+    //   days 16-30 (15 days) only A active.
+    //   dailyCost = 3000/30 = 100¢
+    //   fair_C = 15×50 = 750¢
+    //   fair_A = 15×50 + 15×100 = 2250¢
+    const aprC = billRows.filter((r) => r.userId === C && r.billingDate.startsWith('2026-04')).reduce((s, r) => s + r.amount, 0)
+    const aprA = billRows.filter((r) => r.userId === A && r.billingDate.startsWith('2026-04')).reduce((s, r) => s + r.amount, 0)
+    expect(aprC).toBeGreaterThanOrEqual(748)
+    expect(aprC).toBeLessThanOrEqual(752)
+    expect(aprA).toBeGreaterThanOrEqual(2248)
+    expect(aprA).toBeLessThanOrEqual(2252)
+
+    // May: C active only from 5/10. 31 days total.
+    //   dailyCost = 3000/31 ≈ 96.77¢
+    //   Days 1-9 (9 days): A solo
+    //   Days 10-31 (22 days): A,C
+    //   fair_C = 22 × dailyCost / 2 = 11 × dailyCost ≈ 1064.5¢
+    //   fair_A = 9 × dailyCost + 22 × dailyCost / 2 = 20 × dailyCost ≈ 1935.5¢
+    const mayC = billRows.filter((r) => r.userId === C && r.billingDate.startsWith('2026-05')).reduce((s, r) => s + r.amount, 0)
+    const mayA = billRows.filter((r) => r.userId === A && r.billingDate.startsWith('2026-05')).reduce((s, r) => s + r.amount, 0)
+    expect(mayC).toBeGreaterThanOrEqual(1062)
+    expect(mayC).toBeLessThanOrEqual(1067)
+    expect(mayA).toBeGreaterThanOrEqual(1933)
+    expect(mayA).toBeLessThanOrEqual(1938)
+
+    // Both months independently sum to price
+    const aprSum = billRows.filter((r) => r.billingDate.startsWith('2026-04')).reduce((s, r) => s + r.amount, 0)
+    const maySum = billRows.filter((r) => r.billingDate.startsWith('2026-05')).reduce((s, r) => s + r.amount, 0)
+    expect(aprSum).toBe(3000)
+    expect(maySum).toBe(3000)
+  })
+
+  it('same-day rejoin (addedAt = prior leftAt) throws — closed-interval overlap', async () => {
+    const A = await createUser(db, { email: 'a@sameday.test', currency: 'USD' })
+    const C = await createUser(db, { email: 'c@sameday.test', currency: 'USD' })
+
+    const sub = await createSubscription(db, {
+      name: 'SameDay', price: 3000, currency: 'USD',
+      nextPayment: '2026-04-01', startDate: '2026-04-01', ownerId: A,
+    })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-01' })
+    await leaveSubscription(db,
+      { subscriptionId: sub.id, userId: C, leftAt: '2026-04-08', actorId: A })
+
+    // Closed interval: 04-08 is C's last active day. Rejoin on 04-08
+    // would mean C is "active" both intervals on day 8 — overlap.
+    await expect(
+      addMemberToSubscription(db,
+        { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-08' })
+    ).rejects.toThrow(/must be after prior leftAt/)
+  })
+
+  it('rejoin then leave again: engine sees both old interval and current closed range', async () => {
+    // C joins 4/1, leaves 4/8, rejoins 4/15, leaves 4/22.
+    // Active days: 1-8 (8) + 15-22 (8) = 16 days.
+    const A = await createUser(db, { email: 'a@rejleave.test', currency: 'USD' })
+    const C = await createUser(db, { email: 'c@rejleave.test', currency: 'USD' })
+
+    const sub = await createSubscription(db, {
+      name: 'RejoinThenLeave', price: 6000, currency: 'USD',
+      nextPayment: '2026-04-01', startDate: '2026-04-01', ownerId: A,
+    })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-01' })
+    await sqlite.prepare('DELETE FROM billing_records WHERE subscription_id = ?').run(sub.id)
+    await runR1Cron(db, { today: '2026-04-01', rates: { USD_USD: 1 }, subscriptionId: sub.id })
+
+    await leaveSubscription(db,
+      { subscriptionId: sub.id, userId: C, leftAt: '2026-04-08', actorId: A })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-15' })
+    await leaveSubscription(db,
+      { subscriptionId: sub.id, userId: C, leftAt: '2026-04-22', actorId: A })
+
+    await recomputeMonth(db, {
+      subscriptionId: sub.id, year: 2026, month: 4,
+      eventId: `rej-leave:sub${sub.id}`, today: '2026-04-22', rates: { USD_USD: 1 },
+    })
+
+    const memberRow = (await sqlite
+      .prepare(
+        `SELECT added_at as "addedAt", left_at as "leftAt",
+                previous_intervals as "previousIntervals"
+         FROM subscription_members WHERE subscription_id = ? AND user_id = ?`
+      )
+      .all(sub.id, C)) as Array<{
+      addedAt: string
+      leftAt: string | null
+      previousIntervals: Array<{ addedAt: string; leftAt: string }>
+    }>
+    // Active row holds the most recent stint; previousIntervals holds the first.
+    expect(memberRow[0].addedAt).toBe('2026-04-15')
+    expect(memberRow[0].leftAt).toBe('2026-04-22')
+    expect(memberRow[0].previousIntervals).toEqual([
+      { addedAt: '2026-04-01', leftAt: '2026-04-08' },
+    ])
+
+    // April = 30 days, dailyCost = 6000/30 = 200¢
+    // C: 16 × (200/2) = 1600¢
+    // A: 16 × (200/2) + 14 × 200 = 1600 + 2800 = 4400¢
+    // (days 9-14, 23-30 = 14 days A solo)
+    const billRows = (await sqlite
+      .prepare(`SELECT user_id as "userId", amount FROM billing_records WHERE subscription_id = ?`)
+      .all(sub.id)) as Array<{ userId: number; amount: number }>
+    const sumFor = (uid: number) =>
+      billRows.filter((r) => r.userId === uid).reduce((s, r) => s + r.amount, 0)
+    expect(sumFor(C)).toBeGreaterThanOrEqual(1598)
+    expect(sumFor(C)).toBeLessThanOrEqual(1602)
+    expect(sumFor(A)).toBeGreaterThanOrEqual(4398)
+    expect(sumFor(A)).toBeLessThanOrEqual(4402)
+    expect(sumFor(A) + sumFor(C)).toBe(6000)
+  })
+
+  it('editAddedAt back into a prior interval throws on overlap (engine guards)', async () => {
+    // C had stint [04-01, 04-08], rejoined 04-20. Owner now edits the
+    // active row's addedAt back to 04-05 — which falls inside the
+    // archived stint's range. The engine's overlap check must catch this.
+    const A = await createUser(db, { email: 'a@editrej.test', currency: 'USD' })
+    const C = await createUser(db, { email: 'c@editrej.test', currency: 'USD' })
+
+    const sub = await createSubscription(db, {
+      name: 'EditOverlap', price: 3000, currency: 'USD',
+      nextPayment: '2026-04-01', startDate: '2026-04-01', ownerId: A,
+    })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-01' })
+    await leaveSubscription(db,
+      { subscriptionId: sub.id, userId: C, leftAt: '2026-04-08', actorId: A })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-20' })
+
+    // Editing back to 04-05 would overlap with archived [04-01, 04-08].
+    await expect(
+      editMemberAddedAt(db, {
+        subscriptionId: sub.id,
+        targetUserId: C,
+        actorUserId: A,
+        newAddedAt: '2026-04-05',
+        today: '2026-05-04',
+        rates: { USD_USD: 1 },
+      })
+    ).rejects.toThrow(/overlap/i)
+  })
+
+  it('editAddedAt forward (still after prior leftAt) succeeds and recomputes', async () => {
+    // C: stint [04-01, 04-08], rejoined 04-20. Owner edits active row
+    // to 04-15 (still > 04-08, no overlap). Should succeed and the engine
+    // re-allocates accordingly.
+    const A = await createUser(db, { email: 'a@editok.test', currency: 'USD' })
+    const C = await createUser(db, { email: 'c@editok.test', currency: 'USD' })
+
+    const sub = await createSubscription(db, {
+      name: 'EditOK', price: 4500, currency: 'USD',
+      nextPayment: '2026-04-01', startDate: '2026-04-01', ownerId: A,
+    })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-01' })
+    await sqlite.prepare('DELETE FROM billing_records WHERE subscription_id = ?').run(sub.id)
+    await runR1Cron(db, { today: '2026-04-01', rates: { USD_USD: 1 }, subscriptionId: sub.id })
+    await leaveSubscription(db,
+      { subscriptionId: sub.id, userId: C, leftAt: '2026-04-08', actorId: A })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-20' })
+
+    await editMemberAddedAt(db, {
+      subscriptionId: sub.id,
+      targetUserId: C,
+      actorUserId: A,
+      newAddedAt: '2026-04-15',
+      today: '2026-05-04',
+      rates: { USD_USD: 1 },
+    })
+
+    // C now active 1-8 (8 days) + 15-30 (16 days) = 24 days
+    // Solo A days 9-14 (6 days) → A gets full dailyCost on those
+    // dailyCost = 4500/30 = 150¢
+    // fair_C = 24 × (150/2) = 1800¢
+    // fair_A = 24 × (150/2) + 6 × 150 = 1800 + 900 = 2700¢
+    const billRows = (await sqlite
+      .prepare(`SELECT user_id as "userId", amount, billing_date as "billingDate" FROM billing_records WHERE subscription_id = ? AND billing_date < '2026-05-01'`)
+      .all(sub.id)) as Array<{ userId: number; amount: number; billingDate: string }>
+    const sumFor = (uid: number) =>
+      billRows.filter((r) => r.userId === uid).reduce((s, r) => s + r.amount, 0)
+    expect(sumFor(C)).toBeGreaterThanOrEqual(1798)
+    expect(sumFor(C)).toBeLessThanOrEqual(1802)
+    expect(sumFor(A)).toBeGreaterThanOrEqual(2698)
+    expect(sumFor(A)).toBeLessThanOrEqual(2702)
+    expect(sumFor(A) + sumFor(C)).toBe(4500)
+  })
+
+  it('payer cannot leave (R7) — even with rejoin history this stays enforced', async () => {
+    const A = await createUser(db, { email: 'a@payerleave.test', currency: 'USD' })
+    const C = await createUser(db, { email: 'c@payerleave.test', currency: 'USD' })
+
+    const sub = await createSubscription(db, {
+      name: 'PayerLeaveGuard', price: 3000, currency: 'USD',
+      nextPayment: '2026-04-01', startDate: '2026-04-01', ownerId: A,
+    })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-01' })
+
+    // Just to make sure rejoin history doesn't open a back door
+    await leaveSubscription(db,
+      { subscriptionId: sub.id, userId: C, leftAt: '2026-04-08', actorId: A })
+    await addMemberToSubscription(db,
+      { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-20' })
+
+    await expect(
+      leaveSubscription(db,
+        { subscriptionId: sub.id, userId: A, leftAt: '2026-04-25', actorId: A })
+    ).rejects.toThrow(/payer/i)
   })
 
   it('membership row exposes the prior interval to the engine', async () => {
