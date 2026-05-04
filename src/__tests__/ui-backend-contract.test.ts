@@ -76,8 +76,7 @@ describe('UI backend contract (RED)', () => {
     })
 
     const res = await handleGetSubscription(db, A, sub.id)
-    expect(res.success).toBe(true)
-    if (!res.success) return
+    if (!res.success || !res.data) throw new Error('expected success')
 
     expect(res.data.priceHistory).toBeDefined()
     expect(Array.isArray(res.data.priceHistory)).toBe(true)
@@ -99,7 +98,7 @@ describe('UI backend contract (RED)', () => {
     })
 
     const res = await handleGetSubscription(db, A, sub.id)
-    if (!res.success) throw new Error('expected success')
+    if (!res.success || !res.data) throw new Error('expected success')
 
     expect(res.data.priceHistory).toHaveLength(2)
     // Sorted ascending — start, then change
@@ -122,7 +121,7 @@ describe('UI backend contract (RED)', () => {
       { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-20' })
 
     const res = await handleGetSubscription(db, A, sub.id)
-    if (!res.success) throw new Error('expected success')
+    if (!res.success || !res.data) throw new Error('expected success')
 
     const carol = res.data.members.find((m) => m.userId === C)
     expect(carol).toBeDefined()

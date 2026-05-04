@@ -1107,7 +1107,7 @@ export async function handleUpdateSubscription(
     return {
       success: false,
       error: err instanceof Error ? err.message : 'Update failed',
-      code: 'BAD_REQUEST',
+      code: 'VALIDATION_ERROR',
     }
   }
 

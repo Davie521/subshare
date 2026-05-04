@@ -40,6 +40,7 @@ type Member = {
   isSelf: boolean;
   status: "active" | "left_unsettled";
   outstandingAmount?: number;
+  previousIntervals: Array<{ addedAt: string; leftAt: string }>;
 };
 
 type Sub = {
@@ -55,6 +56,7 @@ type Sub = {
   refundPolicy: "payer_absorbs" | "redistribute";
   tags: SubscriptionTag[];
   personalTags: SubscriptionTag[];
+  priceHistory: Array<{ price: number; effectiveFrom: string }>;
   members: Member[];
 };
 
@@ -85,10 +87,12 @@ export default function SubscriptionDetailPage() {
   const [editForm, setEditForm] = useState<{
     name: string;
     price: string;
+    effectiveFrom: string;
     refundPolicy: "payer_absorbs" | "redistribute";
   }>({
     name: "",
     price: "",
+    effectiveFrom: "",
     refundPolicy: "payer_absorbs",
   });
   const [editError, setEditError] = useState<string | null>(null);
@@ -126,7 +130,11 @@ export default function SubscriptionDetailPage() {
           refundPolicy: d.refundPolicy,
           tags: d.tags ?? [],
           personalTags: d.personalTags ?? [],
-          members: d.members,
+          priceHistory: d.priceHistory ?? [],
+          members: d.members.map((m) => ({
+            ...m,
+            previousIntervals: m.previousIntervals ?? [],
+          })),
         });
         setLoadError(null);
       } else if (res.status === 401) {
@@ -309,6 +317,9 @@ export default function SubscriptionDetailPage() {
     setEditForm({
       name: sub.name,
       price: (sub.price / 100).toFixed(2),
+      // Default to the user's real next billing day so a price change
+      // applied through this form aligns with the actual service cycle.
+      effectiveFrom: sub.nextPayment,
       refundPolicy: sub.refundPolicy ?? "payer_absorbs",
     });
     setEditError(null);
@@ -322,13 +333,20 @@ export default function SubscriptionDetailPage() {
       setEditError("Name and a valid price are required");
       return;
     }
+    const priceChanged = price !== sub.price;
+    if (priceChanged && !editForm.effectiveFrom) {
+      setEditError("Pick a date the new price takes effect");
+      return;
+    }
     setBusy(true);
     setEditError(null);
-    const res = await api.updateSubscription(sub.id, {
+    const body: Record<string, unknown> = {
       name: editForm.name.trim(),
       price,
       refundPolicy: editForm.refundPolicy,
-    });
+    };
+    if (priceChanged) body.effectiveFrom = editForm.effectiveFrom;
+    const res = await api.updateSubscription(sub.id, body);
     setBusy(false);
     if (res.error) {
       setEditError(res.error);
@@ -336,6 +354,24 @@ export default function SubscriptionDetailPage() {
     }
     setEditing(false);
     await load();
+  }
+
+  // Date-picker bounds: ±31 days from today, clamped down to sub.startDate.
+  function effectiveFromBounds(): { min: string; max: string } {
+    const today = new Date();
+    const min = new Date(today);
+    min.setDate(min.getDate() - 31);
+    const max = new Date(today);
+    max.setDate(max.getDate() + 31);
+    const iso = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const minIso = iso(min);
+    const maxIso = iso(max);
+    const startDate = sub?.startDate ?? minIso;
+    return {
+      min: minIso < startDate ? startDate : minIso,
+      max: maxIso,
+    };
   }
 
   async function handleChangeLogo(newLogo: string | null) {
@@ -488,6 +524,36 @@ export default function SubscriptionDetailPage() {
                     }
                   />
                 </div>
+                {(() => {
+                  const newPrice = Math.round(parseFloat(editForm.price) * 100);
+                  const priceChanged =
+                    !isNaN(newPrice) && newPrice > 0 && newPrice !== sub.price;
+                  if (!priceChanged) return null;
+                  const { min, max } = effectiveFromBounds();
+                  return (
+                    <div className="space-y-1.5">
+                      <Label
+                        htmlFor="sub-price-effective"
+                        className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted-foreground"
+                      >
+                        New price effective from
+                      </Label>
+                      <Input
+                        id="sub-price-effective"
+                        type="date"
+                        min={min}
+                        max={max}
+                        value={editForm.effectiveFrom}
+                        onChange={(e) =>
+                          setEditForm({ ...editForm, effectiveFrom: e.target.value })
+                        }
+                      />
+                      <p className="text-[11px] text-muted-foreground">
+                        The day the service actually charges the new price (defaults to your next payment).
+                      </p>
+                    </div>
+                  );
+                })()}
               </div>
 
               {editError && (
@@ -577,6 +643,41 @@ export default function SubscriptionDetailPage() {
                 </p>
               </div>
             </div>
+          )}
+
+          {/* Price history — only show when there's been at least one
+              change beyond the seeded initial entry. Reverse so the most
+              recent change appears first. */}
+          {!editing && sub.priceHistory && sub.priceHistory.length > 1 && (
+            <details className="group rounded-md bg-muted/40 px-3 py-2 text-[12px]">
+              <summary className="cursor-pointer select-none font-semibold uppercase tracking-[0.08em] text-muted-foreground text-[11px]">
+                Price history ({sub.priceHistory.length} entries)
+              </summary>
+              <ul className="mt-2 space-y-1 tabular-nums">
+                {[...sub.priceHistory].reverse().map((entry, i, arr) => {
+                  const isLatest = i === 0;
+                  const nextEntry = arr[i - 1];
+                  const rangeLabel = isLatest
+                    ? "current"
+                    : `until ${nextEntry.effectiveFrom}`;
+                  return (
+                    <li
+                      key={entry.effectiveFrom}
+                      className={cn(
+                        "flex items-center gap-2",
+                        isLatest && "font-semibold"
+                      )}
+                    >
+                      <span className="text-muted-foreground">
+                        {entry.effectiveFrom}
+                      </span>
+                      <span>{formatMoney(entry.price, sub.currency)}/mo</span>
+                      <span className="text-muted-foreground">· {rangeLabel}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </details>
           )}
         </CardContent>
       </Card>
@@ -923,6 +1024,18 @@ export default function SubscriptionDetailPage() {
                       ) : (
                         <p className="text-[12px] text-muted-foreground">
                           Joined {m.addedAt}
+                        </p>
+                      )}
+                      {m.previousIntervals && m.previousIntervals.length > 0 && (
+                        <p
+                          className="text-[11px] text-muted-foreground italic mt-0.5"
+                          title={m.previousIntervals
+                            .map((iv) => `${iv.addedAt} → ${iv.leftAt}`)
+                            .join(", ")}
+                        >
+                          {m.previousIntervals.length === 1
+                            ? `Previously: ${m.previousIntervals[0].addedAt} → ${m.previousIntervals[0].leftAt}`
+                            : `Previously: ${m.previousIntervals.length} earlier stints`}
                         </p>
                       )}
                     </div>

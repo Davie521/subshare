@@ -82,6 +82,7 @@ export const api = {
       refundPolicy: "payer_absorbs" | "redistribute";
       tags: SubscriptionTag[];
       personalTags: SubscriptionTag[];
+      priceHistory: Array<{ price: number; effectiveFrom: string }>;
       members: Array<{
         userId: number;
         displayName: string;
@@ -93,6 +94,7 @@ export const api = {
         isSelf: boolean;
         status: "active" | "left_unsettled";
         outstandingAmount?: number;
+        previousIntervals: Array<{ addedAt: string; leftAt: string }>;
       }>;
     }>(`/api/subscriptions/${id}`),
   updateSubscription: (id: number, body: Record<string, unknown>) =>
