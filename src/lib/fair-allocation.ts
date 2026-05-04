@@ -1,20 +1,30 @@
 /**
  * Fair Allocation engine — pure functions.
  *
- * Replaces the legacy R1+R2+R3+R5 stack with one per-day algorithm:
+ * Per-day algorithm:
  *
- *   activeDays = number of days in this month with at least 1 active member
- *   dailyCost = price / activeDays
- *   per-day-per-member = dailyCost / N(d)
- *   fair_m = Σ over m's active days of (dailyCost / N(d))
+ *   For each day d in the calendar month:
+ *     price(d)     = priceAt(priceTimeline, d)
+ *     dailyCost(d) = price(d) / daysInMonth      (always — see note)
+ *     per-day per-member(d) = dailyCost(d) / N(d) when N(d) > 0
+ *   fair_m = Σ over m's active days of (dailyCost(d) / N(d))
  *
- * The denominator is `activeDays` (not calendar daysInMonth) so that sum
- * of all members' fair shares always equals `price` — no cost is forfeit
- * on member-less days. In production every day from sub.startDate forward
- * has at least the payer active, so activeDays == daysInMonth typically.
+ * Sum of all fair_m === Σ_d dailyCost(d) [over days with N(d) > 0]
+ *                    = "blended monthly cost" when price changes mid-month.
  *
- * Sum of all fair_m === price (the residue from integer-flooring is
- * distributed via `distributeWithRotation` so cumulative cents-luck is
+ * Note on the denominator: legacy single-price form divided by `activeDays`
+ * so total = exactly `price`. With a per-day timeline the equivalent is to
+ * divide by `daysInMonth` and let the "no-active-user days" contribute
+ * nothing to anyone's fair share. In production every day from
+ * sub.startDate forward has at least the payer active, so activeDays ==
+ * daysInMonth and the two forms coincide.
+ *
+ * The single-price form is preserved as a `price: number` shorthand for
+ * `[{ price, effectiveFrom: '0001-01-01' }]` so old call sites and tests
+ * keep compiling.
+ *
+ * Sum of all fair_m === total monthly cost (residue from integer-flooring
+ * is distributed via `distributeWithRotation` so cumulative cents-luck is
  * fair across months).
  *
  * Date semantics — CLOSED INTERVAL [addedAt, leftAt]:
@@ -40,8 +50,23 @@ export type MemberInterval = {
   leftAt: string | null // ISO YYYY-MM-DD, or null when still active
 }
 
+export type PriceEntry = {
+  /** Monthly cents. */
+  price: number
+  /** Inclusive ISO date — this entry takes effect from this day forward. */
+  effectiveFrom: string
+}
+
 export type FairAllocationInput = {
-  price: number // total cents
+  /**
+   * Monthly cents. Either:
+   *   - a single number (legacy single-price form), or
+   *   - an array of `{ price, effectiveFrom }` entries (per-day timeline).
+   *
+   * The array form lets a mid-month price change blend correctly — each
+   * day uses the entry whose `effectiveFrom` is the largest one ≤ that day.
+   */
+  price: number | PriceEntry[]
   year: number
   month: number // 1-12
   intervals: MemberInterval[]
@@ -49,16 +74,65 @@ export type FairAllocationInput = {
   roundingSeed?: number
 }
 
+function normalizePriceTimeline(
+  raw: number | PriceEntry[],
+  year: number,
+  month: number
+): PriceEntry[] {
+  if (typeof raw === 'number') {
+    if (!Number.isFinite(raw) || raw < 0) {
+      throw new Error('price must be a non-negative finite number')
+    }
+    if (!Number.isInteger(raw)) {
+      throw new Error('price must be an integer (cents)')
+    }
+    // Single price equivalent to "valid forever from epoch"
+    return [{ price: raw, effectiveFrom: '0001-01-01' }]
+  }
+  if (!Array.isArray(raw) || raw.length === 0) {
+    throw new Error('priceTimeline must be a non-empty array')
+  }
+  const sorted = [...raw].sort((a, b) =>
+    a.effectiveFrom.localeCompare(b.effectiveFrom)
+  )
+  for (const e of sorted) {
+    if (
+      typeof e.price !== 'number' ||
+      !Number.isInteger(e.price) ||
+      e.price < 0
+    ) {
+      throw new Error(`priceTimeline price must be non-negative integer: ${e.price}`)
+    }
+    if (!ISO_DATE_RE.test(e.effectiveFrom)) {
+      throw new Error(`priceTimeline effectiveFrom invalid: ${e.effectiveFrom}`)
+    }
+  }
+  void year
+  void month
+  return sorted
+}
+
+const pad2 = (n: number): string => String(n).padStart(2, '0')
+
+function priceForDay(
+  timeline: PriceEntry[],
+  isoDate: string
+): number {
+  // Pick the latest entry whose effectiveFrom ≤ isoDate; if none qualify
+  // (asking before the earliest entry), fall back to the earliest entry.
+  let chosen = timeline[0]
+  for (const e of timeline) {
+    if (e.effectiveFrom <= isoDate) chosen = e
+    else break
+  }
+  return chosen.price
+}
+
 export function fairAllocation(input: FairAllocationInput): Map<number, number> {
-  const { price, year, month, intervals, roundingSeed = 0 } = input
+  const { price: priceInput, year, month, intervals, roundingSeed = 0 } = input
+  const timeline = normalizePriceTimeline(priceInput, year, month)
 
   // ── validation ──
-  if (typeof price !== 'number' || !Number.isFinite(price) || price < 0) {
-    throw new Error('price must be a non-negative finite number')
-  }
-  if (!Number.isInteger(price)) {
-    throw new Error('price must be an integer (cents)')
-  }
   if (!Number.isInteger(month) || month < 1 || month > 12) {
     throw new Error(`month out of range: ${month}`)
   }
@@ -126,9 +200,12 @@ export function fairAllocation(input: FairAllocationInput): Map<number, number> 
   if (allUsers.size === 0 || activeDays === 0) return new Map()
 
   // ── exact integer arithmetic via BigInt + LCM ──
-  // dailyCost = price / activeDays. Per-day per-user = dailyCost / N(d).
-  // To stay integer: scale by lcm = LCM(1..maxN). Then perUserScaled per day
-  // = price × (lcm / N(d)), an integer. Sum, then divide by (lcm × activeDays).
+  // Single-price form (len 1) keeps the legacy semantic:
+  //   dailyCost = price / activeDays    (cost of inactive days reabsorbed)
+  // Multi-price form (len > 1) uses per-day pricing:
+  //   dailyCost(d) = price(d) / daysInMonth   (inactive days lost)
+  // Either way per-day per-user = dailyCost / N(d).
+  // To stay integer we scale by lcm = LCM(1..maxN) and divide at the end.
   let maxN = 0
   for (const set of dayActiveUsers) if (set.size > maxN) maxN = set.size
   const lcm = lcmRange(maxN)
@@ -136,26 +213,37 @@ export function fairAllocation(input: FairAllocationInput): Map<number, number> 
   const scaledFair = new Map<number, bigint>()
   for (const u of allUsers) scaledFair.set(u, BigInt(0))
 
-  const priceBI = BigInt(price)
+  const useSinglePrice = timeline.length === 1
+  const denom = useSinglePrice
+    ? lcm * BigInt(activeDays)
+    : lcm * BigInt(daysInMonth)
+
   for (let d = 0; d < daysInMonth; d++) {
     const set = dayActiveUsers[d]
     const n = set.size
     if (n === 0) continue
-    const perUserContribution = (priceBI * lcm) / BigInt(n)
+    const dayIso = `${year}-${pad2(month)}-${pad2(d + 1)}`
+    const dayPrice = useSinglePrice ? timeline[0].price : priceForDay(timeline, dayIso)
+    const perUserContribution = (BigInt(dayPrice) * lcm) / BigInt(n)
     for (const u of set) {
       scaledFair.set(u, scaledFair.get(u)! + perUserContribution)
     }
   }
 
-  const denom = lcm * BigInt(activeDays)
   const fairFloors = new Map<number, number>()
   for (const [u, scaled] of scaledFair) {
     fairFloors.set(u, Number(scaled / denom))
   }
 
   // ── distribute residue via rotation ──
+  // Total budget = exact sum of (price(d) / daysInMonth | activeDays) over
+  // active days, scaled by lcm and floored. We compute the integer total
+  // budget directly so floor errors in fairFloors[] are rotated, not
+  // absorbed by an arbitrary user.
+  const totalScaled = [...scaledFair.values()].reduce((a, b) => a + b, BigInt(0))
+  const totalBudget = Number(totalScaled / denom)
   const sumFloors = [...fairFloors.values()].reduce((a, b) => a + b, 0)
-  const residue = price - sumFloors
+  const residue = totalBudget - sumFloors
   if (residue > 0) {
     const sortedUserIds = [...fairFloors.keys()].sort((a, b) => a - b)
     const extras = distributeWithRotation({

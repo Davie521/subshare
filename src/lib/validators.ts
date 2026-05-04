@@ -54,6 +54,12 @@ export const createSubscriptionSchema = z.object({
 export const updateSubscriptionSchema = z.object({
   name: z.string().min(1).max(100).optional(),
   price: z.number().int().positive().max(100_000_000).optional(),
+  /**
+   * ISO date the new price takes effect. Required when `price` differs
+   * from the current price; ignored otherwise. Range checked downstream
+   * (±31 days from today) so out-of-band writes can't widen the window.
+   */
+  effectiveFrom: z.string().regex(DATE_REGEX).optional(),
   nextPayment: z.string().regex(DATE_REGEX).optional(),
   refundPolicy: z.enum(['payer_absorbs', 'redistribute']).optional(),
   tags: tagArraySchema.optional(),

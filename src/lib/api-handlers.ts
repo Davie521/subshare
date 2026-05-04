@@ -790,6 +790,12 @@ export type SubscriptionDetailMember = {
    * Set only when status is 'left_unsettled'.
    */
   outstandingAmount?: number
+  /**
+   * Closed [addedAt, leftAt] intervals from earlier stints for a member
+   * who left and was later re-added. Empty array when no rejoin history.
+   * UI may render these as a "history" tooltip on the member chip.
+   */
+  previousIntervals: Array<{ addedAt: string; leftAt: string }>
 }
 
 export type SubscriptionDetail = {
@@ -810,6 +816,11 @@ export type SubscriptionDetail = {
   notifyDaysBefore: number
   tags: SubscriptionTag[]
   personalTags: SubscriptionTag[]
+  /**
+   * Sorted ascending by `effectiveFrom`. Always non-empty — newly created
+   * subs are seeded with a single `{ price, effectiveFrom: startDate }` entry.
+   */
+  priceHistory: Array<{ price: number; effectiveFrom: string }>
   members: SubscriptionDetailMember[]
 }
 
@@ -847,6 +858,7 @@ export async function handleGetSubscription(
       notifyDaysBefore: schema.subscriptions.notifyDaysBefore,
       refundPolicy: schema.subscriptions.refundPolicy,
       tags: schema.subscriptions.tags,
+      priceHistory: schema.subscriptions.priceHistory,
     })
     .from(schema.subscriptions)
     .where(eq(schema.subscriptions.id, subId))
@@ -880,6 +892,7 @@ export async function handleGetSubscription(
       addedAt: schema.subscriptionMembers.addedAt,
       addedBy: schema.subscriptionMembers.addedBy,
       leftAt: schema.subscriptionMembers.leftAt,
+      previousIntervals: schema.subscriptionMembers.previousIntervals,
     })
     .from(schema.subscriptionMembers)
     .where(eq(schema.subscriptionMembers.subscriptionId, subId))
@@ -944,6 +957,7 @@ export async function handleGetSubscription(
       isOwner: m.userId === sub.ownerId,
       isSelf: m.userId === userId,
       status,
+      previousIntervals: Array.isArray(m.previousIntervals) ? m.previousIntervals : [],
     }
     if (outstandingAmount !== undefined) row.outstandingAmount = outstandingAmount
     members.push(row)
@@ -984,6 +998,8 @@ export async function handleUpdateSubscription(
   input: {
     name?: string
     price?: number
+    /** ISO YYYY-MM-DD; required when price changes — UI defaults to sub.nextPayment. */
+    effectiveFrom?: string
     nextPayment?: string
     refundPolicy?: 'payer_absorbs' | 'redistribute'
     tags?: SubscriptionTag[]
@@ -1049,39 +1065,51 @@ export async function handleUpdateSubscription(
   // crash between them can't leave the sub with the new price but the
   // old name (or vice versa).
   let priceChanged = false
-  await db.transaction(async (tx) => {
-    if (input.price !== undefined && input.price !== sub.price) {
-      await changeSubscriptionPrice(tx, { subscriptionId: subId, newPrice: input.price })
-      priceChanged = true
-    }
+  try {
+    await db.transaction(async (tx) => {
+      if (input.price !== undefined && input.price !== sub.price) {
+        await changeSubscriptionPrice(tx, {
+          subscriptionId: subId,
+          newPrice: input.price,
+          effectiveFrom: input.effectiveFrom,
+        })
+        priceChanged = true
+      }
 
-    const updates: Record<string, unknown> = {}
-    if (input.name !== undefined) updates.name = input.name
-    if (input.nextPayment !== undefined) updates.nextPayment = input.nextPayment
-    if (input.refundPolicy !== undefined) updates.refundPolicy = input.refundPolicy
-    if (input.tags !== undefined) updates.tags = normalizeTags(input.tags)
-    if (input.logo !== undefined) updates.logo = input.logo
+      const updates: Record<string, unknown> = {}
+      if (input.name !== undefined) updates.name = input.name
+      if (input.nextPayment !== undefined) updates.nextPayment = input.nextPayment
+      if (input.refundPolicy !== undefined) updates.refundPolicy = input.refundPolicy
+      if (input.tags !== undefined) updates.tags = normalizeTags(input.tags)
+      if (input.logo !== undefined) updates.logo = input.logo
 
-    if (Object.keys(updates).length > 0) {
-      await tx
-        .update(schema.subscriptions)
-        .set(updates)
-        .where(eq(schema.subscriptions.id, subId))
-    }
+      if (Object.keys(updates).length > 0) {
+        await tx
+          .update(schema.subscriptions)
+          .set(updates)
+          .where(eq(schema.subscriptions.id, subId))
+      }
 
-    if (input.personalTags !== undefined) {
-      await tx
-        .update(schema.subscriptionMembers)
-        .set({ personalTags: normalizeTags(input.personalTags) })
-        .where(
-          and(
-            eq(schema.subscriptionMembers.subscriptionId, subId),
-            eq(schema.subscriptionMembers.userId, userId),
-            isNull(schema.subscriptionMembers.leftAt)
+      if (input.personalTags !== undefined) {
+        await tx
+          .update(schema.subscriptionMembers)
+          .set({ personalTags: normalizeTags(input.personalTags) })
+          .where(
+            and(
+              eq(schema.subscriptionMembers.subscriptionId, subId),
+              eq(schema.subscriptionMembers.userId, userId),
+              isNull(schema.subscriptionMembers.leftAt)
+            )
           )
-        )
+      }
+    })
+  } catch (err) {
+    return {
+      success: false,
+      error: err instanceof Error ? err.message : 'Update failed',
+      code: 'VALIDATION_ERROR',
     }
-  })
+  }
 
   if (priceChanged) {
     await reconcileCurrentMonth(

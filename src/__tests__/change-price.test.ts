@@ -265,8 +265,10 @@ describe('T12 changeSubscriptionPrice (R5)', () => {
       expect(n.payload.old_share).toBe(5000)
       expect(n.payload.new_share).toBe(10000)
       expect(n.payload.delta).toBe(5000)
-      // Under new R5, effective_from = current month's 1st (rewrite applies now).
-      expect(n.payload.effective_from).toBe('2026-05-01')
+      // effective_from = the date the new price kicks in. With the per-day
+      // timeline engine the default is `today` (when no effectiveFrom is
+      // passed). Tests fix today to 2026-05-15.
+      expect(n.payload.effective_from).toBe('2026-05-15')
     }
   })
 
