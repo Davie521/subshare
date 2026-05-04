@@ -87,10 +87,20 @@ export async function migrate(db: Db): Promise<void> {
       notify_days_before INTEGER NOT NULL DEFAULT 3,
       refund_policy TEXT NOT NULL DEFAULT 'payer_absorbs',
       tags JSONB NOT NULL DEFAULT '[]'::jsonb,
+      price_history JSONB NOT NULL DEFAULT '[]'::jsonb,
       created_at TEXT NOT NULL DEFAULT (now()::text)
     )`,
     `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS refund_policy TEXT NOT NULL DEFAULT 'payer_absorbs'`,
     `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS tags JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    `ALTER TABLE subscriptions ADD COLUMN IF NOT EXISTS price_history JSONB NOT NULL DEFAULT '[]'::jsonb`,
+    // Backfill existing subs with a single-entry timeline using their
+    // current price + startDate so the engine sees a well-formed history
+    // without us needing to special-case "history empty" everywhere.
+    `UPDATE subscriptions
+       SET price_history = jsonb_build_array(
+         jsonb_build_object('price', price, 'effectiveFrom', start_date)
+       )
+       WHERE price_history = '[]'::jsonb`,
     // Enforce enum at the DB level so out-of-band writes can't land an
     // invalid value (app-layer Zod + TS casts would lie).
     `DO $$

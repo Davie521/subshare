@@ -67,6 +67,9 @@ export async function createSubscription(
         categoryId: input.categoryId ?? null,
         refundPolicy: input.refundPolicy ?? 'payer_absorbs',
         tags: normalizeTags(input.tags),
+        // Seed a one-entry timeline so the engine always has a
+        // well-formed price history to read.
+        priceHistory: [{ price: input.price, effectiveFrom: startDate }],
       })
       .returning()
 

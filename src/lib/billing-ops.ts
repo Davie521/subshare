@@ -329,9 +329,31 @@ export async function createBackfillJoinBills(
  * Emits one price_changed notification per active non-payer member +
  * per leaver with unpaid current-month bills; effective_from = month start.
  */
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+function daysBetween(a: string, b: string): number {
+  const [ay, am, ad] = a.split('-').map(Number)
+  const [by, bm, bd] = b.split('-').map(Number)
+  const da = Date.UTC(ay, am - 1, ad)
+  const db = Date.UTC(by, bm - 1, bd)
+  return Math.round((db - da) / (1000 * 60 * 60 * 24))
+}
+
 export async function changeSubscriptionPrice(
   db: DB,
-  input: { subscriptionId: number; newPrice: number }
+  input: {
+    subscriptionId: number
+    newPrice: number
+    /**
+     * ISO YYYY-MM-DD inclusive — from this day forward `newPrice` applies.
+     * Default = today (legacy behavior: rewrite the current month). Pass
+     * `sub.nextPayment` to align with the user's real billing cycle. The
+     * date must be within ±30 days of `today` (anti-foot-gun cap).
+     */
+    effectiveFrom?: string
+    /** Today's ISO date in app TZ. Default = real today. */
+    today?: string
+  }
 ): Promise<void> {
   if (
     typeof input.newPrice !== 'number' ||
@@ -339,6 +361,21 @@ export async function changeSubscriptionPrice(
     input.newPrice < 0
   ) {
     throw new Error('newPrice must be a non-negative number')
+  }
+
+  const today = input.today ?? todayInAppTz()
+  if (!ISO_DATE_RE.test(today)) {
+    throw new Error(`today must be YYYY-MM-DD: ${today}`)
+  }
+  const effectiveFrom = input.effectiveFrom ?? today
+  if (!ISO_DATE_RE.test(effectiveFrom)) {
+    throw new Error(`effectiveFrom must be YYYY-MM-DD: ${effectiveFrom}`)
+  }
+  const delta = daysBetween(today, effectiveFrom)
+  if (delta < -31 || delta > 31) {
+    throw new Error(
+      `effectiveFrom ${effectiveFrom} is out of the ±1-month window from today ${today}`
+    )
   }
 
   await db.transaction(async (tx) => {
@@ -354,12 +391,26 @@ export async function changeSubscriptionPrice(
     const oldPrice = sub.price
     if (oldPrice === input.newPrice) return
 
+    // Append the new entry to price_history; sub.price (denormalized) is
+    // updated only when effectiveFrom <= today so reads from sub.price
+    // continue to mean "currently in effect".
+    const oldHistory =
+      Array.isArray(sub.priceHistory) && sub.priceHistory.length > 0
+        ? sub.priceHistory
+        : [{ price: oldPrice, effectiveFrom: sub.startDate }]
+    const newHistory = oldHistory
+      .filter((e) => e.effectiveFrom !== effectiveFrom) // overwrite same-day entries
+      .concat([{ price: input.newPrice, effectiveFrom }])
+      .sort((a, b) => a.effectiveFrom.localeCompare(b.effectiveFrom))
+
+    const cachedPrice =
+      effectiveFrom <= today ? input.newPrice : oldPrice
+
     await tx
       .update(schema.subscriptions)
-      .set({ price: input.newPrice })
+      .set({ price: cachedPrice, priceHistory: newHistory })
       .where(eq(schema.subscriptions.id, input.subscriptionId))
 
-    const today = todayInAppTz()
     const members = await getActiveMembersAt(tx, input.subscriptionId, today)
     const nonPayers = members.filter((m) => m.userId !== sub.payerId)
 
@@ -372,15 +423,21 @@ export async function changeSubscriptionPrice(
     const daysInMonth = new Date(yy, mm, 0).getDate()
     const monthEnd = `${yy}-${String(mm).padStart(2, '0')}-${String(daysInMonth).padStart(2, '0')}`
 
-    await rewriteCurrentMonthBillsForR5(tx, {
-      subscriptionId: input.subscriptionId,
-      oldPrice,
-      newShare,
-      monthStart,
-      monthEnd,
-      daysInMonth,
-      activeUserIds: members.map((m) => m.userId),
-    })
+    // Legacy R5 rewrite only runs when the change takes effect today or
+    // earlier within the current calendar month — it adjusts unpaid R1/R2
+    // bills directly. For changes effective in a future month we rely on
+    // the engine's per-day timeline at recompute time.
+    if (effectiveFrom <= today && effectiveFrom >= monthStart) {
+      await rewriteCurrentMonthBillsForR5(tx, {
+        subscriptionId: input.subscriptionId,
+        oldPrice,
+        newShare,
+        monthStart,
+        monthEnd,
+        daysInMonth,
+        activeUserIds: members.map((m) => m.userId),
+      })
+    }
 
     const recipients = await buildR5NotificationRecipients(tx, {
       subscriptionId: input.subscriptionId,
@@ -403,7 +460,7 @@ export async function changeSubscriptionPrice(
           old_share: oldShare,
           new_share: newShare,
           delta: newShare - oldShare,
-          effective_from: monthStart,
+          effective_from: effectiveFrom,
         },
       })
     }

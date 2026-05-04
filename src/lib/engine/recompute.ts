@@ -133,8 +133,16 @@ export async function recomputeMonth(
       })
     }
 
+    // Per-day price timeline. Falls back to the single-price form when
+    // the column is empty (legacy rows pre-migration) so the engine still
+    // produces a valid result.
+    const timelineForEngine =
+      Array.isArray(sub.priceHistory) && sub.priceHistory.length > 0
+        ? sub.priceHistory
+        : sub.price
+
     const fair = fairAllocation({
-      price: sub.price,
+      price: timelineForEngine,
       year,
       month,
       intervals,

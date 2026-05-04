@@ -6,6 +6,7 @@ import { runR1Cron } from '@/lib/engine/cron'
 import { recomputeMonth } from '@/lib/engine/recompute'
 import { editMemberAddedAt } from '@/lib/engine/edit-added-at'
 import { handleDeleteSubscription } from '@/lib/api-handlers'
+import { changeSubscriptionPrice } from '@/lib/billing-ops'
 
 /**
  * RED: rejoin must preserve the prior interval so the fair-engine sees
@@ -663,8 +664,13 @@ describe('rejoin preserves history (RED)', () => {
     await addMemberToSubscription(db,
       { subscriptionId: sub.id, userId: C, addedBy: A, addedAt: '2026-04-20' })
 
-    // Update price + recompute
-    await sqlite.prepare(`UPDATE subscriptions SET price = 9000 WHERE id = ?`).run(sub.id)
+    // Update price effective from start of April (whole-month semantic).
+    await changeSubscriptionPrice(db, {
+      subscriptionId: sub.id,
+      newPrice: 9000,
+      effectiveFrom: '2026-04-01',
+      today: '2026-04-22',
+    })
     await recomputeMonth(db, {
       subscriptionId: sub.id, year: 2026, month: 4,
       eventId: `price-change:sub${sub.id}`, today: '2026-04-22', rates: { USD_USD: 1 },

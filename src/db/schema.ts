@@ -96,6 +96,24 @@ export const subscriptions = pgTable('subscriptions', {
     .$type<SubscriptionTag[]>()
     .notNull()
     .default(sql`'[]'::jsonb`),
+  /**
+   * Per-day price timeline. Each entry is `{ price, effectiveFrom }`
+   * where `price` is monthly cents and `effectiveFrom` is an inclusive
+   * ISO date — from that day forward (until the next entry's
+   * effectiveFrom) the engine charges this monthly rate per-day-pro-rata.
+   *
+   * The engine reads this column when computing per-day fair shares so
+   * a mid-month price change blends across the affected calendar
+   * month. `subscriptions.price` is kept as a denormalized cache of the
+   * latest entry whose `effectiveFrom <= today`.
+   *
+   * On insert, we backfill a single entry `{ price, effectiveFrom = startDate }`
+   * so legacy single-price subs still produce well-formed timelines.
+   */
+  priceHistory: jsonb('price_history')
+    .$type<Array<{ price: number; effectiveFrom: string }>>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
   createdAt: text('created_at').notNull().$defaultFn(isoNow),
 }, (t) => [
   check(
