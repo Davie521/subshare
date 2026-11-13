@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest'
-import { setupTestDb, createUser } from './helpers'
+import { setupTestDb, createUser, pinToday } from './helpers'
 import { handleCreateSubscription, runBillingCron } from '@/lib/api-handlers'
 
 /**
@@ -23,6 +23,8 @@ import { handleCreateSubscription, runBillingCron } from '@/lib/api-handlers'
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']
 let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
+
+pinToday('2026-05-01')
 
 beforeEach(async () => {
   const setup = await setupTestDb()
