@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { and, eq } from 'drizzle-orm'
-import { setupTestDb, createUser } from './helpers'
+import { setupTestDb, createUser, pinToday } from './helpers'
 import * as schema from '@/db/schema'
 import {
   createSubscription,
@@ -13,6 +13,8 @@ import { addMemberToSubscription } from '@/lib/membership'
 import { generateMonthlyBills } from '@/lib/cron-billing'
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']
+
+pinToday('2026-05-15')
 
 beforeEach(async () => {
   const setup = await setupTestDb()

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest'
 import {
   setupTestDb,
   createUser,
+  pinToday,
   type SqliteShim,
   type TestDb,
 } from './helpers'
@@ -28,6 +29,8 @@ import { changeSubscriptionPrice } from '@/lib/billing-ops'
 
 let db: TestDb
 let sqlite: SqliteShim
+
+pinToday('2026-04-15')
 
 beforeEach(async () => {
   const setup = await setupTestDb()
