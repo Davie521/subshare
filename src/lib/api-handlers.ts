@@ -175,6 +175,26 @@ async function advanceNextPaymentPastToday(
   }
 }
 
+/**
+ * getRate() returns the plain rate (0.14); the fair engine and
+ * billing_records.exchange_rate use rate × 1_000_000 as an integer.
+ * billing-ops (legacy create/join path) takes plain rates and scales
+ * them itself, so scale only at the engine boundary.
+ * Passing the plain rate made every cross-currency insert fail on
+ * Postgres (integer column) and would have billed 0 if it hadn't.
+ */
+function toEngineRate(rate: number): number {
+  return Math.round(rate * 1_000_000)
+}
+
+/** fetchRatesForUsers() returns plain rates, which billing-ops expects;
+ *  convert only where the map is handed to the engine. */
+function toEngineRates(rates: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(rates).map(([k, v]) => [k, toEngineRate(v)])
+  )
+}
+
 export async function fetchRatesForUsers(
   db: DB,
   userIds: number[],
@@ -289,7 +309,7 @@ async function reconcileCurrentMonth(
     month,
     eventId: `${eventTag}:sub${subscriptionId}:${today}`,
     today,
-    rates,
+    rates: rates && toEngineRates(rates),
   })
 }
 
@@ -374,7 +394,7 @@ export async function runBillingCron(
     Array.from(need).map(async (key) => {
       const [from, to] = key.split('_')
       const rate = await getRate(from, to)
-      if (rate !== null) rates[key] = rate
+      if (rate !== null) rates[key] = toEngineRate(rate)
     })
   )
 
