@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest'
 import { eq } from 'drizzle-orm'
-import { setupTestDb, createUser, addSubMember } from './helpers'
+import { setupTestDb, createUser, addSubMember, pinToday } from './helpers'
 import * as schema from '@/db/schema'
 import {
   createSubscription,
@@ -23,6 +23,8 @@ function assertSuccess<T>(r: Result<T>): asserts r is { success: true; data?: T 
 
 let db: Awaited<ReturnType<typeof setupTestDb>>['db']
 let sqlite: Awaited<ReturnType<typeof setupTestDb>>['sqlite']
+
+pinToday('2026-05-15')
 
 beforeEach(async () => {
   const setup = await setupTestDb()

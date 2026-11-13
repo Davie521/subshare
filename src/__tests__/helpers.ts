@@ -2,6 +2,25 @@ import { PGlite } from '@electric-sql/pglite'
 import { drizzle } from 'drizzle-orm/pglite'
 import * as schema from '@/db/schema'
 import { migrate } from '@/db/migrate'
+import { beforeEach, afterEach, vi } from 'vitest'
+
+/**
+ * Pin "today" for a test file. Several handlers fall back to
+ * todayInAppTz() (e.g. the ±1-month effectiveFrom window, nextPayment
+ * normalisation on create), so suites written around fixed 2026 dates
+ * started failing once the real date moved past them. Only Date is
+ * faked, so pglite's timers keep working. Noon in Asia/Shanghai keeps
+ * the app-timezone date equal to `date`.
+ */
+export function pinToday(date: string): void {
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date(`${date}T04:00:00Z`))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+}
 
 export type TestDb = ReturnType<typeof drizzle<typeof schema>>
 
