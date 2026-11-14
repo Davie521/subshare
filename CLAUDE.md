@@ -66,6 +66,8 @@ See `.env.example` for the full template.
 - `DATABASE_URL` — Postgres connection string (required).
 - `SESSION_SECRET` — HMAC key for session cookies, 32+ chars. Required in production (dev has insecure fallback).
 - `CRON_SECRET` — Bearer token for `POST /api/cron/billing`.
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `OAUTH_REDIRECT_URI` — Google OAuth, the only sign-in outside `npm run dev` (which also has `/api/dev/login?uid=N`).
+- `PGSSLMODE` — `disable` turns off Postgres TLS (local compose Postgres); unset means `ssl: 'prefer'`.
 - `APP_TIMEZONE` — IANA timezone for calendar-date semantics (billing_date, addedAt/leftAt, cron's "today"). Defaults to `Asia/Shanghai`. Set to match your user base — UTC on a non-UTC user base will shift date boundaries and can make the 1st-of-month R1 cron miss its window.
 
 ## Architecture — **subscription-centric**
@@ -97,8 +99,9 @@ The legacy `groups` / `group_members` tables in `schema.ts` are unused except as
 - Tests use `src/__tests__/helpers.ts` → `setupTestDb()`, which spins up a fresh `PGlite` in-memory Postgres per test and runs the same `migrate()`. A `SqliteShim` translates `?` placeholders to `$1…$n` for legacy code paths that still use prepared-statement syntax.
 
 ### Business logic (`src/lib/`)
-- `billing.ts` — pure functions. `calculateShares` uses floor division (payer absorbs remainder). `calculateProRate` computes days remaining in current cycle for R2 mid-month joins. Exchange rate is injected via `ExchangeRateFetcher` so tests can stub it.
-- `db-operations.ts` — CRUD + membership rules. `addMemberToSubscription` (handles rejoin via row reuse), `leaveSubscription` (R3 prorate + R7 payer guard + R11 redistribute), `changeSubscriptionPrice` (R5 rewrite), `generateMonthlyBills` (R1 cron), `generateAndSaveBillingRecords` (legacy per-sub), `backfillFromGroups` (migration). Note: the payer role is fixed at subscription creation — there is no transfer-payer path.
+- `fair-allocation.ts` + `engine/` — the billing engine (see Billing math): `fairAllocation` (pure per-day split), `engine/recompute.ts` (`recomputeMonth`, reconciles one sub-month), `engine/cron.ts` (`runR1Cron`, monthly run), `engine/edit-added-at.ts` (owner edits a member's start date), `engine/lifecycle.ts` (which members the detail page shows).
+- `membership.ts` / `billing-ops.ts` / `billing.ts` — the older per-event bill writers (join bill, leave prorate + refund policy, price-change rewrite, creation backfill) and their pure math. They still run first on each event; the engine's recompute then corrects the month. Note: the payer role is fixed at subscription creation — there is no transfer-payer path.
+- `db-operations.ts` — CRUD helpers: `createSubscription` (owner becomes the first member), `lockSubscription`, member/bill queries, `markBillPaid`. `cron-billing.ts` (`generateMonthlyBills`) is the pre-engine monthly job, no longer called by the app.
 - `settlement.ts` — pair-level netting. `getSettlementSummary` (unpaid) and `getSettledHistory` (paid) share `bucketByPairCurrency`. `markPairSettled` atomically flips every unpaid bill in a (userA, userB, currency) bucket.
 - `notifications.ts` — in-app feed CRUD, unread count, 30-day cleanup. Types: `added_to_sub`, `removed_from_sub`, `price_changed`, `payer_changed`.
 - `api-handlers.ts` — request-shaped business logic called from route handlers; keeps `app/api/**/route.ts` thin.
@@ -109,22 +112,19 @@ The legacy `groups` / `group_members` tables in `schema.ts` are unused except as
 
 ## Billing math
 
-PRE-PAID calendar-month model. Key rules:
+Calendar months, pre-paid, integer cents in the subscription's currency. The **fair engine** (`src/lib/fair-allocation.ts`, `src/lib/engine/*`) decides what everyone owes. The older per-event writers (`membership.ts`, `billing-ops.ts`) still run first on join/leave/price change, then the engine reconciles the month, so the engine's numbers are what stick.
 
-- **R1** — on the 1st of each month, cron generates one `share(n) = floor(price / n)` bill per active non-payer member; `billing_date = M_start`; payer absorbs rounding remainder (by not being billed).
-- **R2** — mid-month join → immediate pro-rata bill for remaining days, `billing_date = join_date`. Actionable now or bundled with next 1st.
-- **R3** — **mid-cycle leave prorates the leaver's unpaid current-month bill by days used** (leave day not counted). Formula: `new_amount = floor(bill.amount × usage_days / coverage_days)` where `coverage_days = daysInMonth − billing_date.day + 1`. `usage_days = 0` deletes the bill; leaving on the last day of the month counts as full coverage. Already-paid bills are immutable. No min-commitment period — members can leave any time.
-- **R4** — adding recomputes `share(n)` for future cycles only. Previously-billed amounts are not retroactively adjusted, except by R3 (leave) and R5 (price change).
-- **R5** — **price change rewrites current-month `is_paid=0` bills** with the new price (pro-rata ratio preserved for R2 joiners). Already-paid bills untouched. FX stays locked (no re-fetch). `price_changed` notification emitted.
-- **R6** — **deleting a subscription wipes everything**. Only the payer can delete. All `billing_records` (paid AND unpaid) are cascade-deleted along with members. Deletion forgives all debts on that sub.
-- **R7** — payer cannot leave a sub. The payer must delete the sub instead.
-- **R8** — payer has no `billing_records` (they paid the service directly).
-- **R9** — the 1st is both the billing day and the settlement-reminder day. "Mark settled" is available any day.
-- **R10** — netting is per `(userA, userB, currency)` bucket. No cross-currency netting; different currencies render as separate settlement rows.
-- **R11** — **`subscriptions.refund_policy`** (creator picks at create-time) controls how the diff from R3 is handled: `payer_absorbs` (default) — payer eats the loss; other members unchanged. `redistribute` — diff is split across remaining unpaid non-payer bills in the same month (falls back silently to `payer_absorbs` if no such member exists); affected members receive a `bill_adjusted` notification.
+- **Per-day fair share** (`fairAllocation`). Each day of the month costs `price(d) / daysInMonth` (with a single price for the whole month: `price / activeDays`) and is split equally among the members active that day; a member owes the sum over their days. Membership intervals are closed `[addedAt, leftAt]`, and a rejoiner's earlier stints (`previous_intervals`) count too. Rounding residue is rotated by a (sub, year, month) seed so the shares add up to the month's total. **The payer is a member and has a share like everyone else.**
+- **Price timeline.** `subscriptions.price_history` holds `{ price, effectiveFrom }` entries. A change applies from its `effectiveFrom` (must be within ±31 days of today), so a mid-month change blends per day. `subscriptions.price` is the price in effect today.
+- **Reconcile** (`recomputeMonth`, one transaction per sub-month, idempotent on `event_id`). For each user it takes `fair − sum(existing rows this month)` and applies the difference to, in order: their unpaid bill (if it stays ≥ 0), else their open adjustment, else a new bill when they have none (the payer's is inserted already paid), else a new signed **adjustment** row (`adjustment_for_bill_id` → the paid bill). Paid rows are never edited. Each changed user gets a `bill_adjusted` notification.
+- **When it runs.** `POST /api/cron/billing` → `runR1Cron`: for each active sub, advance `next_payment`, recompute the current month, then fold earlier months' unpaid adjustments into the user's new bill (or a standalone bill for a former member) and mark them paid. Add member, leave/remove and price change recompute the current month afterwards (`reconcileCurrentMonth` in `api-handlers.ts`). An owner editing a member's `addedAt` (up to 6 months back) recomputes every month from the earlier date to today in one transaction.
+- **FX.** Each bill also stores `local_amount` in the member's preferred currency, with the rate locked at creation (`exchange_rate` = rate × 1_000_000); later edits reuse the locked rate. A missing rate is never billed as 1:1: `recomputeMonth` throws `MissingFxRateError`, the cron skips and logs that sub, and user actions log it and leave the month unreconciled.
+- **`refund_policy`** (`payer_absorbs` / `redistribute`) is still stored and applied by the old leave code, but the reconcile that follows replaces its result with the per-day split, so it does not change final amounts: a leaver's remaining days are shared by whoever is still in the plan, payer included.
+- **Payer.** Cannot leave (`leaveSubscription` throws); no transfer path. Only the payer can delete a subscription; delete cascades its members and every bill, paid or unpaid, so debts on it are forgiven.
+- **Settlement** (`settlement.ts`). One net number per counterparty: all unpaid bills between the two users, converted at live rates into the per-friend agreed currency or the viewer's preferred currency (`getNormalizedSettlement`; a missing rate marks the row FX-incomplete). "Mark settled" flips those bills to paid (`markPairSettled`); `settlement_due` notifications are re-synced when notifications are listed, on settle, and when a friend's agreed currency changes.
 
 ## Tests (`src/__tests__/`)
-~233 tests across 32 files covering billing math, db operations, settlement, notifications, and API handlers. Use `setupTestDb()` from `helpers.ts` for isolation (fresh PGlite per test). Coverage thresholds of 80% (lines/functions/branches/statements) enforced by `vitest.config.ts`.
+~625 tests across 58 files covering billing math, db operations, settlement, notifications, and API handlers. Use `setupTestDb()` from `helpers.ts` for isolation (fresh PGlite per test). Coverage thresholds of 80% (lines/functions/branches/statements) enforced by `vitest.config.ts`.
 
 Convention: each feature task is a RED/GREEN pair — `test(Tn): RED for X` commits failing tests first, `fix(Tn): X` implements to green. See commit history for the pattern.
 
