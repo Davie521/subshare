@@ -65,16 +65,7 @@ docker compose up --build -d
 
 This builds the app image and starts Postgres and the app on port 3000. Compose reads `SESSION_SECRET` and `CRON_SECRET` from `.env` and will not start without them. Inside the container `DATABASE_URL`, `PGSSLMODE=disable` and `NODE_ENV=production` are already set. The schema is created on the first request that touches the database.
 
-**Sign-in does not work with the bundled compose file yet.** The container runs in production mode, so the dev login is off and Google is the only way in, but `docker-compose.yml` does not pass `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` or `OAUTH_REDIRECT_URI` into the container. Sign-in then fails with `Missing env: GOOGLE_CLIENT_ID` in the server log. One way to add them without editing the tracked file is a `docker-compose.override.yml` next to it, which Compose merges automatically:
-
-```yaml
-services:
-  subshare:
-    environment:
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI}
-```
+The container runs in production mode, so the dev login is off and Google is the only way in. Compose passes `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` and `OAUTH_REDIRECT_URI` from `.env` into the container. Fill them in (see [Configuration](#configuration)) and add `http://localhost:3000/api/auth/google/callback` as an authorised redirect URI on your OAuth client. Compose starts without them, but sign-in then fails with `Missing env: GOOGLE_CLIENT_ID` in the server log.
 
 Check the server is up with `curl http://localhost:3000/api/health`, which returns `{"status":"ok"}`. That endpoint does not touch the database.
 

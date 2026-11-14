@@ -27,6 +27,13 @@ services:
       - DATABASE_URL=postgres://subshare:subshare@postgres:5432/subshare
       - PGSSLMODE=disable
       - NODE_ENV=production
+      # Google sign-in. The container runs in production mode, where the dev
+      # login is off and Google is the only way in, so set all three in .env.
+      # They are optional for startup: when empty the app still boots, but
+      # sign-in fails with "Missing env: <name>" (see src/lib/oauth-google.ts).
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-}
+      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI:-}
     ports:
       - "3000:3000"
     depends_on:

@@ -60,6 +60,6 @@ The `Dockerfile` has a `HEALTHCHECK` hitting `/api/health`. Railway uses this to
 
 ## Secrets hygiene
 
-- `.env.local` is gitignored; never commit it.
+- `.env` and `.env.local` are gitignored (every `.env*` except `.env.example`); never commit them.
 - Rotate `SESSION_SECRET` means invalidating all existing sessions (users get logged out). Only rotate if suspected compromised.
 - `CRON_SECRET` can be rotated freely — just update both Railway and the scheduler.

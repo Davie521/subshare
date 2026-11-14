@@ -65,16 +65,7 @@ docker compose up --build -d
 
 这会构建应用镜像，启动 Postgres 和应用，端口 3000。Compose 从 `.env` 读 `SESSION_SECRET` 和 `CRON_SECRET`，缺了就不启动。容器里已经设好 `DATABASE_URL`、`PGSSLMODE=disable` 和 `NODE_ENV=production`。数据表在第一次访问数据库的请求时自动建好。
 
-**用仓库自带的 compose 文件，现在还登录不了。** 容器跑在生产模式，开发登录是关的，只能走 Google；但 `docker-compose.yml` 没有把 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`OAUTH_REDIRECT_URI` 传进容器，登录会失败，服务端日志里是 `Missing env: GOOGLE_CLIENT_ID`。不改受版本控制的文件也能补上：在它旁边放一个 `docker-compose.override.yml`，Compose 会自动合并：
-
-```yaml
-services:
-  subshare:
-    environment:
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
-      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
-      - OAUTH_REDIRECT_URI=${OAUTH_REDIRECT_URI}
-```
+容器跑在生产模式，开发登录是关的，只能用 Google 登录。Compose 会把 `.env` 里的 `GOOGLE_CLIENT_ID`、`GOOGLE_CLIENT_SECRET`、`OAUTH_REDIRECT_URI` 传进容器。把这三个填上（见[配置](#配置)），并在你的 OAuth 客户端里把 `http://localhost:3000/api/auth/google/callback` 加进授权重定向地址。不填也能启动，但登录会失败，服务端日志里是 `Missing env: GOOGLE_CLIENT_ID`。
 
 用 `curl http://localhost:3000/api/health` 确认服务起来了，正常返回 `{"status":"ok"}`。这个接口不碰数据库。
 
