@@ -23,7 +23,7 @@ Before writing any component, colour, typography, spacing, or shadow — consult
 Recommended: run Postgres in Docker, Next locally. Fast HMR, easy debugging.
 
 ```bash
-cp .env.example .env.local          # first time only; dev secrets already good-to-go
+cp .env.example .env                # first time only; fill SESSION_SECRET + CRON_SECRET (compose won't start without them)
 docker compose up -d postgres       # start Postgres (port 5432)
 npm install
 npm run dev                         # Next at http://localhost:3000
