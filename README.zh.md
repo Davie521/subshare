@@ -2,6 +2,8 @@
 
 和朋友分摊订阅费。自己部署的网页应用，记下谁在哪个订阅里、每人每月该付多少、谁已经付了。
 
+<img src="docs/screenshots/dashboard-mobile-demo-data.png" width="320" alt="手机上的 SubShare 首页（演示数据）：本月共 ¥675.09、13 个订阅、要和 4 个人结算，下面的动态里有 Emma 两笔账单欠你 ¥51.29。">
+
 **许可协议：** CC BY-NC-ND 4.0。仅限个人、非商业用途，禁止修改、禁止再分发。详见[许可协议](#许可协议)。
 
 **语言 / Language** → [English](README.md) · [中文](README.zh.md)

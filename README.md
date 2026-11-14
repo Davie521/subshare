@@ -2,6 +2,8 @@
 
 Split subscription costs with friends. A self-hosted web app that records who is in which plan, what each person owes each month, and who has paid.
 
+<img src="docs/screenshots/dashboard-mobile-demo-data.png" width="320" alt="The SubShare dashboard on a phone with demo data: ¥675.09 spent this month across 13 subscriptions, 4 people to settle with, and updates such as Emma owing ¥51.29 for 2 bills.">
+
 **Licence:** CC BY-NC-ND 4.0. Personal, non-commercial use only; no modification, no redistribution. See [License](#license).
 
 **语言 / Language** → [English](README.md) · [中文](README.zh.md)
