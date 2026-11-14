@@ -69,7 +69,7 @@ docker compose up --build -d
 
 用 `curl http://localhost:3000/api/health` 确认服务起来了，正常返回 `{"status":"ok"}`。这个接口不碰数据库。
 
-作者在 Railway 上的部署方式（Postgres 插件、GitHub Actions 发布）见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。那份文档没列 Google 变量，部署时也要设上。
+作者在 Railway 上的部署方式（Postgres 插件、GitHub Actions 发布）见 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)。
 
 ## 配置
 

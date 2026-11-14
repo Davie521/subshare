@@ -69,7 +69,7 @@ The container runs in production mode, so the dev login is off and Google is the
 
 Check the server is up with `curl http://localhost:3000/api/health`, which returns `{"status":"ok"}`. That endpoint does not touch the database.
 
-For the author's Railway setup (Postgres plugin, GitHub Actions deploy), see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). That page does not list the Google variables; set them as well.
+For the author's Railway setup (Postgres plugin, GitHub Actions deploy), see [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 ## Configuration
 
