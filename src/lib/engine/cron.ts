@@ -18,13 +18,18 @@
  * Idempotent on (sub, current_month): a second run with the same `today`
  * is a no-op because (a) recomputeMonth short-circuits on event_id and
  * (b) the prior-month adjustments are already marked paid.
+ *
+ * A subscription whose new bills need an FX rate that isn't in `rates` is
+ * skipped (logged, counted in `subscriptionsSkipped`, nothing written for
+ * it) and the run carries on with the others. Re-running the cron once the
+ * rate is available bills it.
  */
 
 import { and, eq, gte, lt, lte, isNotNull, inArray } from 'drizzle-orm'
 import type { PgDatabase, PgQueryResultHKT } from 'drizzle-orm/pg-core'
 import * as schema from '@/db/schema'
 import { advanceMonth } from '@/lib/date-utils'
-import { recomputeMonth } from './recompute'
+import { recomputeMonth, MissingFxRateError } from './recompute'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type DB = PgDatabase<PgQueryResultHKT, typeof schema, any>
@@ -40,6 +45,8 @@ export type R1CronInput = {
 
 export type R1CronOutput = {
   subscriptionsProcessed: number
+  /** Subscriptions left unbilled because an FX rate was missing. */
+  subscriptionsSkipped: number
   billsInserted: number
   billsUpdated: number
   adjustmentsFolded: number
@@ -67,6 +74,7 @@ export async function runR1Cron(
 
   const result: R1CronOutput = {
     subscriptionsProcessed: 0,
+    subscriptionsSkipped: 0,
     billsInserted: 0,
     billsUpdated: 0,
     adjustmentsFolded: 0,
@@ -99,15 +107,27 @@ export async function runR1Cron(
         .where(eq(schema.subscriptions.id, sub.id))
     }
 
-    // Step 1 — recomputeMonth (own transaction).
-    const recResult = await recomputeMonth(db, {
-      subscriptionId: sub.id,
-      year,
-      month,
-      eventId,
-      today,
-      rates,
-    })
+    // Step 1 — recomputeMonth (own transaction). A missing FX rate rolls
+    // back only this sub; skip its fold step too so prior adjustments wait
+    // for the R1 bill they belong in.
+    let recResult: Awaited<ReturnType<typeof recomputeMonth>>
+    try {
+      recResult = await recomputeMonth(db, {
+        subscriptionId: sub.id,
+        year,
+        month,
+        eventId,
+        today,
+        rates,
+      })
+    } catch (err) {
+      if (!(err instanceof MissingFxRateError)) throw err
+      console.error(
+        `[billing-cron] ${yearMonth}: skipped subscription ${sub.id}, missing ${err.from}→${err.to} exchange rate; no bills written for it. Re-run the billing cron once the rate is available.`
+      )
+      result.subscriptionsSkipped++
+      continue
+    }
 
     // Step 2 — fold prior-month unpaid adjustments (own transaction).
     const monthDays = new Date(year, month, 0).getDate()

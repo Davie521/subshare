@@ -11,7 +11,7 @@ import {
 import { addMembersToSubscription, leaveSubscription } from './membership'
 import { changeSubscriptionPrice } from './billing-ops'
 import { runR1Cron } from './engine/cron'
-import { recomputeMonth } from './engine/recompute'
+import { recomputeMonth, MissingFxRateError } from './engine/recompute'
 import { normalizeTags, filterTagsForViewer } from './tags'
 import { calculateMonthlySpending } from './billing'
 import { advanceMonth, todayInAppTz } from './date-utils'
@@ -219,6 +219,33 @@ export async function fetchRatesForUsers(
   return rates
 }
 
+/**
+ * Engine-scaled FX rates (rate × 1_000_000) for every member, current or
+ * former, of a subscription. recomputeMonth can insert a fresh bill for any
+ * of them, including the payer's own auto-paid row, so the map has to cover
+ * all their preferred currencies, not just the users an action touched.
+ */
+export async function fetchEngineRatesForSubscription(
+  db: DB,
+  subscriptionId: number
+): Promise<Record<string, number>> {
+  const [sub] = await db
+    .select({ currency: schema.subscriptions.currency })
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subscriptionId))
+  if (!sub) return {}
+  const members = await db
+    .select({ userId: schema.subscriptionMembers.userId })
+    .from(schema.subscriptionMembers)
+    .where(eq(schema.subscriptionMembers.subscriptionId, subscriptionId))
+  const rates = await fetchRatesForUsers(
+    db,
+    members.map((m) => m.userId),
+    sub.currency
+  )
+  return toEngineRates(rates)
+}
+
 export async function handleAddMembers(
   db: DB,
   actorId: number,
@@ -283,7 +310,7 @@ export async function handleAddMembers(
   // needed to align actual amounts with per-day fair allocation. No-op
   // when legacy already produced fair-matching values.
   if (added > 0 || reactivated > 0) {
-    await reconcileCurrentMonth(db, subId, today, rates, `addMember:${today}`)
+    await reconcileCurrentMonth(db, subId, today, `addMember:${today}`)
   }
 
   return { success: true, data: { added, reactivated, errors } }
@@ -294,23 +321,35 @@ export async function handleAddMembers(
  * fair engine to reconcile the current month's bills. Idempotent on
  * `eventTag` — repeated calls in the same calendar second produce one
  * eventId and short-circuit on retry.
+ *
+ * If an FX rate is unavailable, the recompute rolls back and is logged
+ * instead of failing the request: the action itself is already committed
+ * in its own transaction, so an error response would wrongly say it
+ * didn't happen. The month keeps its previous amounts until the next
+ * recompute for it, rather than getting a bill at a made-up 1:1 rate.
  */
 async function reconcileCurrentMonth(
   db: DB,
   subscriptionId: number,
   today: string,
-  rates: Record<string, number> | undefined,
   eventTag: string
 ): Promise<void> {
   const [year, month] = today.split('-').map(Number)
-  await recomputeMonth(db, {
-    subscriptionId,
-    year,
-    month,
-    eventId: `${eventTag}:sub${subscriptionId}:${today}`,
-    today,
-    rates: rates && toEngineRates(rates),
-  })
+  try {
+    await recomputeMonth(db, {
+      subscriptionId,
+      year,
+      month,
+      eventId: `${eventTag}:sub${subscriptionId}:${today}`,
+      today,
+      rates: await fetchEngineRatesForSubscription(db, subscriptionId),
+    })
+  } catch (err) {
+    if (!(err instanceof MissingFxRateError)) throw err
+    console.error(
+      `[billing] ${eventTag}: ${err.message}; ${today.slice(0, 7)} bills for subscription ${subscriptionId} not reconciled`
+    )
+  }
 }
 
 export async function handleRemoveMember(
@@ -343,7 +382,7 @@ export async function handleRemoveMember(
       leftAt: today,
       actorId,
     })
-    await reconcileCurrentMonth(db, subId, today, undefined, `leave:user${targetUserId}`)
+    await reconcileCurrentMonth(db, subId, today, `leave:user${targetUserId}`)
   } catch (err) {
     return {
       success: false,
@@ -363,7 +402,9 @@ export async function handleRemoveMember(
 export async function runBillingCron(
   db: DB,
   opts: { today?: string } = {}
-): Promise<Result<{ monthlyBillsGenerated: number }>> {
+): Promise<
+  Result<{ monthlyBillsGenerated: number; subscriptionsSkipped: number }>
+> {
   const today = opts.today ?? todayInAppTz()
 
   // Pre-load FX rates for every (sub.currency, member.preferredCurrency)
@@ -401,7 +442,10 @@ export async function runBillingCron(
   const out = await runR1Cron(db, { today, rates })
   return {
     success: true,
-    data: { monthlyBillsGenerated: out.billsInserted },
+    data: {
+      monthlyBillsGenerated: out.billsInserted,
+      subscriptionsSkipped: out.subscriptionsSkipped,
+    },
   }
 }
 
@@ -1132,13 +1176,7 @@ export async function handleUpdateSubscription(
   }
 
   if (priceChanged) {
-    await reconcileCurrentMonth(
-      db,
-      subId,
-      todayInAppTz(),
-      undefined,
-      'priceChange'
-    )
+    await reconcileCurrentMonth(db, subId, todayInAppTz(), 'priceChange')
   }
 
   return { success: true }

@@ -24,7 +24,10 @@ async function makeSub(opts: {
     .values({
       name: 'Test Sub',
       price: opts.price,
-      currency: 'USD',
+      // Same currency as createUser()'s default (CNY) so these permission
+      // and date tests need no FX rate. They used to pass with USD only
+      // because a missing rate was billed at 1:1.
+      currency: 'CNY',
       nextPayment: opts.startDate,
       startDate: opts.startDate,
       ownerId: opts.ownerId ?? opts.payerId,

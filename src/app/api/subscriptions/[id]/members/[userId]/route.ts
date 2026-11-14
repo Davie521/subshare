@@ -8,8 +8,12 @@ import {
   rateLimitUser,
   guard,
 } from '@/lib/api-utils'
-import { handleRemoveMember } from '@/lib/api-handlers'
+import {
+  handleRemoveMember,
+  fetchEngineRatesForSubscription,
+} from '@/lib/api-handlers'
 import { editMemberAddedAt } from '@/lib/engine/edit-added-at'
+import { MissingFxRateError } from '@/lib/engine/recompute'
 import { todayInAppTz } from '@/lib/date-utils'
 
 export async function DELETE(
@@ -82,12 +86,19 @@ export async function PATCH(
         actorUserId: actorId,
         newAddedAt: parsed.data.newAddedAt,
         today: todayInAppTz(),
+        rates: await fetchEngineRatesForSubscription(db, subId),
       })
       return NextResponse.json({ success: true, data: result })
     } catch (err) {
       const message = err instanceof Error ? err.message : 'edit failed'
       // Permission-denied → 403; other validation errors → 400.
-      const status = /permission|owner only/i.test(message) ? 403 : 400
+      // Missing FX rate → 503: nothing changed, retry once rates are back.
+      const status =
+        err instanceof MissingFxRateError
+          ? 503
+          : /permission|owner only/i.test(message)
+            ? 403
+            : 400
       return NextResponse.json({ error: message }, { status })
     }
   })

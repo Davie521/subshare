@@ -90,6 +90,9 @@ export async function POST(req: NextRequest) {
     monthlyBillsGenerated: monthly.success
       ? monthly.data!.monthlyBillsGenerated
       : 0,
+    monthlySubscriptionsSkipped: monthly.success
+      ? monthly.data!.subscriptionsSkipped
+      : 0,
     monthlyError: monthly.success ? null : monthly.error,
   })
 }

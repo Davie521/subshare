@@ -69,6 +69,27 @@ const empty = (): RecomputeMonthOutput => ({
 
 const pad2 = (n: number): string => String(n).padStart(2, '0')
 
+/**
+ * Thrown when a new bill needs a cross-currency rate that the caller did
+ * not supply. The whole recompute for that subscription rolls back; we
+ * never fall back to 1:1, which would record e.g. ¥100 as $100.
+ */
+export class MissingFxRateError extends Error {
+  readonly subscriptionId: number
+  readonly from: string
+  readonly to: string
+
+  constructor(subscriptionId: number, from: string, to: string) {
+    super(
+      `Missing exchange rate ${from}→${to} for subscription ${subscriptionId}; refusing to bill at 1:1`
+    )
+    this.name = 'MissingFxRateError'
+    this.subscriptionId = subscriptionId
+    this.from = from
+    this.to = to
+  }
+}
+
 export async function recomputeMonth(
   db: DB,
   input: RecomputeMonthInput
@@ -247,7 +268,7 @@ export async function recomputeMonth(
         didChange = true
       } else if (userBills.length === 0 && targetFair !== 0) {
         // Fresh insert — new R1 bill.
-        const rate = resolveRate(sub.currency, userPref, rates)
+        const rate = resolveRate(subscriptionId, sub.currency, userPref, rates)
         const localAmount = Math.floor((targetFair * rate) / 1_000_000)
         const inserted = await tx
           .insert(schema.billingRecords)
@@ -320,8 +341,9 @@ export async function recomputeMonth(
   })
 }
 
-/** Returns FX rate × 1_000_000. Defaults to 1:1 if rate not provided. */
+/** Returns FX rate × 1_000_000. Throws MissingFxRateError if not provided. */
 function resolveRate(
+  subscriptionId: number,
   subCurrency: string,
   userCurrency: string,
   rates: Record<string, number> | undefined
@@ -330,5 +352,5 @@ function resolveRate(
   const key = `${subCurrency}_${userCurrency}`
   const provided = rates?.[key]
   if (provided && Number.isFinite(provided) && provided > 0) return provided
-  return 1_000_000
+  throw new MissingFxRateError(subscriptionId, subCurrency, userCurrency)
 }
